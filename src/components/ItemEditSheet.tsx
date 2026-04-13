@@ -165,7 +165,7 @@ export function ItemEditSheet({ item, onClose, onSaved, onDeleted }: ItemEditShe
               <ChipRow
                 options={UNITS}
                 value={draft.unit}
-                onChange={(u) => setDraft({ ...draft, unit: u })}
+                onChange={(u) => u && setDraft({ ...draft, unit: u })}
               />
             </View>
           </View>

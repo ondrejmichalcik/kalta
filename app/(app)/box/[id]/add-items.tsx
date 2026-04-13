@@ -420,7 +420,7 @@ export default function AddItemsScreen() {
                 <ChipRow
                   options={UNITS}
                   value={draft.unit ?? 'ks'}
-                  onChange={(u) => setDraft({ ...draft, unit: u })}
+                  onChange={(u) => u && setDraft({ ...draft, unit: u })}
                 />
               </View>
             </View>
