@@ -1,7 +1,9 @@
 import type { ViewStyle } from 'react-native';
 
-// iOS-only shadow presets. `elevation` is Android-only and kept for parity
-// in case we revisit Android later — it's inert on iOS.
+// iOS shadow presets tuned for light-mode cards. Opacities are higher than
+// the usual "subtle" values because Stockr's background is near-white and
+// needs visible lift for pill cards. `elevation` is Android-only and inert
+// on iOS but kept for parity.
 export const shadows = {
   none: {
     shadowColor: 'transparent',
@@ -11,24 +13,24 @@ export const shadows = {
     elevation: 0,
   },
   sm: {
-    shadowColor: '#000',
+    shadowColor: '#0B1F12',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
     elevation: 1,
   },
   md: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowColor: '#0B1F12',
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
-    shadowRadius: 6,
+    shadowRadius: 10,
     elevation: 3,
   },
   lg: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
+    shadowColor: '#0B1F12',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
     elevation: 6,
   },
 } as const satisfies Record<string, ViewStyle>;

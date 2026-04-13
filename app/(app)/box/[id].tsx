@@ -1,6 +1,7 @@
 // ============================================================================
 // Stockr – Box detail
-// List layout with swipe-to-delete, realtime subscription, "Add items" FAB
+// List of items in a single box with swipe-to-delete, realtime subscription,
+// and a contextual "Add items" FAB.
 // ============================================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -18,7 +19,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Swipeable } from 'react-native-gesture-handler';
 import QRCode from 'react-native-qrcode-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -26,11 +27,10 @@ import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { ItemEditSheet } from '@/src/components/ItemEditSheet';
 import { BoxEditSheet } from '@/src/components/BoxEditSheet';
-import { ScreenBackground } from '@/src/components/ScreenBackground';
-import { Icon, type IconName } from '@/src/components/Icon';
-
-type ViewMode = 'list' | 'grid';
-const VIEW_MODE_KEY = 'stockr:boxViewMode';
+import { Icon } from '@/src/components/Icon';
+import { Card } from '@/src/components/Card';
+import { FAB } from '@/src/components/FAB';
+import { StatusDot } from '@/src/components/StatusDot';
 import {
   deleteBox,
   deleteItem,
@@ -38,14 +38,30 @@ import {
   listItems,
   subscribeItems,
 } from '@/src/lib/supabase';
-import type { Box, Item } from '@/src/types/database';
+import type { Box, Item, Category } from '@/src/types/database';
 import {
-  CATEGORY_ICON,
   EXPIRY_COLORS,
   formatExpiry,
   getExpiryStatus,
 } from '@/src/types/database';
-import { colors, radius, spacing, typography } from '@/src/theme';
+import { colors, radius, shadows, spacing, typography } from '@/src/theme';
+import type { SFSymbolName } from '@/src/components/Icon';
+
+type ViewMode = 'list' | 'grid';
+const VIEW_MODE_KEY = 'stockr:boxViewMode';
+
+// Category → SF Symbol mapping. Kept here because it's a display concern
+// and the SF symbol names are stable strings.
+const CATEGORY_SF: Record<Category, SFSymbolName> = {
+  food: 'fork.knife',
+  medicine: 'pills.fill',
+  water: 'drop.fill',
+  disinfectant: 'bubbles.and.sparkles.fill',
+  equipment: 'wrench.adjustable.fill',
+  energy: 'bolt.fill',
+  documents: 'doc.fill',
+  other: 'shippingbox.fill',
+};
 
 export default function BoxDetailScreen() {
   const router = useRouter();
@@ -60,20 +76,20 @@ export default function BoxDetailScreen() {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [error, setError] = useState<string | null>(null);
 
-  // Načti uloženou preferenci view mode (globálně pro všechny bedny)
+  // Load persisted view mode preference (global across all boxes).
   useEffect(() => {
     AsyncStorage.getItem(VIEW_MODE_KEY).then((v) => {
       if (v === 'list' || v === 'grid') setViewMode(v);
     });
   }, []);
 
-  const toggleViewMode = () => {
-    const next: ViewMode = viewMode === 'list' ? 'grid' : 'list';
-    setViewMode(next);
-    AsyncStorage.setItem(VIEW_MODE_KEY, next).catch(() => {});
+  const setMode = (mode: ViewMode) => {
+    setViewMode(mode);
+    AsyncStorage.setItem(VIEW_MODE_KEY, mode).catch(() => {});
   };
 
-  // Reference na otevřený Swipeable – abychom ho mohli zavřít při interakci jinde
+  // Keep a ref to the currently-open Swipeable so we can close it on other
+  // interactions.
   const openSwipeableRef = useRef<Swipeable | null>(null);
 
   const load = useCallback(async () => {
@@ -94,7 +110,7 @@ export default function BoxDetailScreen() {
     try {
       await load();
     } catch {
-      // chyba je v state
+      /* error is in state */
     } finally {
       setLoading(false);
     }
@@ -106,14 +122,12 @@ export default function BoxDetailScreen() {
       .finally(() => setLoading(false));
   }, [load]);
 
-  // Refresh při návratu na screen (např. po save z add-items session)
   useFocusEffect(
     useCallback(() => {
       load().catch(() => {});
     }, [load]),
   );
 
-  // Realtime (vyžaduje enabled replication v Supabase)
   useEffect(() => {
     if (!id) return;
     const unsubscribe = subscribeItems(id, () => {
@@ -127,7 +141,7 @@ export default function BoxDetailScreen() {
     try {
       await load();
     } catch {
-      // chyba je v state
+      /* error is in state */
     } finally {
       setRefreshing(false);
     }
@@ -146,7 +160,7 @@ export default function BoxDetailScreen() {
           onPress: async () => {
             try {
               await deleteBox(box.id);
-              router.replace('/');
+              router.replace('/' as any);
             } catch (e: any) {
               Alert.alert('Error', e?.message ?? 'Cannot delete.');
             }
@@ -187,8 +201,6 @@ export default function BoxDetailScreen() {
           close();
           try {
             await deleteItem(item.id);
-            // The realtime sub will refresh eventually, but for snappy UX
-            // we also remove it locally.
             setItems((prev) => prev.filter((x) => x.id !== item.id));
           } catch (e: any) {
             Alert.alert('Error', e?.message ?? 'Cannot delete.');
@@ -207,132 +219,133 @@ export default function BoxDetailScreen() {
 
   if (loading) {
     return (
-      <ScreenBackground>
-        <SafeAreaView style={styles.center}>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.center}>
           <ActivityIndicator color={colors.primary} />
-        </SafeAreaView>
-      </ScreenBackground>
+        </View>
+      </SafeAreaView>
     );
   }
 
   if (error && !box) {
     return (
-      <ScreenBackground>
-        <SafeAreaView style={styles.center}>
-          <Icon name="warning" size={96} style={styles.errorIcon} />
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.center}>
+          <Icon brand="warning" size={96} style={styles.errorIcon} />
           <Text style={styles.errorTitle}>Something went wrong</Text>
           <Text style={styles.errorText}>{error}</Text>
-          <Pressable style={[styles.btn, styles.btnPrimary, styles.retryBtn]} onPress={retry}>
-            <View style={styles.btnContent}>
-              <Icon name="retry" size={18} />
-              <Text style={styles.btnPrimaryText}>Try again</Text>
-            </View>
+          <Pressable style={styles.retryBtn} onPress={retry}>
+            <Icon sf="arrow.clockwise" size={18} color={colors.textOnPrimary} />
+            <Text style={styles.retryText}>Try again</Text>
           </Pressable>
           <Pressable
-            style={[styles.btn, styles.btnSecondary, styles.retryBtn]}
-            onPress={() => router.replace('/')}
+            style={styles.secondaryBtn}
+            onPress={() => router.replace('/' as any)}
           >
-            <Text style={styles.btnSecondaryText}>Back to dashboard</Text>
+            <Text style={styles.secondaryBtnText}>Back to boxes</Text>
           </Pressable>
-        </SafeAreaView>
-      </ScreenBackground>
+        </View>
+      </SafeAreaView>
     );
   }
 
   if (!box) {
     return (
-      <ScreenBackground>
-        <SafeAreaView style={styles.center}>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.center}>
           <Text style={styles.errorTitle}>Box not found</Text>
-          <Pressable style={[styles.btn, styles.btnPrimary, styles.retryBtn]} onPress={() => router.replace('/')}>
-            <Text style={styles.btnPrimaryText}>Back to dashboard</Text>
+          <Pressable
+            style={styles.retryBtn}
+            onPress={() => router.replace('/' as any)}
+          >
+            <Text style={styles.retryText}>Back to boxes</Text>
           </Pressable>
-        </SafeAreaView>
-      </ScreenBackground>
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <ScreenBackground>
-      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        {/* Top nav bar */}
-        <View style={styles.topBar}>
-          <Pressable
-            hitSlop={12}
-            onPress={() => router.back()}
-            style={({ pressed }) => [styles.topBarBtn, pressed && { opacity: 0.5 }]}
-          >
-            <Icon name="chevron-left" size={28} />
-          </Pressable>
-          <Text style={styles.topBarTitle} numberOfLines={1}>
-            {box.name}
-          </Text>
-          <Pressable
-            hitSlop={12}
-            onPress={showBoxActionSheet}
-            style={({ pressed }) => [styles.topBarBtn, pressed && { opacity: 0.5 }]}
-          >
-            <Icon name="more" size={24} />
-          </Pressable>
-        </View>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Top nav bar */}
+      <View style={styles.topBar}>
+        <Pressable
+          hitSlop={12}
+          onPress={() => router.back()}
+          style={({ pressed }) => [styles.topBarBtn, pressed && { opacity: 0.5 }]}
+        >
+          <Icon sf="chevron.left" size={22} color={colors.text} />
+        </Pressable>
+        <Text style={styles.topBarTitle} numberOfLines={1}>
+          {box.name}
+        </Text>
+        <Pressable
+          hitSlop={12}
+          onPress={showBoxActionSheet}
+          style={({ pressed }) => [styles.topBarBtn, pressed && { opacity: 0.5 }]}
+        >
+          <Icon sf="ellipsis" size={22} color={colors.text} />
+        </Pressable>
+      </View>
 
-        {/* Header */}
-        <View style={styles.header}>
+      {/* Meta row */}
+      <View style={styles.meta}>
         {box.location ? (
-          <View style={styles.locationRow}>
-            <Icon name="pin" size={14} />
-            <Text style={styles.location}>{box.location}</Text>
+          <View style={styles.metaItem}>
+            <Icon sf="mappin" size={14} color={colors.textMuted} />
+            <Text style={styles.metaText}>{box.location}</Text>
           </View>
         ) : null}
-        <View style={styles.headerRow}>
-          <Text style={styles.count}>
+        <View style={styles.metaItem}>
+          <Icon sf="cube.box" size={14} color={colors.textMuted} />
+          <Text style={styles.metaText}>
             {box.item_count} {box.item_count === 1 ? 'item' : 'items'}
           </Text>
-          <View style={[styles.badge, { backgroundColor: nearestPalette.bg }]}>
-            <Text style={[styles.badgeText, { color: nearestPalette.fg }]}>
-              {formatExpiry(nearest)}
-            </Text>
-          </View>
         </View>
-
-        {/* View mode toggle */}
-        <View style={styles.segmented}>
-          <Pressable
-            onPress={viewMode === 'grid' ? toggleViewMode : undefined}
-            style={[styles.segment, viewMode === 'list' && styles.segmentActive]}
-          >
-            <View style={styles.segmentContent}>
-              <Icon name="list" size={14} />
-              <Text style={[styles.segmentText, viewMode === 'list' && styles.segmentTextActive]}>
-                List
-              </Text>
-            </View>
-          </Pressable>
-          <Pressable
-            onPress={viewMode === 'list' ? toggleViewMode : undefined}
-            style={[styles.segment, viewMode === 'grid' && styles.segmentActive]}
-          >
-            <View style={styles.segmentContent}>
-              <Icon name="grid" size={14} />
-              <Text style={[styles.segmentText, viewMode === 'grid' && styles.segmentTextActive]}>
-                Grid
-              </Text>
-            </View>
-          </Pressable>
+        <View style={[styles.nearestBadge, { backgroundColor: nearestPalette.bg }]}>
+          <Text style={[styles.nearestBadgeText, { color: nearestPalette.fg }]}>
+            {formatExpiry(nearest)}
+          </Text>
         </View>
       </View>
 
+      {/* View mode segmented control */}
+      <View style={styles.segmented}>
+        <Pressable
+          onPress={() => setMode('list')}
+          style={[styles.segment, viewMode === 'list' && styles.segmentActive]}
+        >
+          <Icon
+            sf="list.bullet"
+            size={16}
+            color={viewMode === 'list' ? colors.text : colors.textMuted}
+          />
+          <Text style={[styles.segmentText, viewMode === 'list' && styles.segmentTextActive]}>
+            List
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setMode('grid')}
+          style={[styles.segment, viewMode === 'grid' && styles.segmentActive]}
+        >
+          <Icon
+            sf="square.grid.2x2"
+            size={16}
+            color={viewMode === 'grid' ? colors.text : colors.textMuted}
+          />
+          <Text style={[styles.segmentText, viewMode === 'grid' && styles.segmentTextActive]}>
+            Grid
+          </Text>
+        </Pressable>
+      </View>
+
       <FlatList
-        // key musí switchnout mezi módy, jinak FlatList crashne na změnu numColumns
         key={viewMode}
         data={items}
         keyExtractor={(item) => item.id}
         numColumns={viewMode === 'grid' ? 3 : 1}
         contentContainerStyle={viewMode === 'grid' ? styles.gridContent : styles.listContent}
         columnWrapperStyle={viewMode === 'grid' ? styles.gridRow : undefined}
-        ItemSeparatorComponent={
-          viewMode === 'list' ? () => <View style={styles.separator} /> : undefined
-        }
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -342,7 +355,7 @@ export default function BoxDetailScreen() {
         }
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Icon name="inbox" size={96} style={styles.emptyIcon} />
+            <Icon brand="inbox" size={120} style={styles.emptyIcon} />
             <Text style={styles.emptyTitle}>Box is empty</Text>
             <Text style={styles.emptyText}>Add your first items.</Text>
           </View>
@@ -366,17 +379,12 @@ export default function BoxDetailScreen() {
         }
       />
 
-      <View style={styles.actions}>
-        <Pressable
-          style={[styles.btn, styles.btnPrimary]}
-          onPress={() => router.push(`/box/${box.id}/add-items` as any)}
-        >
-          <View style={styles.btnContent}>
-            <Icon name="plus" size={18} />
-            <Text style={styles.btnPrimaryText}>Add items</Text>
-          </View>
-        </Pressable>
-      </View>
+      <FAB
+        label="Add items"
+        sfIcon="plus"
+        bottom={24}
+        onPress={() => router.push(`/box/${box.id}/add-items` as any)}
+      />
 
       {/* QR label modal */}
       <Modal
@@ -427,8 +435,7 @@ export default function BoxDetailScreen() {
           />
         )}
       </Modal>
-      </SafeAreaView>
-    </ScreenBackground>
+    </SafeAreaView>
   );
 }
 
@@ -446,14 +453,13 @@ function LabelModalContent({ box, onClose }: { box: Box; onClose: () => void }) 
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      // Noop — clipboard failures are non-critical
+      /* noop */
     }
   };
 
   return (
-    <ScreenBackground>
-      <SafeAreaView style={styles.modalContainer} edges={['top', 'bottom']}>
-        <View style={styles.modalHeader}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <View style={styles.modalHeader}>
         <Text style={styles.modalTitle}>QR label</Text>
         <Pressable hitSlop={12} onPress={onClose}>
           <Text style={styles.modalClose}>Close</Text>
@@ -463,9 +469,9 @@ function LabelModalContent({ box, onClose }: { box: Box; onClose: () => void }) 
       <View style={styles.modalBody}>
         <Text style={styles.labelBoxName}>{box.name}</Text>
         {box.location ? (
-          <View style={styles.locationRow}>
-            <Icon name="pin" size={14} />
-            <Text style={styles.labelLocation}>{box.location}</Text>
+          <View style={styles.metaItem}>
+            <Icon sf="mappin" size={14} color={colors.textMuted} />
+            <Text style={styles.metaText}>{box.location}</Text>
           </View>
         ) : null}
 
@@ -481,7 +487,11 @@ function LabelModalContent({ box, onClose }: { box: Box; onClose: () => void }) 
             {box.qr_code}
           </Text>
           <View style={styles.labelCopyRow}>
-            <Icon name={copied ? 'check' : 'copy'} size={14} />
+            <Icon
+              sf={copied ? 'checkmark.circle.fill' : 'doc.on.doc'}
+              size={14}
+              color={copied ? colors.success : colors.primary}
+            />
             <Text style={[styles.labelCopyHint, copied && styles.labelCopyHintActive]}>
               {copied ? 'Copied' : 'Copy'}
             </Text>
@@ -495,15 +505,12 @@ function LabelModalContent({ box, onClose }: { box: Box; onClose: () => void }) 
           </Text>
         </View>
 
-        <Pressable style={[styles.btn, styles.btnDisabled]} disabled>
-          <View style={styles.btnContent}>
-            <Icon name="printer" size={18} />
-            <Text style={styles.btnDisabledText}>Print (Sprint 3)</Text>
-          </View>
+        <Pressable style={styles.printBtn} disabled>
+          <Icon sf="printer" size={18} color={colors.textSubtle} />
+          <Text style={styles.printBtnText}>Print (Sprint 3)</Text>
         </Pressable>
       </View>
-      </SafeAreaView>
-    </ScreenBackground>
+    </SafeAreaView>
   );
 }
 
@@ -523,10 +530,11 @@ function SwipeableRow({
   registerOpen: (ref: Swipeable | null) => void;
 }) {
   const status = getExpiryStatus(item.expiry_date);
-  const palette = status === 'none'
+  const palette =
+    status === 'none'
       ? { bg: colors.expiryNoneBg, fg: colors.expiryNoneText }
       : EXPIRY_COLORS[status];
-  const iconName = (item.category ? CATEGORY_ICON[item.category] : 'box-generic') as IconName;
+  const sfIcon: SFSymbolName = item.category ? CATEGORY_SF[item.category] : 'shippingbox.fill';
   const swipeRef = useRef<Swipeable>(null);
 
   const renderRightActions = () => (
@@ -534,44 +542,45 @@ function SwipeableRow({
       style={styles.deleteAction}
       onPress={() => onDelete(() => swipeRef.current?.close())}
     >
-      <Text style={styles.deleteActionText}>Smazat</Text>
+      <Icon sf="trash.fill" size={20} color="#FFFFFF" />
+      <Text style={styles.deleteActionText}>Delete</Text>
     </Pressable>
   );
 
   return (
-    <Swipeable
-      ref={swipeRef}
-      renderRightActions={renderRightActions}
-      rightThreshold={40}
-      overshootRight={false}
-      onSwipeableWillOpen={() => registerOpen(swipeRef.current)}
-    >
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+    <View style={styles.rowWrap}>
+      <Swipeable
+        ref={swipeRef}
+        renderRightActions={renderRightActions}
+        rightThreshold={40}
+        overshootRight={false}
+        onSwipeableWillOpen={() => registerOpen(swipeRef.current)}
       >
-        <View style={styles.rowImageWrap}>
-          {item.image_url ? (
-            <Image source={{ uri: item.image_url }} style={styles.rowImage} />
-          ) : (
-            <Icon name={iconName} size={38} />
-          )}
-        </View>
-        <View style={styles.rowBody}>
-          <Text numberOfLines={2} style={styles.rowName}>
-            {item.name}
-          </Text>
-          <Text style={styles.rowQty}>{formatQuantity(item.quantity, item.unit)}</Text>
-        </View>
-        {item.expiry_date ? (
-          <View style={[styles.rowBadge, { backgroundColor: palette.bg }]}>
-            <Text style={[styles.rowBadgeText, { color: palette.fg }]} numberOfLines={1}>
-              {formatExpiry(item.expiry_date)}
+        <Card onPress={onPress} style={styles.row}>
+          <StatusDot status={status} />
+          <View style={styles.rowBody}>
+            <Text style={styles.rowName} numberOfLines={1}>
+              {item.name}
+            </Text>
+            <Text style={styles.rowQty} numberOfLines={1}>
+              {formatQuantity(item.quantity, item.unit)}
             </Text>
           </View>
-        ) : null}
-      </Pressable>
-    </Swipeable>
+          {item.expiry_date ? (
+            <View style={[styles.rowBadge, { backgroundColor: palette.bg }]}>
+              <Text style={[styles.rowBadgeText, { color: palette.fg }]} numberOfLines={1}>
+                {formatExpiry(item.expiry_date)}
+              </Text>
+            </View>
+          ) : null}
+          {item.image_url ? (
+            <Image source={{ uri: item.image_url }} style={styles.rowThumb} />
+          ) : (
+            <Icon sf={sfIcon} size={20} color={colors.textMuted} />
+          )}
+        </Card>
+      </Swipeable>
+    </View>
   );
 }
 
@@ -581,41 +590,41 @@ function formatQuantity(qty: number, unit: string): string {
 }
 
 function formatShortExpiry(dateStr: string): string {
-  // "2027-03-15" → "03/27"
   const [y, m] = dateStr.split('-');
   return `${m}/${y.slice(2)}`;
 }
 
 // ---------------------------------------------------------------------------
-// GridCard – tap otevře edit (mazání přes edit sheet)
+// GridCard — tap opens edit sheet (no swipe in grid mode)
 // ---------------------------------------------------------------------------
 
 function GridCard({ item, onPress }: { item: Item; onPress: () => void }) {
   const status = getExpiryStatus(item.expiry_date);
-  const palette = status === 'none'
+  const palette =
+    status === 'none'
       ? { bg: colors.expiryNoneBg, fg: colors.expiryNoneText }
       : EXPIRY_COLORS[status];
-  const iconName = (item.category ? CATEGORY_ICON[item.category] : 'box-generic') as IconName;
+  const sfIcon: SFSymbolName = item.category ? CATEGORY_SF[item.category] : 'shippingbox.fill';
 
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.card, pressed && { opacity: 0.7 }]}
+      style={({ pressed }) => [styles.gridCard, pressed && { opacity: 0.7 }]}
     >
-      <View style={styles.cardImageWrap}>
+      <View style={styles.gridImageWrap}>
         {item.image_url ? (
-          <Image source={{ uri: item.image_url }} style={styles.cardImage} />
+          <Image source={{ uri: item.image_url }} style={styles.gridImage} />
         ) : (
-          <Icon name={iconName} size={56} />
+          <Icon sf={sfIcon} size={36} color={colors.textMuted} />
         )}
       </View>
-      <Text numberOfLines={2} style={styles.cardName}>
+      <Text numberOfLines={2} style={styles.gridName}>
         {item.name}
       </Text>
-      <Text style={styles.cardQty}>{formatQuantity(item.quantity, item.unit)}</Text>
+      <Text style={styles.gridQty}>{formatQuantity(item.quantity, item.unit)}</Text>
       {item.expiry_date && (
-        <View style={[styles.cardBadge, { backgroundColor: palette.bg }]}>
-          <Text style={[styles.cardBadgeText, { color: palette.fg }]} numberOfLines={1}>
+        <View style={[styles.gridBadge, { backgroundColor: palette.bg }]}>
+          <Text style={[styles.gridBadgeText, { color: palette.fg }]} numberOfLines={1}>
             {formatShortExpiry(item.expiry_date)}
           </Text>
         </View>
@@ -626,10 +635,9 @@ function GridCard({ item, onPress }: { item: Item; onPress: () => void }) {
 
 // ---------------------------------------------------------------------------
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: 'transparent' },
+  container: { flex: 1, backgroundColor: colors.background },
   center: {
     flex: 1,
-    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
     padding: spacing.xl,
@@ -646,17 +654,30 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: spacing.xl,
   },
-  retryBtn: { alignSelf: 'stretch', marginTop: spacing.sm },
-  btnSecondary: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md + 2,
+    borderRadius: radius.full,
   },
-  btnSecondaryText: {
+  retryText: {
+    ...typography.bodyStrong,
+    color: colors.textOnPrimary,
+  },
+  secondaryBtn: {
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+  },
+  secondaryBtnText: {
     ...typography.body,
-    color: colors.text,
-    fontWeight: '600',
+    color: colors.textMuted,
   },
+
+  // Top bar
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -676,65 +697,58 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginHorizontal: spacing.sm,
   },
-  header: {
+
+  // Meta row
+  meta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.md,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
-    backgroundColor: 'transparent',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    paddingVertical: spacing.sm,
   },
-  locationRow: {
+  metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    marginBottom: spacing.xs + 2,
   },
-  location: {
+  metaText: {
     ...typography.footnote,
     color: colors.textMuted,
   },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  count: {
-    ...typography.subhead,
-    color: colors.text,
-    fontWeight: '600',
-  },
-  badge: {
+  nearestBadge: {
+    marginLeft: 'auto',
     paddingHorizontal: spacing.sm + 2,
     paddingVertical: 4,
     borderRadius: radius.full,
   },
-  badgeText: {
+  nearestBadgeText: {
     ...typography.caption,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 
   // Segmented control
   segmented: {
     flexDirection: 'row',
-    marginTop: spacing.md,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+    backgroundColor: colors.palette.neutral[100],
     borderRadius: radius.md,
-    padding: 2,
+    padding: 3,
   },
   segment: {
     flex: 1,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.sm + 2,
-    alignItems: 'center',
-  },
-  segmentContent: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: spacing.xs + 2,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.sm + 2,
   },
   segmentActive: {
-    backgroundColor: colors.surfaceElevated,
+    backgroundColor: colors.surface,
+    ...shadows.sm,
   },
   segmentText: {
     ...typography.footnote,
@@ -746,99 +760,47 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // List rows
-  listContent: { paddingBottom: spacing.xl },
-  separator: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.border,
-    marginLeft: 80,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  // List content
+  listContent: {
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.surface,
-    gap: spacing.md,
+    paddingBottom: 100,
+    gap: spacing.sm + 2,
   },
-  rowPressed: { backgroundColor: colors.surfaceElevated },
-  rowImageWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: radius.md,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    justifyContent: 'center',
-    alignItems: 'center',
+  rowWrap: {
+    borderRadius: radius.lg,
     overflow: 'hidden',
   },
-  rowImage: { width: '100%', height: '100%', resizeMode: 'contain' },
-  rowBody: { flex: 1 },
+  row: {
+    paddingHorizontal: spacing.md + 2,
+    paddingVertical: spacing.md + 2,
+  },
+  rowBody: {
+    flex: 1,
+    gap: 2,
+  },
   rowName: {
-    ...typography.subhead,
+    ...typography.headline,
     color: colors.text,
-    fontWeight: '600',
   },
   rowQty: {
     ...typography.footnote,
     color: colors.textMuted,
-    marginTop: 2,
   },
   rowBadge: {
     paddingHorizontal: spacing.sm + 2,
-    paddingVertical: 5,
+    paddingVertical: 4,
     borderRadius: radius.full,
-    maxWidth: 120,
+    maxWidth: 110,
   },
   rowBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-
-  // Grid
-  gridContent: { padding: spacing.sm, paddingBottom: spacing.xl },
-  gridRow: { gap: spacing.sm },
-  card: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.sm,
-    marginBottom: spacing.sm,
-    alignItems: 'center',
-    minHeight: 150,
-  },
-  cardImageWrap: {
-    width: '100%',
-    aspectRatio: 1,
-    borderRadius: radius.sm + 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 6,
-    overflow: 'hidden',
-  },
-  cardImage: { width: '100%', height: '100%', resizeMode: 'contain' },
-  cardName: {
     ...typography.caption,
-    color: colors.text,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  cardQty: {
-    fontSize: 11,
-    color: colors.textMuted,
-    marginTop: 2,
-  },
-  cardBadge: {
-    marginTop: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: radius.sm,
-  },
-  cardBadgeText: {
-    fontSize: 10,
     fontWeight: '700',
+  },
+  rowThumb: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.sm + 2,
+    resizeMode: 'contain',
   },
 
   // Swipe delete action
@@ -846,19 +808,76 @@ const styles = StyleSheet.create({
     backgroundColor: colors.danger,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 2,
     width: 88,
+    borderTopRightRadius: radius.lg,
+    borderBottomRightRadius: radius.lg,
   },
   deleteActionText: {
-    ...typography.subhead,
-    color: colors.textOnDanger,
+    ...typography.caption,
+    color: '#FFFFFF',
     fontWeight: '700',
   },
 
-  // Empty
-  empty: { alignItems: 'center', paddingTop: 80, paddingHorizontal: spacing.xxl },
+  // Grid
+  gridContent: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: 100,
+  },
+  gridRow: {
+    gap: spacing.sm,
+  },
+  gridCard: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
+    alignItems: 'center',
+    minHeight: 150,
+    ...shadows.sm,
+  },
+  gridImageWrap: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: radius.sm + 2,
+    backgroundColor: colors.palette.neutral[100],
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+    overflow: 'hidden',
+  },
+  gridImage: { width: '100%', height: '100%', resizeMode: 'contain' },
+  gridName: {
+    ...typography.caption,
+    color: colors.text,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  gridQty: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  gridBadge: {
+    marginTop: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+  },
+  gridBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+
+  empty: {
+    alignItems: 'center',
+    paddingTop: 80,
+    paddingHorizontal: spacing.xxl,
+  },
   emptyIcon: { marginBottom: spacing.lg },
   emptyTitle: {
-    ...typography.title3,
+    ...typography.title2,
     color: colors.text,
     marginBottom: spacing.sm,
   },
@@ -868,71 +887,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // Actions
-  actions: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.xs,
-  },
-  btn: {
-    paddingVertical: spacing.lg,
-    borderRadius: radius.md,
-    alignItems: 'center',
-  },
-  btnContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  btnPrimary: { backgroundColor: colors.primary },
-  btnPrimaryText: {
-    ...typography.bodyStrong,
-    color: colors.textOnPrimary,
-  },
-  btnDisabled: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    opacity: 0.6,
-  },
-  btnDisabledText: {
-    ...typography.body,
-    color: colors.textSubtle,
-    fontWeight: '600',
-  },
-
-  // Header button
-  headerBtn: { paddingHorizontal: spacing.sm, paddingVertical: 4 },
-  headerBtnText: {
-    ...typography.subhead,
-    color: colors.primary,
-    fontWeight: '600',
-  },
-  headerBtnMore: {
-    fontSize: 26,
-    color: colors.primary,
-    fontWeight: '700',
-    lineHeight: 26,
-  },
-
   // Label modal
-  modalContainer: { flex: 1, backgroundColor: 'transparent' },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md + 2,
+    paddingVertical: spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
-    backgroundColor: 'transparent',
   },
   modalTitle: {
     ...typography.headline,
     color: colors.text,
   },
   modalClose: {
-    ...typography.callout,
+    ...typography.body,
     color: colors.primary,
     fontWeight: '600',
   },
@@ -942,27 +912,18 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginTop: spacing.sm,
   },
-  labelLocation: {
-    ...typography.footnote,
-    color: colors.textMuted,
-    marginTop: spacing.xs,
-  },
   labelQrWrap: {
     marginTop: spacing.xl,
     padding: spacing.lg,
     backgroundColor: '#FFFFFF',
     borderRadius: radius.lg,
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
+    ...shadows.md,
   },
   labelCodeWrap: {
     marginTop: spacing.lg,
     alignItems: 'center',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderRadius: radius.sm + 2,
   },
   labelCode: {
     fontSize: 11,
@@ -981,11 +942,11 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: '600',
   },
-  labelCopyHintActive: { color: colors.successText },
+  labelCopyHintActive: { color: colors.success },
   labelHint: {
-    backgroundColor: colors.successBg,
+    backgroundColor: colors.primaryTint,
     borderWidth: 1,
-    borderColor: colors.successBgStrong,
+    borderColor: colors.primarySubtle,
     borderRadius: radius.md,
     padding: spacing.md,
     marginTop: spacing.xl,
@@ -996,5 +957,21 @@ const styles = StyleSheet.create({
     color: colors.successText,
     textAlign: 'center',
     lineHeight: 18,
+  },
+  printBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.xl,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.palette.neutral[100],
+    opacity: 0.7,
+  },
+  printBtnText: {
+    ...typography.body,
+    color: colors.textSubtle,
+    fontWeight: '600',
   },
 });

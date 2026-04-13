@@ -33,7 +33,6 @@ import {
 import { lookupByBarcode } from '@/src/lib/openFoodFacts';
 import {
   CATEGORIES,
-  CATEGORY_ICON,
   EXPIRY_COLORS,
   UNITS,
   formatDate,
@@ -43,9 +42,21 @@ import {
   toIsoDate,
 } from '@/src/types/database';
 import type { Category, Unit } from '@/src/types/database';
-import { colors, radius, spacing, typography } from '@/src/theme';
-import { ScreenBackground } from '@/src/components/ScreenBackground';
-import { Icon, type IconName } from '@/src/components/Icon';
+import { colors, radius, shadows, spacing, typography } from '@/src/theme';
+import { Icon } from '@/src/components/Icon';
+import type { SFSymbolName } from '@/src/components/Icon';
+
+// Category → SF Symbol mapping for this screen's form + queue chips.
+const CATEGORY_SF: Record<Category, SFSymbolName> = {
+  food: 'fork.knife',
+  medicine: 'pills.fill',
+  water: 'drop.fill',
+  disinfectant: 'bubbles.and.sparkles.fill',
+  equipment: 'wrench.adjustable.fill',
+  energy: 'bolt.fill',
+  documents: 'doc.fill',
+  other: 'shippingbox.fill',
+};
 
 // ---------------------------------------------------------------------------
 // Queue item – local state before batch save
@@ -312,19 +323,19 @@ export default function AddItemsScreen() {
   // --------------------------------------------------------------
   if (!permission) {
     return (
-      <ScreenBackground>
-        <SafeAreaView style={styles.center}>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.center}>
           <Text style={styles.hint}>Preparing camera…</Text>
-        </SafeAreaView>
-      </ScreenBackground>
+        </View>
+      </SafeAreaView>
     );
   }
 
   if (!permission.granted) {
     return (
-      <ScreenBackground>
-        <SafeAreaView style={styles.center}>
-          <Icon name="camera" size={96} style={styles.permIcon} />
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.center}>
+          <Icon brand="camera" size={96} style={styles.permIcon} />
           <Text style={styles.permTitle}>Camera access needed</Text>
           <Text style={styles.permText}>
             I need camera access to scan product barcodes.
@@ -335,21 +346,20 @@ export default function AddItemsScreen() {
           <Pressable style={[styles.btn, styles.btnSecondary]} onPress={handleManual}>
             <Text style={styles.btnSecondaryText}>Add manually</Text>
           </Pressable>
-        </SafeAreaView>
-      </ScreenBackground>
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <ScreenBackground>
-      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
         <View style={styles.topBar}>
           <Pressable
             hitSlop={12}
             onPress={() => router.back()}
             style={({ pressed }) => [styles.topBarBtn, pressed && { opacity: 0.5 }]}
           >
-            <Icon name="chevron-left" size={28} />
+            <Icon sf="chevron.left" size={22} color={colors.text} />
           </Pressable>
           <Text style={styles.topBarTitle}>Add items</Text>
           <View style={styles.topBarBtn} />
@@ -375,7 +385,11 @@ export default function AddItemsScreen() {
                 setTorch((t) => !t);
               }}
             >
-              <Icon name={torch ? 'flashlight-on' : 'flashlight-off'} size={24} />
+              <Icon
+                sf={torch ? 'flashlight.on.fill' : 'flashlight.off.fill'}
+                size={24}
+                color="#FFFFFF"
+              />
             </Pressable>
 
             <View style={styles.scanOverlay} pointerEvents="none">
@@ -405,10 +419,9 @@ export default function AddItemsScreen() {
             ) : (
               <View style={styles.draftImagePlaceholder}>
                 <Icon
-                  name={
-                    (draft.category ? CATEGORY_ICON[draft.category] : 'box-generic') as IconName
-                  }
-                  size={72}
+                  sf={draft.category ? CATEGORY_SF[draft.category] : 'shippingbox.fill'}
+                  size={56}
+                  color={colors.textMuted}
                 />
               </View>
             )}
@@ -454,7 +467,11 @@ export default function AddItemsScreen() {
               <Text style={[styles.dateText, !draft.expiry_date && styles.datePlaceholder]}>
                 {draft.expiry_date ? formatDate(draft.expiry_date) : 'Pick a date'}
               </Text>
-              <Icon name={showDatePicker ? 'chevron-up' : 'chevron-down'} size={14} />
+              <Icon
+                sf={showDatePicker ? 'chevron.up' : 'chevron.down'}
+                size={14}
+                color={colors.textMuted}
+              />
             </Pressable>
             {showDatePicker && (
               <View style={styles.datePickerWrap}>
@@ -487,7 +504,7 @@ export default function AddItemsScreen() {
 
             <Pressable style={[styles.btn, styles.btnPrimary]} onPress={handleAddToQueue}>
               <View style={styles.btnContent}>
-                <Icon name="plus" size={18} />
+                <Icon sf="plus" size={18} color={colors.textOnPrimary} />
                 <Text style={styles.btnPrimaryText}>Add to queue</Text>
               </View>
             </Pressable>
@@ -546,14 +563,13 @@ export default function AddItemsScreen() {
       {/* Toast: ✓ Added */}
       {toast && (
         <Animated.View style={[styles.toast, { opacity: toastOpacity }]} pointerEvents="none">
-          <Icon name="check" size={16} />
+          <Icon sf="checkmark.circle.fill" size={16} color={colors.textOnPrimary} />
           <Text style={styles.toastText} numberOfLines={1}>
             Added: {toast}
           </Text>
         </Animated.View>
       )}
-      </SafeAreaView>
-    </ScreenBackground>
+    </SafeAreaView>
   );
 }
 
@@ -572,7 +588,7 @@ function SourceBanner({
   if (source === 'custom') {
     return (
       <View style={[styles.sourceBanner, styles.sourceCustom]}>
-        <Icon name="check" size={16} />
+        <Icon sf="checkmark.circle.fill" size={16} color={colors.successText} />
         <Text style={[styles.sourceText, { color: colors.successText }]}>
           Previously added product — fill quantity and date
         </Text>
@@ -582,7 +598,7 @@ function SourceBanner({
   if (source === 'off') {
     return (
       <View style={[styles.sourceBanner, styles.sourceOff]}>
-        <Icon name="check" size={16} />
+        <Icon sf="checkmark.circle.fill" size={16} color={colors.infoText} />
         <Text style={[styles.sourceText, { color: colors.infoText }]}>
           Loaded from Open Food Facts — verify and add a date
         </Text>
@@ -592,7 +608,7 @@ function SourceBanner({
   // manual
   return (
     <View style={[styles.sourceBanner, styles.sourceManual]}>
-      <Icon name="warning" size={16} />
+      <Icon sf="exclamationmark.triangle.fill" size={16} color={colors.warningText} />
       <Text style={[styles.sourceText, { color: colors.warningText }]}>
         {barcode
           ? `Product ${barcode} not in database — fill in manually`
@@ -660,14 +676,15 @@ function QueueChip({
   return (
     <View style={styles.queueChip}>
       <Pressable onPress={onRemove} style={styles.queueRemove}>
-        <Icon name="close" size={14} />
+        <Icon sf="xmark" size={12} color="#FFFFFF" />
       </Pressable>
       {draft.image_url ? (
         <Image source={{ uri: draft.image_url }} style={styles.queueImage} />
       ) : (
         <Icon
-          name={(draft.category ? CATEGORY_ICON[draft.category] : 'box-generic') as IconName}
-          size={44}
+          sf={draft.category ? CATEGORY_SF[draft.category] : 'shippingbox.fill'}
+          size={34}
+          color={colors.textMuted}
         />
       )}
       <Text numberOfLines={2} style={styles.queueName}>
@@ -683,7 +700,7 @@ function QueueChip({
       </View>
       <Pressable onPress={onSameAgain} style={styles.queueAgainBtn}>
         <View style={styles.queueAgainContent}>
-          <Icon name="retry" size={10} />
+          <Icon sf="arrow.clockwise" size={10} color={colors.text} />
           <Text style={styles.queueAgainText}>Different date</Text>
         </View>
       </Pressable>

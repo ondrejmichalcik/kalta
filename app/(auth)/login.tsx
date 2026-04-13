@@ -18,6 +18,7 @@ import {
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { ensureWarehouse, signInWithApple, supabase } from '@/src/lib/supabase';
 import { colors, radius, spacing, typography } from '@/src/theme';
 
@@ -105,6 +106,7 @@ export default function LoginScreen() {
       style={styles.container}
       resizeMode="cover"
     >
+      <StatusBar style="light" />
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
         <KeyboardAvoidingView
           style={{ flex: 1 }}

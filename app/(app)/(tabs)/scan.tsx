@@ -69,7 +69,7 @@ export default function ScanScreen() {
   if (!permission.granted) {
     return (
       <SafeAreaView style={styles.center}>
-        <Icon name="camera" size={96} style={styles.permIcon} />
+        <Icon brand="camera" size={96} style={styles.permIcon} />
         <Text style={styles.permTitle}>Camera access needed</Text>
         <Text style={styles.permText}>
           Stockr needs camera access to scan box QR codes.
@@ -97,11 +97,6 @@ export default function ScanScreen() {
         </Text>
       </View>
 
-      <SafeAreaView style={styles.bottomBar} edges={['bottom']}>
-        <Pressable style={styles.cancelBtn} onPress={() => router.back()}>
-          <Text style={styles.cancelText}>Cancel</Text>
-        </Pressable>
-      </SafeAreaView>
     </View>
   );
 }
@@ -161,25 +156,5 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
     textShadowColor: 'rgba(0,0,0,0.6)',
     textShadowRadius: 4,
-  },
-  bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    paddingTop: spacing.lg,
-  },
-  cancelBtn: {
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: spacing.xxl,
-    paddingVertical: spacing.md,
-    borderRadius: radius.xxl,
-    marginBottom: spacing.lg,
-  },
-  cancelText: {
-    ...typography.callout,
-    color: '#FFFFFF',
-    fontWeight: '600',
   },
 });

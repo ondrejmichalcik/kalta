@@ -19,7 +19,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { updateBox } from '@/src/lib/supabase';
 import type { Box } from '@/src/types/database';
 import { colors, radius, spacing, typography } from '@/src/theme';
-import { ScreenBackground } from '@/src/components/ScreenBackground';
 
 export interface BoxEditSheetProps {
   box: Box;
@@ -58,9 +57,8 @@ export function BoxEditSheet({ box, onClose, onSaved }: BoxEditSheetProps) {
   };
 
   return (
-    <ScreenBackground>
-      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        <View style={styles.header}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <View style={styles.header}>
         <Pressable hitSlop={12} onPress={onClose} disabled={saving}>
           <Text style={[styles.headerBtn, saving && { opacity: 0.4 }]}>Cancel</Text>
         </Pressable>
@@ -101,13 +99,12 @@ export function BoxEditSheet({ box, onClose, onSaved }: BoxEditSheetProps) {
           />
         </ScrollView>
       </KeyboardAvoidingView>
-      </SafeAreaView>
-    </ScreenBackground>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: 'transparent' },
+  container: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -116,7 +113,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md + 2,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
-    backgroundColor: 'transparent',
+    backgroundColor: colors.surface,
   },
   headerTitle: {
     ...typography.headline,

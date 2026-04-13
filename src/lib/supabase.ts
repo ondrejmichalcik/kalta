@@ -9,6 +9,7 @@ import type {
   CustomProduct,
   Invitation,
   Item,
+  ItemWithBox,
   Unit,
   Warehouse,
   WarehouseMember,
@@ -209,6 +210,27 @@ export async function listItems(boxId: string): Promise<Item[]> {
     .order('expiry_date', { ascending: true, nullsFirst: false });
   if (error) throw error;
   return (data as Item[]) ?? [];
+}
+
+/**
+ * Flat list of every item in the warehouse, joined with its box's name.
+ * Used by the Items tab (cross-box expiring timeline). Sorted by nearest
+ * expiry — items without a date sink to the bottom.
+ */
+export async function listAllItemsInWarehouse(
+  warehouseId: string,
+): Promise<ItemWithBox[]> {
+  const { data, error } = await supabase
+    .from('items')
+    .select('*, boxes!inner(name, warehouse_id)')
+    .eq('boxes.warehouse_id', warehouseId)
+    .order('expiry_date', { ascending: true, nullsFirst: false });
+  if (error) throw error;
+  if (!data) return [];
+  return data.map((row: any) => {
+    const { boxes, ...item } = row;
+    return { ...(item as Item), box_name: boxes?.name ?? '' };
+  });
 }
 
 export interface NewItemInput {

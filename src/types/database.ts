@@ -109,6 +109,14 @@ export interface Item {
   updated_at: string;
 }
 
+/**
+ * Item augmented with its parent box name. Used by the cross-box Items tab
+ * to show which box each item lives in without separate lookups.
+ */
+export interface ItemWithBox extends Item {
+  box_name: string;
+}
+
 export interface CustomProduct {
   id: string;
   warehouse_id: string;

@@ -43,7 +43,7 @@ export default function RootLayout() {
     if (!session && !inAuthGroup) {
       router.replace('/(auth)/login');
     } else if (session && inAuthGroup) {
-      router.replace('/(app)');
+      router.replace('/' as any);
     }
   }, [session, loading, segments]);
 
@@ -68,7 +68,7 @@ export default function RootLayout() {
       try {
         await acceptInvitation(token, s.user.id);
         Alert.alert('Done', 'Invitation accepted. Welcome to the shared warehouse!');
-        router.replace('/(app)');
+        router.replace('/' as any);
       } catch (e: any) {
         Alert.alert('Invitation error', e?.message ?? 'Unknown error');
       }
@@ -98,7 +98,8 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
+      {/* Login overrides to light via its own <StatusBar> in (auth)/login.tsx */}
       <Stack
         screenOptions={{
           headerShown: false,

@@ -20,8 +20,7 @@ import { useRouter } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
 import { createBox, getMyWarehouse, supabase } from '@/src/lib/supabase';
 import type { Box } from '@/src/types/database';
-import { colors, radius, spacing, typography } from '@/src/theme';
-import { ScreenBackground } from '@/src/components/ScreenBackground';
+import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
 
 export default function NewBoxScreen() {
@@ -60,24 +59,24 @@ export default function NewBoxScreen() {
   // ---- Post-create: QR preview ----
   if (createdBox) {
     return (
-      <ScreenBackground>
-        <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-          <View style={styles.topBar}>
-            <Pressable
-              hitSlop={12}
-              onPress={() => router.replace('/')}
-              style={({ pressed }) => [styles.topBarBtn, pressed && { opacity: 0.5 }]}
-            >
-              <Icon name="chevron-left" size={28} />
-            </Pressable>
-            <Text style={styles.topBarTitle}>QR label</Text>
-            <View style={styles.topBarBtn} />
-          </View>
-          <ScrollView contentContainerStyle={styles.qrScroll}>
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <View style={styles.topBar}>
+          <Pressable
+            hitSlop={12}
+            onPress={() => router.replace('/' as any)}
+            style={({ pressed }) => [styles.topBarBtn, pressed && { opacity: 0.5 }]}
+          >
+            <Icon sf="chevron.left" size={22} color={colors.text} />
+          </Pressable>
+          <Text style={styles.topBarTitle}>QR label</Text>
+          <View style={styles.topBarBtn} />
+        </View>
+
+        <ScrollView contentContainerStyle={styles.qrScroll}>
           <Text style={styles.qrTitle}>{createdBox.name}</Text>
           {createdBox.location ? (
             <View style={styles.qrLocationRow}>
-              <Icon name="pin" size={14} />
+              <Icon sf="mappin" size={14} color={colors.textMuted} />
               <Text style={styles.qrLocation}>{createdBox.location}</Text>
             </View>
           ) : null}
@@ -94,53 +93,49 @@ export default function NewBoxScreen() {
             </Text>
           </View>
 
-          {/* Printing support lands in Sprint 3 */}
-          <Pressable style={[styles.btn, styles.btnDisabled]} disabled>
-            <View style={styles.btnContent}>
-              <Icon name="printer" size={18} />
-              <Text style={styles.btnDisabledText}>Print (Sprint 3)</Text>
-            </View>
+          <Pressable style={styles.btnDisabled} disabled>
+            <Icon sf="printer" size={18} color={colors.textSubtle} />
+            <Text style={styles.btnDisabledText}>Print (Sprint 3)</Text>
           </Pressable>
 
           <Pressable
-            style={[styles.btn, styles.btnPrimary]}
+            style={styles.btnPrimary}
             onPress={() => router.replace(`/box/${createdBox.id}` as any)}
           >
             <Text style={styles.btnPrimaryText}>Open box detail</Text>
           </Pressable>
 
           <Pressable
-            style={[styles.btn, styles.btnSecondary]}
-            onPress={() => router.replace('/')}
+            style={styles.btnSecondary}
+            onPress={() => router.replace('/' as any)}
           >
-            <Text style={styles.btnSecondaryText}>Back to dashboard</Text>
+            <Text style={styles.btnSecondaryText}>Back to boxes</Text>
           </Pressable>
-          </ScrollView>
-        </SafeAreaView>
-      </ScreenBackground>
+        </ScrollView>
+      </SafeAreaView>
     );
   }
 
   // ---- Pre-create: form ----
   return (
-    <ScreenBackground>
-      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        <View style={styles.topBar}>
-          <Pressable
-            hitSlop={12}
-            onPress={() => router.back()}
-            style={({ pressed }) => [styles.topBarBtn, pressed && { opacity: 0.5 }]}
-          >
-            <Icon name="chevron-left" size={28} />
-          </Pressable>
-          <Text style={styles.topBarTitle}>New box</Text>
-          <View style={styles.topBarBtn} />
-        </View>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <View style={styles.topBar}>
+        <Pressable
+          hitSlop={12}
+          onPress={() => router.back()}
+          style={({ pressed }) => [styles.topBarBtn, pressed && { opacity: 0.5 }]}
         >
-          <ScrollView contentContainerStyle={styles.formScroll} keyboardShouldPersistTaps="handled">
+          <Icon sf="chevron.left" size={22} color={colors.text} />
+        </Pressable>
+        <Text style={styles.topBarTitle}>New box</Text>
+        <View style={styles.topBarBtn} />
+      </View>
+
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView contentContainerStyle={styles.formScroll} keyboardShouldPersistTaps="handled">
           <Text style={styles.label}>Box name</Text>
           <TextInput
             value={name}
@@ -164,7 +159,7 @@ export default function NewBoxScreen() {
           />
 
           <Pressable
-            style={[styles.btn, styles.btnPrimary, saving && styles.btnLoading]}
+            style={[styles.btnPrimary, saving && { opacity: 0.7 }]}
             onPress={handleSave}
             disabled={saving}
           >
@@ -174,15 +169,14 @@ export default function NewBoxScreen() {
               <Text style={styles.btnPrimaryText}>Create box</Text>
             )}
           </Pressable>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    </ScreenBackground>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: 'transparent' },
+  container: { flex: 1, backgroundColor: colors.background },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -202,7 +196,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginHorizontal: spacing.sm,
   },
-  formScroll: { padding: spacing.lg, gap: spacing.xs },
+  formScroll: {
+    padding: spacing.lg,
+    gap: spacing.xs,
+  },
   label: {
     ...typography.label,
     color: colors.textMuted,
@@ -218,25 +215,26 @@ const styles = StyleSheet.create({
     color: colors.text,
     borderWidth: 1,
     borderColor: colors.border,
+    ...shadows.sm,
   },
-  btn: {
+  btnPrimary: {
     marginTop: spacing.lg,
     paddingVertical: spacing.lg,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: colors.primary,
   },
-  btnContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  btnPrimary: { backgroundColor: colors.primary },
   btnPrimaryText: {
     ...typography.bodyStrong,
     color: colors.textOnPrimary,
   },
   btnSecondary: {
+    marginTop: spacing.md,
+    paddingVertical: spacing.lg,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
@@ -246,15 +244,27 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontWeight: '600',
   },
-  btnDisabled: { backgroundColor: colors.surface, opacity: 0.5 },
+  btnDisabled: {
+    marginTop: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.lg,
+    borderRadius: radius.md,
+    backgroundColor: colors.palette.neutral[100],
+    opacity: 0.7,
+  },
   btnDisabledText: {
     ...typography.body,
     color: colors.textSubtle,
     fontWeight: '600',
   },
-  btnLoading: { opacity: 0.7 },
   // QR preview
-  qrScroll: { padding: spacing.xl, alignItems: 'center' },
+  qrScroll: {
+    padding: spacing.xl,
+    alignItems: 'center',
+  },
   qrTitle: {
     ...typography.title1,
     color: colors.text,
@@ -275,10 +285,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     backgroundColor: '#FFFFFF',
     borderRadius: radius.lg,
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
+    ...shadows.md,
   },
   qrCodeText: {
     marginTop: spacing.lg,
@@ -287,9 +294,9 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   qrHint: {
-    backgroundColor: colors.successBg,
+    backgroundColor: colors.primaryTint,
     borderWidth: 1,
-    borderColor: colors.successBgStrong,
+    borderColor: colors.primarySubtle,
     borderRadius: radius.md,
     padding: spacing.md,
     marginTop: spacing.xl,

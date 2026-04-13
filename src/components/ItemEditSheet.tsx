@@ -26,8 +26,7 @@ import {
   toIsoDate,
 } from '@/src/types/database';
 import type { Category, Item, Unit } from '@/src/types/database';
-import { colors, radius, spacing, typography } from '@/src/theme';
-import { ScreenBackground } from '@/src/components/ScreenBackground';
+import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
 
 export interface ItemEditSheetProps {
@@ -123,9 +122,8 @@ export function ItemEditSheet({ item, onClose, onSaved, onDeleted }: ItemEditShe
   };
 
   return (
-    <ScreenBackground>
-      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        <View style={styles.header}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <View style={styles.header}>
         <Pressable hitSlop={12} onPress={onClose} disabled={saving}>
           <Text style={[styles.headerBtn, saving && { opacity: 0.4 }]}>Cancel</Text>
         </Pressable>
@@ -182,7 +180,11 @@ export function ItemEditSheet({ item, onClose, onSaved, onDeleted }: ItemEditShe
               <Text style={[styles.dateText, !draft.expiry_date && styles.datePlaceholder]}>
                 {draft.expiry_date ? formatDate(draft.expiry_date) : 'No date'}
               </Text>
-              <Icon name={showDatePicker ? 'chevron-up' : 'chevron-down'} size={14} />
+              <Icon
+                sf={showDatePicker ? 'chevron.up' : 'chevron.down'}
+                size={14}
+                color={colors.textMuted}
+              />
             </Pressable>
             {draft.expiry_date && (
               <Pressable
@@ -230,14 +232,13 @@ export function ItemEditSheet({ item, onClose, onSaved, onDeleted }: ItemEditShe
             disabled={saving}
           >
             <View style={styles.deleteBtnContent}>
-              <Icon name="trash" size={18} />
+              <Icon sf="trash.fill" size={18} color={colors.danger} />
               <Text style={styles.deleteBtnText}>Delete item</Text>
             </View>
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
-      </SafeAreaView>
-    </ScreenBackground>
+    </SafeAreaView>
   );
 }
 
@@ -282,7 +283,7 @@ function ChipRow<T extends string>({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: 'transparent' },
+  container: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -291,7 +292,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md + 2,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
-    backgroundColor: 'transparent',
+    backgroundColor: colors.surface,
   },
   headerTitle: {
     ...typography.headline,
