@@ -19,7 +19,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { ensureWarehouse, signInWithApple, supabase } from '@/src/lib/supabase';
+import { signInWithApple, supabase } from '@/src/lib/supabase';
 import { colors, radius, spacing, typography } from '@/src/theme';
 
 export default function LoginScreen() {
@@ -66,8 +66,9 @@ export default function LoginScreen() {
           .eq('id', data.session.user.id);
       }
 
-      // Ensure a warehouse exists for this user
-      await ensureWarehouse(data.session.user.id);
+      // After sign-in the auth guard routes to `/`, which is the Warehouses
+      // list. An empty list shows onboarding; invited users see shared
+      // warehouses populate via realtime sub.
     } catch (e: any) {
       if (e?.code === 'ERR_REQUEST_CANCELED') return;
       Alert.alert('Sign in error', e?.message ?? 'Unknown error');
@@ -92,7 +93,6 @@ export default function LoginScreen() {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       if (!data.session) throw new Error('Sign in failed.');
-      await ensureWarehouse(data.session.user.id);
     } catch (e: any) {
       Alert.alert('Dev login failed', e?.message ?? 'Unknown error');
     } finally {

@@ -16,15 +16,16 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
-import { createBox, getMyWarehouse, supabase } from '@/src/lib/supabase';
+import { createBox } from '@/src/lib/supabase';
 import type { Box } from '@/src/types/database';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
 
 export default function NewBoxScreen() {
   const router = useRouter();
+  const { warehouseId } = useLocalSearchParams<{ warehouseId: string }>();
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
   const [saving, setSaving] = useState(false);
@@ -36,15 +37,14 @@ export default function NewBoxScreen() {
       Alert.alert('Name required', 'Give the box a name, e.g. "Meds A" or "Water cellar".');
       return;
     }
+    if (!warehouseId) {
+      Alert.alert('Error', 'Missing warehouse context.');
+      return;
+    }
     try {
       setSaving(true);
-      const { data: sess } = await supabase.auth.getSession();
-      const userId = sess.session?.user.id;
-      if (!userId) throw new Error('Not signed in.');
-      const wh = await getMyWarehouse(userId);
-      if (!wh) throw new Error('No warehouse.');
       const box = await createBox({
-        warehouse_id: wh.id,
+        warehouse_id: warehouseId,
         name: trimmed,
         location: location.trim() || null,
       });
@@ -63,7 +63,7 @@ export default function NewBoxScreen() {
         <View style={styles.topBar}>
           <Pressable
             hitSlop={12}
-            onPress={() => router.replace('/' as any)}
+            onPress={() => router.replace(`/warehouse/${warehouseId}` as any)}
             style={({ pressed }) => [styles.topBarBtn, pressed && { opacity: 0.5 }]}
           >
             <Icon sf="chevron.left" size={22} color={colors.text} />
@@ -100,14 +100,16 @@ export default function NewBoxScreen() {
 
           <Pressable
             style={styles.btnPrimary}
-            onPress={() => router.replace(`/box/${createdBox.id}` as any)}
+            onPress={() =>
+              router.replace(`/warehouse/${warehouseId}/box/${createdBox.id}` as any)
+            }
           >
             <Text style={styles.btnPrimaryText}>Open box detail</Text>
           </Pressable>
 
           <Pressable
             style={styles.btnSecondary}
-            onPress={() => router.replace('/' as any)}
+            onPress={() => router.replace(`/warehouse/${warehouseId}` as any)}
           >
             <Text style={styles.btnSecondaryText}>Back to boxes</Text>
           </Pressable>

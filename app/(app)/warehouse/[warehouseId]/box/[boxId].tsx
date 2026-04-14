@@ -36,12 +36,15 @@ import {
   deleteItem,
   getBoxById,
   listItems,
+  openOneItem,
   subscribeItems,
 } from '@/src/lib/supabase';
 import type { Box, Item, Category } from '@/src/types/database';
 import {
   EXPIRY_COLORS,
+  compareItemsByPriority,
   formatExpiry,
+  formatItemQuantity,
   getExpiryStatus,
 } from '@/src/types/database';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
@@ -65,7 +68,7 @@ const CATEGORY_SF: Record<Category, SFSymbolName> = {
 
 export default function BoxDetailScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { warehouseId, boxId: id } = useLocalSearchParams<{ warehouseId: string; boxId: string }>();
   const [box, setBox] = useState<Box | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
@@ -160,7 +163,7 @@ export default function BoxDetailScreen() {
           onPress: async () => {
             try {
               await deleteBox(box.id);
-              router.replace('/' as any);
+              router.replace(`/warehouse/${warehouseId}` as any);
             } catch (e: any) {
               Alert.alert('Error', e?.message ?? 'Cannot delete.');
             }
@@ -210,6 +213,33 @@ export default function BoxDetailScreen() {
     ]);
   };
 
+  const confirmOpen = (item: Item, close: () => void) => {
+    Alert.alert(
+      'Mark one as opened',
+      `Decrement sealed count of "${item.name}" by 1 and push one unit to an opened sibling?`,
+      [
+        { text: 'Cancel', style: 'cancel', onPress: close },
+        {
+          text: 'Mark opened',
+          onPress: async () => {
+            close();
+            try {
+              await openOneItem(item.id);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+                () => {},
+              );
+              // Realtime sub on items will reload the list automatically.
+            } catch (e: any) {
+              Alert.alert('Error', e?.message ?? 'Cannot open.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const sortedItems = useMemo(() => [...items].sort(compareItemsByPriority), [items]);
+
   const nearest = useMemo(() => box?.nearest_expiry ?? null, [box]);
   const nearestStatus = getExpiryStatus(nearest);
   const nearestPalette =
@@ -240,7 +270,7 @@ export default function BoxDetailScreen() {
           </Pressable>
           <Pressable
             style={styles.secondaryBtn}
-            onPress={() => router.replace('/' as any)}
+            onPress={() => router.replace(`/warehouse/${warehouseId}` as any)}
           >
             <Text style={styles.secondaryBtnText}>Back to boxes</Text>
           </Pressable>
@@ -256,7 +286,7 @@ export default function BoxDetailScreen() {
           <Text style={styles.errorTitle}>Box not found</Text>
           <Pressable
             style={styles.retryBtn}
-            onPress={() => router.replace('/' as any)}
+            onPress={() => router.replace(`/warehouse/${warehouseId}` as any)}
           >
             <Text style={styles.retryText}>Back to boxes</Text>
           </Pressable>
@@ -341,7 +371,7 @@ export default function BoxDetailScreen() {
 
       <FlatList
         key={viewMode}
-        data={items}
+        data={sortedItems}
         keyExtractor={(item) => item.id}
         numColumns={viewMode === 'grid' ? 3 : 1}
         contentContainerStyle={viewMode === 'grid' ? styles.gridContent : styles.listContent}
@@ -366,6 +396,7 @@ export default function BoxDetailScreen() {
               item={item}
               onPress={() => setEditingItem(item)}
               onDelete={(close) => confirmDelete(item, close)}
+              onOpen={(close) => confirmOpen(item, close)}
               registerOpen={(ref) => {
                 if (openSwipeableRef.current && openSwipeableRef.current !== ref) {
                   openSwipeableRef.current.close();
@@ -383,7 +414,9 @@ export default function BoxDetailScreen() {
         label="Add items"
         sfIcon="plus"
         bottom={24}
-        onPress={() => router.push(`/box/${box.id}/add-items` as any)}
+        onPress={() =>
+          router.push(`/warehouse/${warehouseId}/box/${box.id}/add-items` as any)
+        }
       />
 
       {/* QR label modal */}
@@ -430,6 +463,10 @@ export default function BoxDetailScreen() {
             }}
             onDeleted={(itemId) => {
               setItems((prev) => prev.filter((x) => x.id !== itemId));
+              setEditingItem(null);
+            }}
+            onOpened={() => {
+              // Realtime sub on items reloads the list — just close the sheet.
               setEditingItem(null);
             }}
           />
@@ -522,11 +559,13 @@ function SwipeableRow({
   item,
   onPress,
   onDelete,
+  onOpen,
   registerOpen,
 }: {
   item: Item;
   onPress: () => void;
   onDelete: (close: () => void) => void;
+  onOpen: (close: () => void) => void;
   registerOpen: (ref: Swipeable | null) => void;
 }) {
   const status = getExpiryStatus(item.expiry_date);
@@ -536,6 +575,10 @@ function SwipeableRow({
       : EXPIRY_COLORS[status];
   const sfIcon: SFSymbolName = item.category ? CATEGORY_SF[item.category] : 'shippingbox.fill';
   const swipeRef = useRef<Swipeable>(null);
+
+  // Left swipe reveals "Mark one as opened" — sealed discrete items only.
+  const canOpen =
+    !item.opened && (item.unit === 'pcs' || item.unit === 'pack') && item.quantity >= 1;
 
   const renderRightActions = () => (
     <Pressable
@@ -547,23 +590,43 @@ function SwipeableRow({
     </Pressable>
   );
 
+  const renderLeftActions = () => (
+    <Pressable
+      style={styles.openAction}
+      onPress={() => onOpen(() => swipeRef.current?.close())}
+    >
+      <Icon sf="shippingbox.fill" size={20} color={colors.warningText} />
+      <Text style={styles.openActionText}>Open</Text>
+    </Pressable>
+  );
+
   return (
     <View style={styles.rowWrap}>
       <Swipeable
         ref={swipeRef}
         renderRightActions={renderRightActions}
+        renderLeftActions={canOpen ? renderLeftActions : undefined}
         rightThreshold={40}
+        leftThreshold={40}
         overshootRight={false}
+        overshootLeft={false}
         onSwipeableWillOpen={() => registerOpen(swipeRef.current)}
       >
         <Card onPress={onPress} style={styles.row}>
           <StatusDot status={status} />
           <View style={styles.rowBody}>
-            <Text style={styles.rowName} numberOfLines={1}>
-              {item.name}
-            </Text>
+            <View style={styles.rowTitleLine}>
+              <Text style={styles.rowName} numberOfLines={1}>
+                {item.name}
+              </Text>
+              {item.opened && (
+                <View style={styles.openedBadge}>
+                  <Text style={styles.openedBadgeText}>OPENED</Text>
+                </View>
+              )}
+            </View>
             <Text style={styles.rowQty} numberOfLines={1}>
-              {formatQuantity(item.quantity, item.unit)}
+              {formatItemQuantity(item)}
             </Text>
           </View>
           {item.expiry_date ? (
@@ -582,11 +645,6 @@ function SwipeableRow({
       </Swipeable>
     </View>
   );
-}
-
-function formatQuantity(qty: number, unit: string): string {
-  const n = Number.isInteger(qty) ? qty.toString() : qty.toFixed(1);
-  return `${n} ${unit}`;
 }
 
 function formatShortExpiry(dateStr: string): string {
@@ -617,11 +675,16 @@ function GridCard({ item, onPress }: { item: Item; onPress: () => void }) {
         ) : (
           <Icon sf={sfIcon} size={36} color={colors.textMuted} />
         )}
+        {item.opened && (
+          <View style={styles.gridOpenedBadge}>
+            <Text style={styles.gridOpenedBadgeText}>OPENED</Text>
+          </View>
+        )}
       </View>
       <Text numberOfLines={2} style={styles.gridName}>
         {item.name}
       </Text>
-      <Text style={styles.gridQty}>{formatQuantity(item.quantity, item.unit)}</Text>
+      <Text style={styles.gridQty}>{formatItemQuantity(item)}</Text>
       {item.expiry_date && (
         <View style={[styles.gridBadge, { backgroundColor: palette.bg }]}>
           <Text style={[styles.gridBadgeText, { color: palette.fg }]} numberOfLines={1}>
@@ -778,9 +841,29 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
+  rowTitleLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs + 2,
+  },
   rowName: {
     ...typography.headline,
     color: colors.text,
+    flexShrink: 1,
+  },
+  openedBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    backgroundColor: colors.warningBg,
+    borderWidth: 1,
+    borderColor: colors.warningBgStrong,
+  },
+  openedBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.warningText,
+    letterSpacing: 0.5,
   },
   rowQty: {
     ...typography.footnote,
@@ -803,7 +886,7 @@ const styles = StyleSheet.create({
     resizeMode: 'contain',
   },
 
-  // Swipe delete action
+  // Swipe delete action (right swipe)
   deleteAction: {
     backgroundColor: colors.danger,
     justifyContent: 'center',
@@ -816,6 +899,24 @@ const styles = StyleSheet.create({
   deleteActionText: {
     ...typography.caption,
     color: '#FFFFFF',
+    fontWeight: '700',
+  },
+
+  // Swipe open action (left swipe) — amber to match OPENED badge
+  openAction: {
+    backgroundColor: colors.warningBg,
+    borderWidth: 1,
+    borderColor: colors.warningBgStrong,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 2,
+    width: 88,
+    borderTopLeftRadius: radius.lg,
+    borderBottomLeftRadius: radius.lg,
+  },
+  openActionText: {
+    ...typography.caption,
+    color: colors.warningText,
     fontWeight: '700',
   },
 
@@ -848,6 +949,23 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   gridImage: { width: '100%', height: '100%', resizeMode: 'contain' },
+  gridOpenedBadge: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: radius.sm,
+    backgroundColor: colors.warningBg,
+    borderWidth: 1,
+    borderColor: colors.warningBgStrong,
+  },
+  gridOpenedBadgeText: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: colors.warningText,
+    letterSpacing: 0.3,
+  },
   gridName: {
     ...typography.caption,
     color: colors.text,

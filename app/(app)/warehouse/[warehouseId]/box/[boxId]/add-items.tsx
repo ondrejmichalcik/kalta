@@ -26,7 +26,6 @@ import * as Haptics from 'expo-haptics';
 import {
   addItemsBatch,
   findCustomProduct,
-  getMyWarehouse,
   supabase,
   upsertCustomProduct,
 } from '@/src/lib/supabase';
@@ -37,6 +36,7 @@ import {
   UNITS,
   formatDate,
   formatExpiry,
+  formatItemQuantity,
   fromIsoDate,
   getExpiryStatus,
   toIsoDate,
@@ -71,6 +71,7 @@ interface Draft {
   barcode: string | null;
   image_url: string | null;
   category: Category | null;
+  pack_count: number | null;
 }
 
 type Mode = 'scan' | 'form' | 'queue';
@@ -78,7 +79,10 @@ type DraftSource = 'custom' | 'off' | 'manual' | null;
 
 export default function AddItemsScreen() {
   const router = useRouter();
-  const { id: boxId } = useLocalSearchParams<{ id: string }>();
+  const { warehouseId, boxId } = useLocalSearchParams<{
+    warehouseId: string;
+    boxId: string;
+  }>();
   const [permission, requestPermission] = useCameraPermissions();
   const [mode, setMode] = useState<Mode>('scan');
 
@@ -123,14 +127,9 @@ export default function AddItemsScreen() {
     lastBarcodeRef.current = barcode;
     setLooking(true);
     try {
+      if (!warehouseId) throw new Error('Missing warehouse context.');
       // 1. Local custom_products lookup
-      const { data: sess } = await supabase.auth.getSession();
-      const userId = sess.session?.user.id;
-      if (!userId) throw new Error('Not signed in.');
-      const wh = await getMyWarehouse(userId);
-      if (!wh) throw new Error('No warehouse.');
-
-      const custom = await findCustomProduct(wh.id, barcode);
+      const custom = await findCustomProduct(warehouseId, barcode);
       if (custom) {
         setDraft({
           name: custom.name,
@@ -140,6 +139,7 @@ export default function AddItemsScreen() {
           barcode,
           image_url: custom.image_url,
           category: custom.category,
+          pack_count: null,
         });
         setDraftSource('custom');
         Haptics.selectionAsync();
@@ -158,6 +158,7 @@ export default function AddItemsScreen() {
           barcode,
           image_url: off.image_url,
           category: off.category,
+          pack_count: null,
         });
         setDraftSource('off');
         Haptics.selectionAsync();
@@ -174,6 +175,7 @@ export default function AddItemsScreen() {
         barcode,
         image_url: null,
         category: null,
+        pack_count: null,
       });
       setDraftSource('manual');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -198,6 +200,7 @@ export default function AddItemsScreen() {
       barcode: null,
       image_url: null,
       category: null,
+      pack_count: null,
     });
     setDraftSource('manual');
     setMode('form');
@@ -244,27 +247,25 @@ export default function AddItemsScreen() {
       barcode: draft.barcode ?? null,
       image_url: draft.image_url ?? null,
       category: draft.category ?? null,
+      pack_count: draft.pack_count ?? null,
     };
     setQueue((q) => [...q, entry]);
 
     // If it has a barcode and isn't already a custom_product, remember it
-    if (entry.barcode) {
+    if (entry.barcode && warehouseId) {
       try {
         const { data: sess } = await supabase.auth.getSession();
         const userId = sess.session?.user.id;
         if (userId) {
-          const wh = await getMyWarehouse(userId);
-          if (wh) {
-            await upsertCustomProduct({
-              warehouse_id: wh.id,
-              barcode: entry.barcode,
-              name: entry.name,
-              category: entry.category,
-              image_url: entry.image_url,
-              typical_expiry_days: null,
-              created_by: userId,
-            });
-          }
+          await upsertCustomProduct({
+            warehouse_id: warehouseId,
+            barcode: entry.barcode,
+            name: entry.name,
+            category: entry.category,
+            image_url: entry.image_url,
+            typical_expiry_days: null,
+            created_by: userId,
+          });
         }
       } catch {
         // Non-fatal, log silently
@@ -308,9 +309,10 @@ export default function AddItemsScreen() {
           barcode: d.barcode,
           image_url: d.image_url,
           category: d.category,
+          pack_count: d.pack_count,
         })),
       );
-      router.replace(`/box/${boxId}` as any);
+      router.replace(`/warehouse/${warehouseId}/box/${boxId}` as any);
     } catch (e: any) {
       Alert.alert('Save error', e?.message ?? 'Cannot save.');
     } finally {
@@ -458,6 +460,27 @@ export default function AddItemsScreen() {
                 />
               </View>
             </View>
+
+            <Text style={styles.label}>Pcs per package (optional)</Text>
+            <TextInput
+              value={draft.pack_count != null ? String(draft.pack_count) : ''}
+              onChangeText={(v) => {
+                const trimmed = v.trim();
+                if (!trimmed) {
+                  setDraft({ ...draft, pack_count: null });
+                  return;
+                }
+                const parsed = parseInt(trimmed, 10);
+                setDraft({
+                  ...draft,
+                  pack_count: Number.isFinite(parsed) && parsed > 0 ? parsed : null,
+                });
+              }}
+              placeholder="e.g. 24"
+              placeholderTextColor={colors.textSubtle}
+              keyboardType="number-pad"
+              style={styles.input}
+            />
 
             <Text style={styles.label}>Expiry date</Text>
             <Pressable
@@ -690,9 +713,7 @@ function QueueChip({
       <Text numberOfLines={2} style={styles.queueName}>
         {draft.name}
       </Text>
-      <Text style={styles.queueQty}>
-        {Number.isInteger(draft.quantity) ? draft.quantity : draft.quantity.toFixed(1)} {draft.unit}
-      </Text>
+      <Text style={styles.queueQty}>{formatItemQuantity(draft)}</Text>
       <View style={[styles.queueBadge, { backgroundColor: palette.bg }]}>
         <Text style={[styles.queueBadgeText, { color: palette.fg }]}>
           {formatExpiry(draft.expiry_date)}

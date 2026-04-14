@@ -10,9 +10,11 @@ import type {
   Invitation,
   Item,
   ItemWithBox,
+  Role,
   Unit,
   Warehouse,
   WarehouseMember,
+  WarehouseWithRole,
   Category,
 } from '@/src/types/database';
 
@@ -62,28 +64,31 @@ export async function getSession() {
 // ============================================================================
 
 /**
- * Vrátí **nejstarší** sklad, kterého je uživatel členem. Stockr je single-warehouse
- * UX, ale schema podporuje více. Ordering by `joined_at asc` zajišťuje, že všechny
- * části appky (Dashboard, box/new, scan) vidí **stejný** warehouse pro stejného
- * usera — jinak by různé callsitey mohly vrátit různé warehouses při multi-warehouse
- * situaci (např. po pozvánce).
+ * Full list of warehouses the user belongs to, annotated with the user's role
+ * per warehouse. Ordered by `joined_at asc` so the oldest (usually self-created)
+ * sits first. Feeds the Warehouses list screen; realtime updates via
+ * `subscribeMyWarehouses`.
  */
-export async function getMyWarehouse(userId: string): Promise<Warehouse | null> {
+export async function getMyWarehouses(userId: string): Promise<WarehouseWithRole[]> {
   const { data, error } = await supabase
     .from('warehouse_members')
-    .select('warehouse_id, joined_at, warehouses(*)')
+    .select('role, joined_at, warehouses(*)')
     .eq('user_id', userId)
-    .order('joined_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .order('joined_at', { ascending: true });
   if (error) throw error;
-  return (data?.warehouses as unknown as Warehouse) ?? null;
+  if (!data) return [];
+  return data
+    .map((row: any) => {
+      if (!row.warehouses) return null;
+      return { ...(row.warehouses as Warehouse), my_role: row.role as Role };
+    })
+    .filter((w): w is WarehouseWithRole => w !== null);
 }
 
 /**
  * Vytvoří nový sklad a automaticky přidá zakladatele jako ownera.
  * Používá SECURITY DEFINER RPC funkci create_warehouse_for_me, která
- * bypassne RLS a udělá oba inserty atomicky. Viz supabase/fix-warehouse-rpc.sql.
+ * bypassne RLS a udělá oba inserty atomicky. Viz schema.sql.
  *
  * Parametr `userId` zůstává pro API kompatibilitu — RPC používá auth.uid() uvnitř.
  */
@@ -94,13 +99,55 @@ export async function createWarehouse(_userId: string, name: string): Promise<Wa
   return data as Warehouse;
 }
 
+export async function getWarehouseById(id: string): Promise<Warehouse | null> {
+  const { data, error } = await supabase
+    .from('warehouses')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as Warehouse) ?? null;
+}
+
+export async function renameWarehouse(id: string, name: string): Promise<Warehouse> {
+  const { data, error } = await supabase
+    .from('warehouses')
+    .update({ name })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Warehouse;
+}
+
+export async function deleteWarehouse(id: string): Promise<void> {
+  const { error } = await supabase.from('warehouses').delete().eq('id', id);
+  if (error) throw error;
+}
+
 /**
- * Ensures the user has a warehouse. If not, creates "Home" as the default.
+ * Remove self from a warehouse. Fails with a descriptive error if the caller
+ * is the last remaining owner — the DB trigger would block it too, but
+ * checking up-front lets us show a helpful message instead of a raw SQL error.
  */
-export async function ensureWarehouse(userId: string): Promise<Warehouse> {
-  const existing = await getMyWarehouse(userId);
-  if (existing) return existing;
-  return createWarehouse(userId, 'Home');
+export async function leaveWarehouse(warehouseId: string, userId: string): Promise<void> {
+  const { data: members, error: memErr } = await supabase
+    .from('warehouse_members')
+    .select('user_id, role')
+    .eq('warehouse_id', warehouseId);
+  if (memErr) throw memErr;
+  const owners = (members ?? []).filter((m) => m.role === 'owner');
+  if (owners.length === 1 && owners[0].user_id === userId) {
+    throw new Error(
+      'You are the last owner of this warehouse. Promote another member first, or delete the warehouse.',
+    );
+  }
+  const { error } = await supabase
+    .from('warehouse_members')
+    .delete()
+    .eq('warehouse_id', warehouseId)
+    .eq('user_id', userId);
+  if (error) throw error;
 }
 
 export async function listMembers(warehouseId: string): Promise<
@@ -112,6 +159,88 @@ export async function listMembers(warehouseId: string): Promise<
     .eq('warehouse_id', warehouseId);
   if (error) throw error;
   return (data as any) ?? [];
+}
+
+export async function promoteMember(warehouseId: string, userId: string): Promise<void> {
+  const { error } = await supabase
+    .from('warehouse_members')
+    .update({ role: 'owner' })
+    .eq('warehouse_id', warehouseId)
+    .eq('user_id', userId);
+  if (error) throw error;
+}
+
+/**
+ * Demote a member from owner → member. Refuses to demote the last owner
+ * (would leave the warehouse unmanageable).
+ */
+export async function demoteMember(warehouseId: string, userId: string): Promise<void> {
+  const { data: members, error: memErr } = await supabase
+    .from('warehouse_members')
+    .select('user_id, role')
+    .eq('warehouse_id', warehouseId);
+  if (memErr) throw memErr;
+  const owners = (members ?? []).filter((m) => m.role === 'owner');
+  if (owners.length === 1 && owners[0].user_id === userId) {
+    throw new Error(
+      'Cannot demote the last owner. Promote another member first.',
+    );
+  }
+  const { error } = await supabase
+    .from('warehouse_members')
+    .update({ role: 'member' })
+    .eq('warehouse_id', warehouseId)
+    .eq('user_id', userId);
+  if (error) throw error;
+}
+
+/**
+ * Owner kicks another user out of the warehouse. Refuses to remove the last
+ * owner — the caller should delete the warehouse instead.
+ */
+export async function removeMember(warehouseId: string, userId: string): Promise<void> {
+  const { data: members, error: memErr } = await supabase
+    .from('warehouse_members')
+    .select('user_id, role')
+    .eq('warehouse_id', warehouseId);
+  if (memErr) throw memErr;
+  const owners = (members ?? []).filter((m) => m.role === 'owner');
+  if (owners.length === 1 && owners[0].user_id === userId) {
+    throw new Error(
+      'Cannot remove the last owner. Promote another member first, or delete the warehouse.',
+    );
+  }
+  const { error } = await supabase
+    .from('warehouse_members')
+    .delete()
+    .eq('warehouse_id', warehouseId)
+    .eq('user_id', userId);
+  if (error) throw error;
+}
+
+/**
+ * Realtime subscription on `warehouse_members` filtered by the current user.
+ * Fires when the user is added to a new warehouse (accepted invitation),
+ * removed from one, or has their role changed. Feeds the Warehouses list
+ * screen so an invitation acceptance on another device reflects instantly.
+ */
+export function subscribeMyWarehouses(userId: string, onChange: () => void): () => void {
+  const channel = supabase
+    .channel(`my-warehouses:${userId}:${Math.random().toString(36).slice(2)}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'warehouse_members',
+        filter: `user_id=eq.${userId}`,
+      },
+      () => onChange(),
+    )
+    .subscribe();
+  return () => {
+    supabase.removeChannel(channel);
+  };
 }
 
 // ============================================================================
@@ -242,6 +371,8 @@ export interface NewItemInput {
   image_url?: string | null;
   category?: Category | null;
   notes?: string | null;
+  opened?: boolean;
+  pack_count?: number | null;
 }
 
 export async function addItem(
@@ -276,6 +407,21 @@ export async function addItemsBatch(
 export async function updateItem(id: string, patch: Partial<NewItemInput>) {
   const { data, error } = await supabase.from('items').update(patch).eq('id', id).select().single();
   if (error) throw error;
+  return data as Item;
+}
+
+/**
+ * "Open one unit" — atomic split via the `open_one_item` RPC.
+ * Decrements (or deletes) the sealed source and upserts a matching opened
+ * sibling in the same box. Returns the opened sibling row so the caller
+ * can haptic + close sheet without needing to know the detail.
+ */
+export async function openOneItem(itemId: string): Promise<Item> {
+  const { data, error } = await supabase.rpc('open_one_item', {
+    source_id: itemId,
+  });
+  if (error) throw error;
+  if (!data) throw new Error('Open action returned no row.');
   return data as Item;
 }
 
@@ -314,11 +460,17 @@ export function subscribeItems(boxId: string, onChange: () => void): () => void 
 export async function createInvitation(
   warehouseId: string,
   invitedBy: string,
-  email: string,
+  role: Role = 'member',
+  email?: string | null,
 ): Promise<Invitation> {
   const { data, error } = await supabase
     .from('invitations')
-    .insert({ warehouse_id: warehouseId, invited_by: invitedBy, email })
+    .insert({
+      warehouse_id: warehouseId,
+      invited_by: invitedBy,
+      role,
+      email: email ?? null,
+    })
     .select()
     .single();
   if (error) throw error;
@@ -336,7 +488,10 @@ export async function listInvitations(warehouseId: string): Promise<Invitation[]
 }
 
 /**
- * Přijetí pozvánky: ověř token, přidej usera jako membera, označ přijato.
+ * Redeem an invitation token: join the warehouse with the role stored on the
+ * invitation (member or co-owner), mark the invite as accepted, and return
+ * the joined warehouse. Idempotent at the error layer — a duplicate accept
+ * throws "already accepted".
  */
 export async function acceptInvitation(token: string, userId: string): Promise<Warehouse> {
   const { data: inv, error: invErr } = await supabase
@@ -345,16 +500,16 @@ export async function acceptInvitation(token: string, userId: string): Promise<W
     .eq('token', token)
     .maybeSingle();
   if (invErr) throw invErr;
-  if (!inv) throw new Error('Pozvánka neexistuje.');
-  if (inv.accepted_at) throw new Error('Pozvánka už byla přijata.');
+  if (!inv) throw new Error('Invitation not found.');
+  if (inv.accepted_at) throw new Error('This invitation has already been used.');
   if (new Date(inv.expires_at).getTime() < Date.now()) {
-    throw new Error('Pozvánka vypršela.');
+    throw new Error('This invitation has expired.');
   }
 
   const { error: memErr } = await supabase.from('warehouse_members').insert({
     warehouse_id: inv.warehouse_id,
     user_id: userId,
-    role: 'member',
+    role: inv.role ?? 'member',
   });
   if (memErr) throw memErr;
 

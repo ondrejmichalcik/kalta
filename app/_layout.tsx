@@ -3,22 +3,48 @@
 // Auth guard + deep link handler pro stockr://invite/TOKEN
 // ============================================================================
 import 'react-native-gesture-handler';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as Linking from 'expo-linking';
 import { StatusBar } from 'expo-status-bar';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ActivityIndicator, Alert, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import type { Session } from '@supabase/supabase-js';
-import { supabase } from '@/src/lib/supabase';
-import { acceptInvitation } from '@/src/lib/supabase';
+import { acceptInvitation, supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/theme';
+
+// Stash key for an invitation token that arrived while the user was signed
+// out. Consumed on the next successful auth state change.
+const PENDING_INVITE_KEY = 'stockr:pendingInviteToken';
 
 export default function RootLayout() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const segments = useSegments();
+  // Guards against double-processing the same pending invite when auth
+  // state changes multiple times in quick succession (e.g. SIGNED_IN + TOKEN_REFRESHED).
+  const processingPendingRef = useRef(false);
+
+  // Redeem a token, show an alert, navigate home. Shared between the deep
+  // link handler and the post-login pending-invite consumer.
+  const processInvite = useCallback(
+    async (token: string, userId: string) => {
+      try {
+        await acceptInvitation(token, userId);
+        await AsyncStorage.removeItem(PENDING_INVITE_KEY);
+        Alert.alert('Done', 'Invitation accepted. Welcome to the shared warehouse!');
+        router.replace('/' as any);
+      } catch (e: any) {
+        // Discard the pending token on error — it's either expired, already
+        // used, or malformed. No point keeping it around to fail again.
+        await AsyncStorage.removeItem(PENDING_INVITE_KEY);
+        Alert.alert('Invitation error', e?.message ?? 'Unknown error');
+      }
+    },
+    [router],
+  );
 
   // --- Session boot ---
   useEffect(() => {
@@ -27,14 +53,23 @@ export default function RootLayout() {
       setLoading(false);
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, s) => {
       setSession(s);
+      // If we just gained a session and a pending invite is stashed, redeem it.
+      if (s && !processingPendingRef.current) {
+        const pending = await AsyncStorage.getItem(PENDING_INVITE_KEY);
+        if (pending) {
+          processingPendingRef.current = true;
+          await processInvite(pending, s.user.id);
+          processingPendingRef.current = false;
+        }
+      }
     });
 
     return () => {
       sub.subscription.unsubscribe();
     };
-  }, []);
+  }, [processInvite]);
 
   // --- Auth guard (routing podle session) ---
   useEffect(() => {
@@ -52,7 +87,6 @@ export default function RootLayout() {
     const handle = async (url: string | null) => {
       if (!url) return;
       const parsed = Linking.parse(url);
-      // Expo Linking: path např. "invite/abc-token"
       const path = parsed.path ?? '';
       const match = path.match(/^invite\/(.+)$/);
       if (!match) return;
@@ -60,24 +94,22 @@ export default function RootLayout() {
 
       const s = (await supabase.auth.getSession()).data.session;
       if (!s) {
-        // If we're not signed in, we could stash the token in SecureStore and
-        // apply it after login. For now just warn the user.
-        Alert.alert('Invitation', 'Please sign in and open the link again.');
+        // Persist token for post-login processing. The onAuthStateChange
+        // handler above will pick it up once the user signs in.
+        await AsyncStorage.setItem(PENDING_INVITE_KEY, token);
+        Alert.alert(
+          'Invitation',
+          'Sign in to accept this invitation. We\'ll remember the link for you.',
+        );
         return;
       }
-      try {
-        await acceptInvitation(token, s.user.id);
-        Alert.alert('Done', 'Invitation accepted. Welcome to the shared warehouse!');
-        router.replace('/' as any);
-      } catch (e: any) {
-        Alert.alert('Invitation error', e?.message ?? 'Unknown error');
-      }
+      await processInvite(token, s.user.id);
     };
 
     Linking.getInitialURL().then(handle);
     const sub = Linking.addEventListener('url', ({ url }) => handle(url));
     return () => sub.remove();
-  }, []);
+  }, [processInvite]);
 
   if (loading) {
     return (

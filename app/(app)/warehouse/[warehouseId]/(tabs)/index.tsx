@@ -12,14 +12,9 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useRouter } from 'expo-router';
-import {
-  ensureWarehouse,
-  listBoxes,
-  subscribeBoxes,
-  supabase,
-} from '@/src/lib/supabase';
-import type { Box, Warehouse } from '@/src/types/database';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { listBoxes, subscribeBoxes } from '@/src/lib/supabase';
+import type { Box } from '@/src/types/database';
 import {
   compareBoxesByExpiry,
   formatExpiry,
@@ -38,27 +33,23 @@ const TAB_BAR_HEIGHT = 84;
 
 export default function BoxesScreen() {
   const router = useRouter();
-  const [warehouse, setWarehouse] = useState<Warehouse | null>(null);
+  const { warehouseId } = useLocalSearchParams<{ warehouseId: string }>();
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    if (!warehouseId) return;
     try {
       setError(null);
-      const { data: sess } = await supabase.auth.getSession();
-      const userId = sess.session?.user.id;
-      if (!userId) return;
-      const wh = await ensureWarehouse(userId);
-      setWarehouse(wh);
-      const rows = await listBoxes(wh.id);
+      const rows = await listBoxes(warehouseId);
       setBoxes(rows);
     } catch (e: any) {
       setError(e?.message ?? 'Cannot load warehouse.');
       throw e;
     }
-  }, []);
+  }, [warehouseId]);
 
   const retry = async () => {
     setLoading(true);
@@ -84,12 +75,12 @@ export default function BoxesScreen() {
   );
 
   useEffect(() => {
-    if (!warehouse) return;
-    const unsubscribe = subscribeBoxes(warehouse.id, () => {
-      listBoxes(warehouse.id).then(setBoxes).catch(() => {});
+    if (!warehouseId) return;
+    const unsubscribe = subscribeBoxes(warehouseId, () => {
+      listBoxes(warehouseId).then(setBoxes).catch(() => {});
     });
     return unsubscribe;
-  }, [warehouse]);
+  }, [warehouseId]);
 
   const sortedBoxes = useMemo(() => [...boxes].sort(compareBoxesByExpiry), [boxes]);
 
@@ -143,6 +134,16 @@ export default function BoxesScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <ListHeader
         title="Boxes"
+        leading={
+          <Pressable
+            hitSlop={12}
+            onPress={() => router.push('/' as any)}
+            style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.5 }]}
+            accessibilityLabel="Back to warehouses"
+          >
+            <Icon sf="chevron.left" size={22} color={colors.text} />
+          </Pressable>
+        }
         actions={[
           { sfIcon: 'magnifyingglass', onPress: () => {}, label: 'Search' },
           { sfIcon: 'line.3.horizontal.decrease', onPress: () => {}, label: 'Filter' },
@@ -179,7 +180,10 @@ export default function BoxesScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <BoxRow box={item} onPress={() => router.push(`/box/${item.id}` as any)} />
+          <BoxRow
+            box={item}
+            onPress={() => router.push(`/warehouse/${warehouseId}/box/${item.id}` as any)}
+          />
         )}
       />
 
@@ -187,7 +191,7 @@ export default function BoxesScreen() {
         label="New box"
         sfIcon="plus"
         bottom={TAB_BAR_HEIGHT + 12}
-        onPress={() => router.push('/box/new' as any)}
+        onPress={() => router.push(`/warehouse/${warehouseId}/box/new` as any)}
       />
     </SafeAreaView>
   );
@@ -231,6 +235,13 @@ function BoxRow({ box, onPress }: { box: Box; onPress: () => void }) {
 // ---------------------------------------------------------------------------
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
+  backBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 20,
+  },
   center: {
     flex: 1,
     justifyContent: 'center',

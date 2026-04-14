@@ -52,18 +52,26 @@ stockr/
 │   └── components/
 │       ├── ItemEditSheet.tsx     ← modal pro edit položky
 │       └── BoxEditSheet.tsx      ← modal pro edit bedny
-├── app/                           ← Expo Router file-based routing
-│   ├── _layout.tsx                ← root, auth guard, deep link handler, GestureHandlerRootView
+├── app/                                          ← Expo Router file-based routing
+│   ├── _layout.tsx                               ← root, auth guard, deep link handler (stockr://invite/TOKEN → acceptInvitation), pending-invite SecureStore persist
 │   ├── (auth)/
-│   │   └── login.tsx              ← Apple Sign In
+│   │   └── login.tsx                             ← Apple Sign In (žádný auto-create warehouse)
 │   └── (app)/
-│       ├── _layout.tsx            ← stack navigator
-│       ├── index.tsx              ← Dashboard
-│       ├── scan.tsx               ← QR scanner
-│       └── box/
-│           ├── new.tsx            ← vytvoření bedny + QR náhled
-│           ├── [id].tsx           ← detail bedny (list/grid toggle, swipe, action sheet)
-│           └── [id]/add-items.tsx ← batch naskladňovací session
+│       ├── _layout.tsx                           ← stack navigator
+│       ├── index.tsx                             ← Warehouses list (root) — empty state, pill cards, profile icon, FAB
+│       └── warehouse/
+│           ├── new.tsx                           ← Create warehouse form
+│           └── [warehouseId]/
+│               ├── (tabs)/
+│               │   ├── _layout.tsx               ← 4-tab layout per warehouse
+│               │   ├── index.tsx                 ← Boxes list (Dashboard)
+│               │   ├── items.tsx                 ← Cross-box items timeline (sort opened-first)
+│               │   ├── scan.tsx                  ← QR scanner → box detail
+│               │   └── settings.tsx              ← Warehouse settings (rename, members, invite, delete/leave)
+│               └── box/
+│                   ├── new.tsx                   ← vytvoření bedny + QR náhled
+│                   ├── [boxId].tsx               ← detail bedny (list/grid, swipe: left=Open / right=Delete)
+│                   └── [boxId]/add-items.tsx     ← batch naskladňovací session
 ├── app.json                       ← Expo config, permissions, deep link scheme
 ├── package.json
 ├── tsconfig.json                  ← @/* alias na root
@@ -167,7 +175,7 @@ Sprint 2 přidal: `expo-camera`, `expo-haptics`, `expo-clipboard`, `@react-nativ
 ### 6. Sprint stav
 Vývoj běží po sprintech. Detailní stav → **[`.claude/implementation-plan.md`](.claude/implementation-plan.md)**
 
-Aktuálně: **Sprint 2.6 běží** — UI redesign z dark gradient do light NoWaste-style (pill cards, tab bar, FAB, SF Symbols). Sprint 2.5 uzavřen (dark theme rejected in context, hero login zachován). Next: Sprint 3 (Brother tisk, Claude Vision, image upload).
+Aktuálně: **Sprint 2.7 uzavřen** (2026-04-14) — multi-warehouse flow (first-class resource, Warehouses list, create/rename/delete/leave, invite link s co-owner toggle, deep link s pending-invite persist), role-aware UI (multi-owner model, last-owner invariant DB trigger), per-item `opened` flag se split akcí (`open_one_item` RPC, swipe left + sheet button, merge do opened siblinga), optional `pack_count` pro pcs/pack labels ("10 pcs · 24/pack"). Sprint 2.6 (light NoWaste redesign) uzavřen. Next: **Sprint 3** (Brother PT-P710BT tisk — tiskárna objednána, Claude Vision, image upload do Storage).
 
 ---
 

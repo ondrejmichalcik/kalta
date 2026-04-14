@@ -62,6 +62,13 @@ export interface Warehouse {
   created_at: string;
 }
 
+// Warehouse augmented with the viewing user's role. Returned by
+// `getMyWarehouses` for the Warehouses list — lets the UI render role badges
+// and gate Delete / Leave / Invite without a second lookup.
+export interface WarehouseWithRole extends Warehouse {
+  my_role: Role;
+}
+
 export interface WarehouseMember {
   warehouse_id: string;
   user_id: string;
@@ -73,9 +80,9 @@ export interface Invitation {
   id: string;
   warehouse_id: string;
   invited_by: string;
-  email: string;
+  email: string | null;
   token: string;
-  role: 'member';
+  role: Role;
   expires_at: string;
   accepted_at: string | null;
   created_at: string;
@@ -104,6 +111,8 @@ export interface Item {
   image_url: string | null;
   category: Category | null;
   notes: string | null;
+  opened: boolean;
+  pack_count: number | null;
   added_by: string | null;
   created_at: string;
   updated_at: string;
@@ -170,6 +179,25 @@ export function getExpiryStatus(dateStr: string | null): ExpiryStatus {
 }
 
 /**
+ * Render the numeric line for list views: "10 pcs" plain, or "10 pcs ·
+ * 24/pack" when pack_count is set. Keeps all numeric info on one subtitle
+ * line so the title stays clean (just product name) and "N pcs" never
+ * appears twice with different meanings.
+ */
+export function formatItemQuantity(
+  item: Pick<Item, 'quantity' | 'unit' | 'pack_count'>,
+): string {
+  const qty = Number.isInteger(item.quantity)
+    ? String(item.quantity)
+    : item.quantity.toFixed(1);
+  const base = `${qty} ${item.unit}`;
+  if (item.pack_count && item.pack_count > 0) {
+    return `${base} · ${item.pack_count}/pack`;
+  }
+  return base;
+}
+
+/**
  * Format ISO YYYY-MM-DD to "15. 3. 2027" (DD. M. YYYY).
  */
 export function formatDate(dateStr: string | null): string {
@@ -229,6 +257,26 @@ export function compareBoxesByExpiry(a: Box, b: Box): number {
   if (sa !== sb) return STATUS_ORDER[sa] - STATUS_ORDER[sb];
   if (a.nearest_expiry && b.nearest_expiry) {
     return a.nearest_expiry.localeCompare(b.nearest_expiry);
+  }
+  return a.name.localeCompare(b.name);
+}
+
+/**
+ * Item sort: expired → critical → soon → ok → none, and **within each
+ * group opened items first**. An opened pack with critical expiry still
+ * sinks below an expired sealed pack — the idea is "finish what's already
+ * started before opening a new one, but only after dealing with things
+ * that are outright dead."
+ */
+export function compareItemsByPriority<
+  T extends Pick<Item, 'opened' | 'expiry_date' | 'name'>,
+>(a: T, b: T): number {
+  const sa = getExpiryStatus(a.expiry_date);
+  const sb = getExpiryStatus(b.expiry_date);
+  if (sa !== sb) return STATUS_ORDER[sa] - STATUS_ORDER[sb];
+  if (a.opened !== b.opened) return a.opened ? -1 : 1;
+  if (a.expiry_date && b.expiry_date) {
+    return a.expiry_date.localeCompare(b.expiry_date);
   }
   return a.name.localeCompare(b.name);
 }

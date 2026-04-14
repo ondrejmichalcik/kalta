@@ -261,6 +261,145 @@ Insertnutý mezi Sprint 2 a Sprint 3. Cíl: projekt převést do angličtiny, sj
 
 ---
 
+## Sprint 2.7 – Multi-warehouse + opened flag ✅
+
+**Kontext:** Backend schéma (warehouse_members + RLS helpers) je multi-tenant ready od začátku, ale UI předpokládá jeden sklad per uživatel a auto-createne ho v `_layout.tsx` při prvním loginu. Tohle blokuje reálný sharing flow: když A pozve B, B už má vlastní auto-created sklad a appka neví, který ukázat. Sprint 2.7 udělá ze **skladu first-class resource** — user má seznam skladů, může jich mít víc, pozvánka druhému uživateli se mu rovnou objeví v jeho seznamu (přes realtime sub na `warehouse_members`).
+
+Druhý, menší kus sprintu: **pack size** na items. Currently lze říct "2 pack", ale nevíme kolik kusů je v balení. Leky/medicine use case: "2 packs × 20 = 40 tablets" jako odvozený total. Ukládá se per-EAN v `custom_products`, takže další nákup stejného produktu se předvyplní.
+
+**Rozhodnutí z plánovací session (2026-04-14):**
+- Global settings (sign out, profile) → **profile icon top-right** na Warehouses list screen (ne druhý root tab)
+- Terminologie v UI zůstává **warehouse** (Sprint 2.5 convention), jen se mění hierarchie screenů
+- Pack size bundled do 2.7, ne samostatný warm-up
+- **Role model = Multi-owner** (co-owners): `warehouse_members.role` může být `owner` na víc řádcích, kterýkoliv owner může invitovat/přejmenovat/mazat/promote/demote. Invariant: vždy ≥1 owner.
+- **Invite flow má "Invite as co-owner" checkbox** rovnou v invite dialogu (ne jen ex-post promote v members listu)
+
+### Fáze 1 — Schema & data layer
+
+- ⏳ **Zkontrolovat `warehouse_invitations` tabulku** + existenci `createInvitation` / `acceptInvitation` funkcí v `supabase.ts` (plán říká že existují, ověřit reálně)
+- ⏳ **Role model — multi-owner**:
+  - Ověřit `warehouse_members.role` enum/check constraint — pokud neobsahuje `owner`, migrace ho přidá
+  - `is_owner(wh)` RLS helper upravit tak, aby vracel `true` i pro `warehouse_members.role = 'owner'`, ne jen pro `warehouses.owner_id = auth.uid()`
+  - Ověřit, že `warehouses.owner_id` se stále naplní při `createWarehouse` (ten pak dostane i řádek v `warehouse_members` s `role='owner'`) — redundance OK, `owner_id` je quick lookup, `warehouse_members` je zdroj pravdy pro RLS
+  - Při `acceptInvitation` respektovat `role` z invite tokenu (member/owner), ne hardcoded `member`
+  - DB trigger nebo CHECK constraint: **warehouse nesmí existovat bez alespoň 1 ownera** — při delete/demote posledního ownera operace selže (nebo RLS zajistí na appce, ale robustnější na DB)
+- ⏳ **Migrace** (idempotentní SQL script):
+  - `custom_products.pack_size numeric NULL`
+  - `custom_products.pack_unit text NULL` (`"tablet"`, `"ml"`, `"g"`, …)
+  - Schema tweaky pro multi-owner (viz výše)
+- ⏳ **`getMyWarehouses(userId)`** → array s rolí per sklad (join přes `warehouse_members`)
+- ⏳ **Nové API funkce** v `supabase.ts`:
+  - `createWarehouse(name) → Warehouse` (vytvoří warehouse + `warehouse_members` row s `role='owner'` pro current user)
+  - `renameWarehouse(id, name)` (owner only)
+  - `deleteWarehouse(id)` (owner only)
+  - `leaveWarehouse(id)` (kdokoliv, ale owner může opustit jen pokud existuje ≥1 další owner — jinak error)
+  - `listMembers(warehouseId)` → s role info
+  - `promoteMember(warehouseId, userId)` — nastaví `role='owner'` (volající musí být owner)
+  - `demoteMember(warehouseId, userId)` — nastaví `role='member'` (volající musí být owner, invariant: nesmí demotovat posledního ownera)
+  - `removeMember(warehouseId, userId)` — owner vyhodí jiného membera (nesmí vyhodit posledního ownera)
+  - `createInvitation(warehouseId, role)` — rozšířit o `role` parametr (`'member' | 'owner'`), default `'member'`
+- ⏳ **Realtime sub helper** `subscribeToMyWarehouses(userId, cb)` — filter `user_id=eq.{userId}` na `warehouse_members`
+- ⏳ **Odstranit auto-create** z `app/_layout.tsx` (řádek co při loginu volá `ensureWarehouse` nebo podobné)
+
+### Fáze 2 — Route restructure (největší kus, bolestivé)
+
+- ⏳ `app/(app)/(tabs)/*` → `app/(app)/warehouse/[id]/(tabs)/*`
+- ⏳ `app/(app)/box/*` → `app/(app)/warehouse/[id]/box/*`
+- ⏳ **`app/(app)/index.tsx`** = nový Warehouses list (nahrazuje přímé zobrazení Boxes tabů)
+- ⏳ **`app/(app)/warehouse/new.tsx`** = Create warehouse form
+- ⏳ Update všech `router.push` / `router.replace` / `<Link>` call sites — většina teď potřebuje `warehouseId` parametr
+- ⏳ **`warehouseId` context** — per-screen buď z `useLocalSearchParams()` nebo helper hook `useCurrentWarehouseId()`
+- ⏳ Refactor `listAllItemsInWarehouse`, `listBoxes`, atd. — všechny už berou `warehouseId`, ale teď musí přijít z URL, ne z globálního "my warehouse" lookup
+
+### Fáze 3 — Warehouses list screen (nový root)
+
+- ⏳ **Empty state**: pill card "No warehouses yet" + 2 akce `[+ Create warehouse]` a `[Accept invitation]` (druhá je optional pro handoff deep linku mimo Messages)
+- ⏳ **Populated state**: pill card per warehouse s:
+  - Warehouse name (big)
+  - Role badge (`Owner` / `Member`)
+  - Subtitle: počet členů + počet beden (optional)
+- ⏳ **Profile icon top-right** → `ActionSheetIOS` nebo bottom sheet: "Signed in as {email}" + Sign out
+- ⏳ **FAB** `+ New warehouse` → push `warehouse/new.tsx`
+- ⏳ **Tap na card** → push `warehouse/[id]/(tabs)/index.tsx`
+- ⏳ **Realtime sub** subscribe v `useEffect`, unsubscribe v cleanup — warehouses naskočí automaticky když server potvrdí nové členství
+
+### Fáze 4 — Create warehouse form
+
+- ⏳ **`warehouse/new.tsx`** — jednoduchá form: name input, Create button
+- ⏳ Po úspěchu: `router.replace('/warehouse/{id}/(tabs)')` — user rovnou skočí dovnitř nového skladu
+
+### Fáze 5 — Warehouse settings tab (per-warehouse)
+
+- ⏳ **`warehouse/[id]/(tabs)/settings.tsx`** nahrazuje bývalý global `settings.tsx`
+- ⏳ **Header sekce**: warehouse name + Rename action (inline nebo sheet, owner only)
+- ⏳ **Members sekce**: list s email + role badge (`Owner` / `Member`) + **Invite member** button (owner only)
+- ⏳ **Per-member ActionSheet** (long-press nebo "…" na row) — viditelný jen pro ownery:
+  - Promote to owner (pokud member)
+  - Demote to member (pokud owner) — disabled pokud by demote znamenal 0 ownerů
+  - Remove from warehouse — disabled pokud target je poslední owner
+- ⏳ **Destruktivní akce** na konci:
+  - **Owner** → `Delete warehouse` (red, confirmation alert)
+  - **Member** → `Leave warehouse` (red, confirmation alert)
+  - **Owner, ale poslední** → Leave disabled s vysvětlením "You are the last owner. Promote someone else first or delete the warehouse."
+- ⏳ Po Delete/Leave → `router.replace('/')` zpět na Warehouses list
+
+### Fáze 6 — Invitation flow
+
+- ⏳ **Invite button v settings** → otevře **Invite sheet** s:
+  - Info text ("Share this link with someone to give them access…")
+  - **Checkbox / toggle**: `Invite as co-owner` (default off) — pokud zapnutý, pozvánka nese `role='owner'`
+  - `[Generate link]` button → volá `createInvitation(warehouseId, role)` → získá token
+- ⏳ **Share link** přes `expo-sharing` nebo `Share.share()` — obsah: `stockr://invite/{token}`
+- ⏳ **Deep link handler** v `app/_layout.tsx` — parser už existuje (ze Sprintu 2), napojit na `acceptInvitation(token)` při příjmu URL
+- ⏳ **Pre-auth case**: když user klikne na invite link ale není přihlášený → persist token do `SecureStore`, po loginu zpracovat (existující flow v Sprintu 4 plánu, ale minimální verze sem)
+- ⏳ **Post-accept**: realtime sub na B automaticky doplní sklad do seznamu, žádný manual refresh
+
+### Fáze 7 — Role-aware UI (minimální verze)
+
+- ⏳ **Jen na warehouse úrovni** — `getMyWarehouses` vrací roli per sklad, Warehouses list zobrazuje badge (Owner / Member)
+- ⏳ **Warehouse settings tab** — podmíněně rendruje Rename / Invite / Delete / Promote / Demote / Remove jen ownerům; members vidí read-only list + Leave
+- ⏳ **Multi-owner invariants** — vynucené jak na DB (check/trigger), tak v UI (disabled buttons s vysvětlením):
+  - Nesmí vzniknout warehouse s 0 ownery
+  - Owner nemůže opustit/být demotován/být odebrán, pokud je poslední
+- ⏳ **Box/item level zůstává role-agnostic** — každý člen může zatím všechno, plná role gate je Sprint 4
+
+### Fáze 8 — Pack size feature
+
+- ⏳ **`ItemEditSheet`**: conditional input "Tablets per pack" (nebo obecnější "Units per pack") když `unit = pack`
+- ⏳ **Upsert `custom_products.pack_size` + `pack_unit`** při save, přes EAN — další nákup stejného produktu se předvyplní
+- ⏳ **`getTotalUnits(item)`** helper v `src/types/database.ts` — vrací `quantity * pack_size` nebo `null` když `unit != pack`
+- ⏳ **Items tab + box detail** — secondary text pod hlavním řádkem: `"2 packs × 20 = 40 tablets"` (jen když pack_size k dispozici)
+- ⏳ Open Food Facts prefill — pokud OFF vrací `product_quantity` nebo podobné, zvážit auto-mapping na pack_size
+
+### Fáze 9 — Cleanup & test
+
+- ⏳ **Smazat staré routes / starý global `settings.tsx`** mimo warehouse kontext
+- ⏳ **Aktualizovat CLAUDE.md** struktura sekce — nové cesty pod `warehouse/[id]/...`
+- ⏳ **Projít end-to-end flows** v simulátoru:
+  - Nový user login → empty state → Create warehouse → scan & add box/items
+  - Existing user → Rename warehouse → Invite member (druhý simulátor / Apple ID)
+  - B přijme pozvánku → sklad naskočí do listu → vejde do něj → vidí boxes A
+  - B Leave warehouse → sklad zmizí
+  - Owner Delete warehouse → zmizí všem členům
+  - Ibuprofen item s pack_size=20, quantity=2 → Items tab ukáže "40 tablets"
+
+### Akceptační kritéria Sprintu 2.7
+
+- [ ] Nový user po loginu nevidí auto-created sklad, ale empty state s možností Create / Accept
+- [ ] Po vytvoření prvního skladu se ocitne v jeho tabech (Boxes / Items / Scan / Warehouse settings)
+- [ ] Profile icon top-right na Warehouses list otevírá Sign out
+- [ ] User A pošle invite link → B naskočí sklad do Warehouses list bez ručního refreshe
+- [ ] A může poslat invite s zapnutým "Invite as co-owner" → B přijme → B má role `owner` na skladu, vidí Delete/Rename/Invite
+- [ ] A může v Members listu povýšit existujícího membera na ownera a naopak
+- [ ] Poslední owner nemůže Leave / být demotován / být odebrán (UI i DB to odmítnou)
+- [ ] Member vidí v settings "Leave", Owner vidí "Delete" — ne obojí
+- [ ] Po Delete/Leave se user vrátí na Warehouses list a sklad zmizí
+- [ ] Ibuprofen s `unit=pack`, `quantity=2`, `pack_size=20` zobrazí secondary text `"2 packs × 20 = 40 tablets"`
+- [ ] Pack size se předvyplní při dalším naskenování stejného EAN
+- [ ] Sprint 1 + 2 + 2.6 flows stále fungují (boxes list, add items, scan, box detail, sheets)
+
+---
+
 ## Sprint 3 – Tisk a AI ⏳
 
 ### Brother PT-P710BT tisk (revised plan)
@@ -514,11 +653,39 @@ eas submit --platform ios
 Po otevření nové session a prozkoumání stavu:
 
 1. **Zkontroluj, že Metro bundler naběhne a appka se spustí** — `npx expo start --dev-client` a v simulátoru reload
-2. **Potvrď, že DB migrace z Sprintu 2.5 běží** — items.category a items.unit musí mít EN hodnoty (food/medicine/... a pcs/pack)
+2. **Potvrď, že DB migrace ze Sprintu 2.7 běží** — `warehouse_members` má `role` check `('owner','member')`, `items.opened` boolean + `items.pack_count` int existují, `open_one_item(uuid)` + `create_warehouse_for_me(text)` RPCs jsou registrované, trigger `warehouse_members_one_owner` enforcuje ≥1 owner
 3. **Rozhodni, co dál ze Sprintu 3**:
    - **Fáze A** — image upload (expo-image-picker + Supabase Storage) — nízkoriziková, půl dne
-   - **Brother PT-P710BT tisk** — závisí na nákupu tiskárny (~2500 Kč) + spárování v iOS
+   - **Brother PT-P710BT tisk** — tiskárna **objednána** 2026-04-14, po doručení spárovat v iOS Settings → Bluetooth → prototyp `qrLabel.ts` HTML + `expo-print` AirPrint flow
    - **Claude Vision Edge Function** — vyžaduje `ANTHROPIC_API_KEY` v Supabase Secrets
+
+### Session 2026-04-14 — Sprint 2.7 UZAVŘEN ✅
+
+Multi-warehouse první-class resource + role-aware UI + opened-split workflow:
+
+- **Fáze 1 Schema**: `invitations.email` nullable + `role in ('member','owner')`, DB trigger `enforce_at_least_one_owner()` (≥1 owner invariant přes `warehouse_members_one_owner`), RLS `members_update` policy (owneři můžou promote/demote), `items.opened` boolean + `items.pack_count` int columns, nové API `getMyWarehouses`/`getWarehouseById`/`renameWarehouse`/`deleteWarehouse`/`leaveWarehouse`/`promoteMember`/`demoteMember`/`removeMember`/`subscribeMyWarehouses`/`openOneItem`, `createInvitation` rozšířen o `role` parameter, `acceptInvitation` respektuje `inv.role`
+- **Fáze 2 Route restructure**: `(tabs)/*` a `box/*` přesunuty pod `warehouse/[warehouseId]/...`, nový root `app/(app)/index.tsx`, scan.tsx navigate na `box.warehouse_id` (ne URL param), settings tab používá `useGlobalSearchParams` (local nevrací parent dyn params v nested tabs po tab switchi), `ensureWarehouse` odstraněno z login.tsx
+- **Fáze 3 Warehouses list**: empty state s `box-generic` brand icon + primary CTA, pill cards s role badge (Owner sage / Member neutral), `person.crop.circle` profile icon → Sign out alert, FAB `+ New warehouse`, realtime sub na `warehouse_members` filtered by user
+- **Fáze 4 Create warehouse form**: jednoduchá name input form → RPC `create_warehouse_for_me` → `router.replace('/warehouse/${id}')`
+- **Fáze 5 Warehouse settings**: rename přes `Alert.prompt` (iOS), members list s avatar kolečkem a role badge, per-member `ActionSheetIOS` (Promote/Demote/Remove, gated invariantem "not last owner"), destruktivní akce Delete (owner) / Leave (member nebo non-last-owner) s hint textem "You're the last owner…" pro disabled Leave
+- **Fáze 6 Invitation flow**: Invite button v ListHeaderu (owner only), `InviteSheet` modal s dvoustavem (pre-generate toggle `Invite as co-owner` → post-generate copy/share/done), `Share.share()` nativní iOS sheet, deep link handler v `_layout.tsx` má `processInvite` extrahovaný a consuming path na `onAuthStateChange` — pending token v AsyncStorage pro pre-auth case
+- **Fáze 7 Role-aware UI**: multi-owner model (`is_owner` kontroluje `warehouse_members.role='owner'`), badge na Warehouses list, podmíněné akce v settings
+- **Fáze 8 Opened flag**: původně plánovaný `pack_size` experiment zrušen (neuchopitelná komplexita), místo toho `items.opened` boolean sort priority (opened-first **uvnitř** každé expiry group, ne globálně), nový helper `compareItemsByPriority`, orange "OPENED" badge v ItemRow/SwipeableRow/GridCard. Iterace: prvotní Switch toggle v ItemEditSheet → nakonec kompletně nahrazen RPC `open_one_item` split akcí atomicky (decrement/delete sealed + upsert opened sibling s strict match: `box+name+barcode+expiry+category+unit+pack_count`). Entry points: `SwipeableRow` renderLeftActions (amber swipe) + primary button v ItemEditSheet. Jen pro discrete units (pcs/pack).
+- **Fáze 8 extras**: optional `items.pack_count` int pro "10 pcs · 24/pack" display (NE v title kvůli vizuálnímu collisi s `{qty} pcs` subtitle), nový helper `formatItemQuantity` konsoliduje všechny numeric info do subtitle lajny, `formatItemName` smazán
+- **Fáze 9 Cleanup**: `getMyWarehouse` (singular) + `ensureWarehouse` smazány ze `supabase.ts` (žádné call sites), CLAUDE.md struktura projektu aktualizována
+
+**Klíčová rozhodnutí této session**:
+- Storage = first-class resource (onboarding, list, settings tab scoped na warehouse) místo single-warehouse assumption
+- Multi-owner model > single owner transferable — reálný manželský use case
+- Invite link share přes nativní `Share.share()` + deep link handler v root layoutu
+- Terminologie zůstává `warehouse` v UI (Sprint 2.5 convention), ne rebranding na "storage"
+- `pack_count` a `opened` evolved: pack_size → naming-based → pack_count optional display / opened flag → split action RPC. Každá iterace byla driven skutečným UX testováním v simulátoru
+- `useGlobalSearchParams` v nested tabs — `useLocalSearchParams` v settings tab po tab switchi nevrací parent dyn params spolehlivě, global je bezpečnější default pro hluboce nested screenu
+
+**Otevřené drobnosti** (non-blocking, můžou do Sprint 3 nebo samostatně):
+- Items tab nemá realtime sub na `items` — manuální `load()` po open action. Sprint 3+.
+- "Close / undo" akce na opened rows — zatím jen delete opened row manuálně. Later.
+- Reálný test invite flow — potřebuje druhý Apple ID / TestFlight (Sprint 5).
 
 ### Session 2026-04-13 — Sprint 2.5 UZAVŘEN ✅
 

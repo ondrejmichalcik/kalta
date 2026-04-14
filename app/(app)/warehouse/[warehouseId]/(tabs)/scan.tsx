@@ -43,7 +43,9 @@ export default function ScanScreen() {
         ]);
         return;
       }
-      router.replace(`/box/${box.id}` as any);
+      // Use the box's own warehouse_id — scanning a QR in another shared
+      // warehouse's tab should still open the correct scope.
+      router.replace(`/warehouse/${box.warehouse_id}/box/${box.id}` as any);
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Cannot load box.', [
         {

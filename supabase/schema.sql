@@ -41,13 +41,15 @@ create table if not exists public.warehouse_members (
 create index if not exists idx_warehouse_members_user on public.warehouse_members(user_id);
 
 -- invitations
+-- email nullable: share-by-link flow doesn't require knowing recipient address.
+-- role: 'member' (default) or 'owner' (co-owner invite).
 create table if not exists public.invitations (
   id            uuid primary key default gen_random_uuid(),
   warehouse_id  uuid not null references public.warehouses(id) on delete cascade,
   invited_by    uuid not null references public.users(id) on delete cascade,
-  email         text not null,
+  email         text,
   token         uuid not null unique default gen_random_uuid(),
-  role          text not null default 'member' check (role in ('member')),
+  role          text not null default 'member' check (role in ('member', 'owner')),
   expires_at    timestamptz not null default (now() + interval '7 days'),
   accepted_at   timestamptz,
   created_at    timestamptz not null default now()
@@ -73,6 +75,11 @@ create index if not exists idx_boxes_warehouse on public.boxes(warehouse_id);
 create index if not exists idx_boxes_qr on public.boxes(qr_code);
 
 -- items
+-- opened: once a package is started (pill strip popped, can opened), flag
+-- it true so the client sorts it to the top of its expiry group — "use it
+-- up first" signal.
+-- pack_count: optional "N pieces per package" hint rendered as "Ibuprofen
+-- (24 pcs)" in list UIs. Pure display — no math, no prefill.
 create table if not exists public.items (
   id           uuid primary key default gen_random_uuid(),
   box_id       uuid not null references public.boxes(id) on delete cascade,
@@ -84,6 +91,8 @@ create table if not exists public.items (
   image_url    text,
   category     text check (category in ('food','medicine','water','disinfectant','equipment','energy','documents','other')),
   notes        text,
+  opened       boolean not null default false,
+  pack_count   int,
   added_by     uuid references public.users(id) on delete set null,
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
@@ -107,6 +116,32 @@ create table if not exists public.custom_products (
 );
 
 create index if not exists idx_custom_products_warehouse on public.custom_products(warehouse_id);
+
+-- ============================================================================
+-- MIGRATIONS (idempotent ALTERs for existing DBs)
+-- ============================================================================
+-- These bring an already-populated DB up to the current CREATE TABLE defs
+-- above. `create table if not exists` skips existing tables, so column /
+-- constraint changes must be applied via explicit ALTERs.
+
+-- invitations.email: make nullable (share-by-link doesn't need recipient email)
+alter table public.invitations alter column email drop not null;
+
+-- invitations.role: relax check to allow 'owner' (co-owner invite — Sprint 2.7)
+alter table public.invitations drop constraint if exists invitations_role_check;
+alter table public.invitations
+  add constraint invitations_role_check check (role in ('member', 'owner'));
+
+-- items.opened — "use this first" flag (Sprint 2.7).
+-- items.pack_count — optional "N pieces per package" display hint.
+-- Drops the earlier Sprint 2.7 pack_size / pack_unit experiment that never
+-- shipped.
+alter table public.items drop column if exists pack_size;
+alter table public.items drop column if exists pack_unit;
+alter table public.custom_products drop column if exists pack_size;
+alter table public.custom_products drop column if exists pack_unit;
+alter table public.items add column if not exists opened boolean not null default false;
+alter table public.items add column if not exists pack_count int;
 
 -- ============================================================================
 -- FUNCTIONS + TRIGGERS
@@ -176,6 +211,43 @@ drop trigger if exists items_bump_updated_at on public.items;
 create trigger items_bump_updated_at
   before update on public.items
   for each row execute function public.bump_updated_at();
+
+-- Invariant: a warehouse must always have >=1 member with role='owner'.
+-- AFTER trigger on DELETE/UPDATE of warehouse_members. The `exists` guard
+-- skips the check when the warehouse itself has been deleted (CASCADE from
+-- warehouses delete takes care of cleaning up members).
+create or replace function public.enforce_at_least_one_owner()
+returns trigger
+language plpgsql
+as $$
+declare
+  target_wh uuid;
+  owner_count int;
+begin
+  target_wh := coalesce(new.warehouse_id, old.warehouse_id);
+
+  -- Warehouse already gone (cascade delete) → nothing to enforce.
+  if not exists (select 1 from public.warehouses where id = target_wh) then
+    return coalesce(new, old);
+  end if;
+
+  select count(*) into owner_count
+  from public.warehouse_members
+  where warehouse_id = target_wh and role = 'owner';
+
+  if owner_count = 0 then
+    raise exception 'Warehouse % must have at least one owner', target_wh
+      using errcode = 'check_violation';
+  end if;
+
+  return coalesce(new, old);
+end;
+$$;
+
+drop trigger if exists warehouse_members_one_owner on public.warehouse_members;
+create trigger warehouse_members_one_owner
+  after delete or update on public.warehouse_members
+  for each row execute function public.enforce_at_least_one_owner();
 
 -- ============================================================================
 -- RLS HELPER FUNCTIONS
@@ -255,6 +327,94 @@ $$;
 
 grant execute on function public.create_warehouse_for_me(text) to authenticated;
 
+-- open_one_item
+-- Splits a sealed item into "sealed minus one" + one unit on the opened
+-- sibling in the same box. Merges into an existing opened sibling when
+-- one matches exactly (strict match on product identity + expiry) instead
+-- of creating a duplicate opened row. Atomic via SECURITY DEFINER — RLS
+-- is bypassed, so membership is checked explicitly.
+-- Guardrails:
+--   - source must exist, not be opened, have quantity >= 1
+--   - unit must be 'pcs' or 'pack' (continuous units split is meaningless)
+--   - caller must be a member of the warehouse owning source.box
+-- Behaviour:
+--   - source.quantity > 1 → decrement; source.quantity <= 1 → delete
+--   - matching opened sibling found → quantity += 1
+--   - no sibling → insert new opened row copying all product fields
+create or replace function public.open_one_item(source_id uuid)
+returns public.items
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  src public.items;
+  wh_id uuid;
+  existing_id uuid;
+  result public.items;
+begin
+  select * into src from public.items where id = source_id;
+  if not found then
+    raise exception 'Item not found';
+  end if;
+
+  select warehouse_id into wh_id from public.boxes where id = src.box_id;
+  if not public.is_member(wh_id) then
+    raise exception 'Not a member of this warehouse';
+  end if;
+
+  if src.opened then
+    raise exception 'Item is already opened';
+  end if;
+  if src.unit not in ('pcs', 'pack') then
+    raise exception 'Open action only applies to pcs/pack units';
+  end if;
+  if src.quantity <= 0 then
+    raise exception 'Item has zero quantity';
+  end if;
+
+  -- Strict product match: same box, same identity, same expiry. Nulls
+  -- compared equal via coalesce so NULL == NULL and NULL != 'value'.
+  select id into existing_id
+  from public.items
+  where box_id = src.box_id
+    and opened = true
+    and name = src.name
+    and coalesce(barcode, '')               = coalesce(src.barcode, '')
+    and coalesce(expiry_date, '1900-01-01') = coalesce(src.expiry_date, '1900-01-01')
+    and coalesce(category, '')              = coalesce(src.category, '')
+    and unit = src.unit
+    and coalesce(pack_count, 0)             = coalesce(src.pack_count, 0)
+  limit 1;
+
+  if src.quantity <= 1 then
+    delete from public.items where id = src.id;
+  else
+    update public.items set quantity = quantity - 1 where id = src.id;
+  end if;
+
+  if existing_id is not null then
+    update public.items
+    set quantity = quantity + 1
+    where id = existing_id
+    returning * into result;
+  else
+    insert into public.items (
+      box_id, name, quantity, unit, expiry_date, barcode, image_url,
+      category, notes, opened, pack_count, added_by
+    ) values (
+      src.box_id, src.name, 1, src.unit, src.expiry_date, src.barcode,
+      src.image_url, src.category, src.notes, true, src.pack_count, auth.uid()
+    )
+    returning * into result;
+  end if;
+
+  return result;
+end;
+$$;
+
+grant execute on function public.open_one_item(uuid) to authenticated;
+
 -- ============================================================================
 -- RLS POLICIES
 -- ============================================================================
@@ -309,6 +469,13 @@ create policy members_insert on public.warehouse_members for insert
     -- vkládá sám sebe (přijímá pozvánku) nebo je owner
     user_id = auth.uid() or public.is_owner(warehouse_id)
   );
+
+-- Owners can update member rows (promote/demote role). The enforce_at_least_one_owner
+-- trigger prevents demoting the last owner.
+drop policy if exists members_update on public.warehouse_members;
+create policy members_update on public.warehouse_members for update
+  using (public.is_owner(warehouse_id))
+  with check (public.is_owner(warehouse_id));
 
 drop policy if exists members_delete on public.warehouse_members;
 create policy members_delete on public.warehouse_members for delete

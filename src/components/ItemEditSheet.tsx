@@ -17,7 +17,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
-import { deleteItem, updateItem } from '@/src/lib/supabase';
+import * as Haptics from 'expo-haptics';
+import { deleteItem, openOneItem, updateItem } from '@/src/lib/supabase';
 import {
   CATEGORIES,
   UNITS,
@@ -34,6 +35,14 @@ export interface ItemEditSheetProps {
   onClose: () => void;
   onSaved: (updated: Item) => void;
   onDeleted: (itemId: string) => void;
+  /**
+   * Called after a successful "Mark one as opened" split. The returned
+   * row is the opened sibling (new or updated); the source row was
+   * decremented or deleted in the same transaction. Parents usually
+   * just close the sheet and trust their own reload path (realtime sub
+   * on box detail, manual reload on Items tab).
+   */
+  onOpened?: (opened: Item) => void;
 }
 
 interface Draft {
@@ -42,20 +51,31 @@ interface Draft {
   unit: Unit;
   expiry_date: string | null;
   category: Category | null;
+  pack_count: number | null;
 }
 
-export function ItemEditSheet({ item, onClose, onSaved, onDeleted }: ItemEditSheetProps) {
+export function ItemEditSheet({
+  item,
+  onClose,
+  onSaved,
+  onDeleted,
+  onOpened,
+}: ItemEditSheetProps) {
   const [draft, setDraft] = useState<Draft>({
     name: item.name,
     quantity: item.quantity,
     unit: item.unit,
     expiry_date: item.expiry_date,
     category: item.category,
+    pack_count: item.pack_count,
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [quantityText, setQuantityText] = useState(
     Number.isInteger(item.quantity) ? String(item.quantity) : item.quantity.toString(),
+  );
+  const [packCountText, setPackCountText] = useState(
+    item.pack_count != null ? String(item.pack_count) : '',
   );
 
   // Reset form when the item changes (user closes and opens a different one)
@@ -66,12 +86,45 @@ export function ItemEditSheet({ item, onClose, onSaved, onDeleted }: ItemEditShe
       unit: item.unit,
       expiry_date: item.expiry_date,
       category: item.category,
+      pack_count: item.pack_count,
     });
     setQuantityText(
       Number.isInteger(item.quantity) ? String(item.quantity) : item.quantity.toString(),
     );
+    setPackCountText(item.pack_count != null ? String(item.pack_count) : '');
     setShowDatePicker(false);
   }, [item.id]);
+
+  // Show the split action only for sealed items with discrete units —
+  // opening "1 kg" of rice is meaningless, and opened rows can't be
+  // re-opened.
+  const canOpen =
+    !item.opened && (item.unit === 'pcs' || item.unit === 'pack') && item.quantity >= 1;
+
+  const handleMarkOpened = () => {
+    Alert.alert(
+      'Mark one as opened',
+      `Decrement this row's sealed count by 1 and push one unit to an opened sibling. Continue?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Mark opened',
+          onPress: async () => {
+            try {
+              setSaving(true);
+              const result = await openOneItem(item.id);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+              onOpened?.(result);
+              onClose();
+            } catch (e: any) {
+              setSaving(false);
+              Alert.alert('Error', e?.message ?? 'Cannot open.');
+            }
+          },
+        },
+      ],
+    );
+  };
 
   const handleDelete = () => {
     Alert.alert('Delete item', `Really delete "${item.name}"?`, [
@@ -106,12 +159,20 @@ export function ItemEditSheet({ item, onClose, onSaved, onDeleted }: ItemEditShe
     }
     try {
       setSaving(true);
+      // pack_count: parse from text, null if empty or invalid
+      const trimmedPack = packCountText.trim();
+      let packCount: number | null = null;
+      if (trimmedPack) {
+        const parsed = parseInt(trimmedPack, 10);
+        if (Number.isFinite(parsed) && parsed > 0) packCount = parsed;
+      }
       const updated = await updateItem(item.id, {
         name,
         quantity: qty,
         unit: draft.unit,
         expiry_date: draft.expiry_date ?? null,
         category: draft.category,
+        pack_count: packCount,
       });
       onSaved(updated);
     } catch (e: any) {
@@ -171,6 +232,16 @@ export function ItemEditSheet({ item, onClose, onSaved, onDeleted }: ItemEditShe
             </View>
           </View>
 
+          <Text style={styles.label}>Pcs per package (optional)</Text>
+          <TextInput
+            value={packCountText}
+            onChangeText={setPackCountText}
+            placeholder="e.g. 24"
+            placeholderTextColor={colors.textSubtle}
+            keyboardType="number-pad"
+            style={styles.input}
+          />
+
           <Text style={styles.label}>Expiry date</Text>
           <View style={styles.dateRow}>
             <Pressable
@@ -225,6 +296,19 @@ export function ItemEditSheet({ item, onClose, onSaved, onDeleted }: ItemEditShe
             renderLabel={(c) => c}
             allowNull
           />
+
+          {canOpen && (
+            <Pressable
+              style={[styles.openBtn, saving && { opacity: 0.5 }]}
+              onPress={handleMarkOpened}
+              disabled={saving}
+            >
+              <View style={styles.openBtnContent}>
+                <Icon sf="shippingbox.fill" size={18} color={colors.warningText} />
+                <Text style={styles.openBtnText}>Mark one as opened</Text>
+              </View>
+            </Pressable>
+          )}
 
           <Pressable
             style={[styles.deleteBtn, saving && { opacity: 0.5 }]}
@@ -379,8 +463,27 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   chipTextActive: { color: colors.textOnPrimary },
+  openBtn: {
+    marginTop: spacing.xl,
+    paddingVertical: spacing.md + 2,
+    borderRadius: radius.md,
+    backgroundColor: colors.warningBg,
+    borderWidth: 1,
+    borderColor: colors.warningBgStrong,
+    alignItems: 'center',
+  },
+  openBtnContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  openBtnText: {
+    ...typography.subhead,
+    color: colors.warningText,
+    fontWeight: '700',
+  },
   deleteBtn: {
-    marginTop: spacing.xxl,
+    marginTop: spacing.md,
     paddingVertical: spacing.md + 2,
     borderRadius: radius.md,
     backgroundColor: colors.dangerBg,
