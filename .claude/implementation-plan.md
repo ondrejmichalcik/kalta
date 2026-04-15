@@ -405,12 +405,21 @@ Druhý, menší kus sprintu: **pack size** na items. Currently lze říct "2 pac
 ### Brother PT-P710BT tisk (revised plan)
 **Rozhodnutí:** Brother PT-P710BT místo Niimbot B21. Důvody: AirPrint support (žádný BLE reverse engineering), laminované pásky vydrží 20+ let (prepper requirement), multi-use pro celou domácnost.
 
-- ⏳ Nakoupit Brother PT-P710BT (~2500–3500 Kč)
-- ⏳ Spárovat v iOS Settings → Bluetooth
-- ⏳ `src/lib/qrLabel.ts` — HTML template s QR kódem + textem
-- ⏳ `expo-print` integration — `Print.printAsync({ html })` → AirPrint dialog → user vybere Brother → print
-- ⏳ Zapojit do `LabelModalContent` v `box/[id].tsx` + `box/new.tsx` — nahradit disabled tlačítko "🖨 Tisknout"
-- ⏳ Fallback: `expo-sharing` → share PNG QR přes iMessage/Mail/AirDrop
+**Phase 1 — hardware-independent ✅** (uzavřeno 2026-04-15)
+- ✅ Tiskárna objednaná 2026-04-14 (čekáme na doručení pro Phase 2)
+- ✅ `expo-print` + `qrcode` (npm) + `expo-sharing` + `expo-asset` + `expo-file-system/legacy` deps (native rebuild)
+- ✅ `src/lib/qrLabel.ts` — HTML template pro 80×24mm TZe tape (227×68pt). Dvoustupňový print: `Print.printToFileAsync({ html, width, height })` → PDF s exact embedded page size → `Print.printAsync({ uri })` do AirPrint dialogu (přímé HTML cestu iOS ignoroval a defaultil na A4)
+- ✅ **Dynamická velikost fontu** pro box name — heuristika `54mm / (nameLength × 0.62)` s height cap 9/13mm, floor 2mm, max 10mm. Krátké názvy ("Leky") vyplní celou výšku, dlouhé se zmenší až na 2mm aby se vešly
+- ✅ **Text center-align** — krátké názvy se centrují mezi QR a pravý okraj labelu, dlouhé se roztáhnou na celou šířku
+- ✅ **QR logo overlay** — `assets/label-logo.png` (nano banana generated 3D isometric crate), auto-cropped přes Python PIL (bbox detection, Gemini watermark removal, background clean-up → 32% pure white), zaoblený 8px black border baked-in (38px radius = 15%), 7.5mm tile v QR (~42% width, ~17% area, pod 30% ECC-H tolerance)
+- ✅ Error correction level **H** (30% damage tolerance) pro scanner reliability s logo overlay
+- ✅ `printBoxLabel(box)` + `shareBoxLabelPdf(box)` v `qrLabel.ts` — print + Save PDF fallback přes iOS share sheet
+- ✅ Napojeno v `LabelModalContent` (`box/[boxId].tsx`) + post-create QR preview (`box/new.tsx`) — dva buttony "Print label" (sage primary) + "Save PDF" (subtle share helper)
+- ✅ **In-app QR views používají stejný asset** — `react-native-qrcode-svg` s `logo={require(...)}`, `logoSize={92}`, `logoBorderRadius={12}` matching print proporcemi. Vizuální konzistence mezi screen preview a fyzickým tiskem
+
+**Phase 2 — hardware test** ⏳ (až dorazí tiskárna)
+- ⏳ Spárovat v iOS Settings → Bluetooth → ověřit AirPrint discovery
+- ⏳ Reálný print na 24mm TZe tape + případné ladění CSS/layout podle skutečného výstupu (fontsize tuning, margins, QR scan reliability)
 - ❌ Niimbot BLE protokol — zrušeno, AirPrint cesta je robustnější
 
 ### Claude Vision pro produkty bez EAN ✅
@@ -662,13 +671,14 @@ Po otevření nové session a prozkoumání stavu:
    - **TestFlight distribuce (Sprint 5)** — EAS build pipeline, real-device test s druhým Apple ID
    - **Storage orphan cleanup** — nízká priorita, pokud začne být prostor problém
 
-### Session 2026-04-15 — Sprint 3A/B/C UZAVŘEN ✅
+### Session 2026-04-15 — Sprint 3A/B/C/D UZAVŘEN ✅
 
-Image upload pipeline + Claude Vision identifikace. Sprint 3 zbývá jen Brother tisk (waiting on hardware).
+Image upload pipeline + Claude Vision identifikace + Brother print prototype (hardware-independent Phase 1). Sprint 3 zbývá jen reálný print test s hardwarem (Phase 2 — až dorazí tiskárna).
 
 - **Sprint 3A — Image upload do Storage**: `expo-image-picker` + `expo-image-manipulator` + `expo-file-system` installed. `src/lib/storage.ts` s upload pipeline používající **new File API** místo broken `fetch+blob` (classic RN gotcha — `fetch(uri).blob()` produkoval prázdný/bílý soubor). Resize 800px width + 70% JPEG = ~80–150 KB per image. Storage RLS policies na `storage.objects` (public select, authenticated writes). `ItemEditSheet` má thumbnail tile nahoře s `ActionSheetIOS` picker. `deleteProductImage` helper s safe no-op pro external (OFF) URLs.
 - **Sprint 3B — Picker v add-items.tsx**: stejný pattern jako ItemEditSheet, ale wrapuje existující image/placeholder v Pressable. Empty state má "Tap to add photo" hint + category ikonu. `handleAddToQueue` blokuje Save během uploadu.
 - **Sprint 3C — Claude Vision**: kompletní architektural pivot od původního plánu (Supabase Edge Function → direct client call s per-user key). Důvody a implementace viz Sprint 3 plan section výše. Path A (auto na OFF 404) + Path B (manual "✨ Identify with AI" button) + shelf life hint (ne prefill) + custom_products caching.
+- **Sprint 3D — Brother print prototype**: hardware-independent Phase 1. `qrLabel.ts` generuje 80×24mm PDF přes `printToFileAsync` → `printAsync(uri)` two-step (direct HTML path iOS ignoroval a defaultil na A4). Dynamic font sizing podle `computeNameFontSize` heuristiky (54mm / chars × 0.62 char-ratio, floor 2mm, max 10mm) s center align. QR obsahuje zaoblené logo bedny v 7.5mm tile — asset `label-logo.png` (nano banana 3D crate) prošel Python PIL pipeline (auto-crop bbox detection, Gemini watermark removal z bottom-right, background clean-up threshold ≥230 → pure white, 8px rounded rect border 38px radius baked-in). Error correction H pro scanner reliability. `printBoxLabel` + `shareBoxLabelPdf` helpery napojené v `LabelModalContent` + post-create QR preview. In-app QR views (`react-native-qrcode-svg`) používají stejný asset pro visual consistency.
 
 **Klíčová rozhodnutí této session**:
 - **Per-device API klíč v SecureStore** je bezpečnější než shared Edge Function secret (nulový leak risk v TestFlight binary) a každý user platí svoje volání. Claude Code / Claude Pro subscription NELZE použít pro mobile API calls — je vázaná na OAuth CLI session.
@@ -677,11 +687,14 @@ Image upload pipeline + Claude Vision identifikace. Sprint 3 zbývá jen Brother
 - **Prompt caching** na tool definition přes `cache_control: ephemeral` — šetří tokeny při batch scanningu v 5-min okně.
 - **`pack_count` + `formatItemQuantity`** jako finální shape pro "balení" UI — viz 2.7 session note. Sprint 3 nemění.
 - **`fetch(uri).blob()` v React Native je broken pro Supabase Storage upload** — pivot na `new File(uri).arrayBuffer()` (expo-file-system SDK 55+). Zaznamenávám pro budoucí gotchas.
+- **`expo-print` na iOS ignoruje `@page` CSS při přímém HTML input** — always defaultí na A4/Letter. Fix: two-step `printToFileAsync({ html, width, height })` → `printAsync({ uri })`. PDF má exact embedded page size v metadata a print dialog to respektuje. Zaznamenávám pro budoucí print work.
+- **QR logo overlay na ECC-H**: 30% area damage tolerance v teorii, ale praktická safe zone pro center overlay je ~25% area = ~50% width. Aktuálně 7.5mm/18mm ≈ 42% width = 17% area → komfortní margin.
+- **Python PIL pipeline pro asset preprocessing** — auto-crop bbox, watermark removal, background clean-up, baked-in borders. Lepší než runtime manipulation pro static assety. Zachováno jako jednorázový script (není v repo, dá se rekonstruovat z commit history pokud by bylo potřeba).
 
 **Otevřené drobnosti** (non-blocking):
 - Orphan cleanup v storage (cancelled drafts s uploadedem foto). Defer.
 - `visionEnabled` se čte jen na mount v add-items — pokud user nastaví klíč mid-session na Profile a hned skočí scan, refresh neproběhne (screen je v různé stack entry). Acceptable; fix přidat `useFocusEffect`.
-- Brother tisk — zatím žádný HTML template, lze začít prototypovat i bez hardware.
+- Brother tisk Phase 2 — až dorazí hardware, reálný print test + ladění CSS/layout podle skutečného výstupu.
 
 ### Session 2026-04-14 — Sprint 2.7 UZAVŘEN ✅
 
