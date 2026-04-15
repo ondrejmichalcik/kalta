@@ -19,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
 import { createBox } from '@/src/lib/supabase';
+import { printBoxLabel } from '@/src/lib/qrLabel';
 import type { Box } from '@/src/types/database';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
@@ -29,7 +30,23 @@ export default function NewBoxScreen() {
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
   const [saving, setSaving] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [createdBox, setCreatedBox] = useState<Box | null>(null);
+
+  const handlePrint = async () => {
+    if (!createdBox) return;
+    try {
+      setPrinting(true);
+      await printBoxLabel(createdBox);
+    } catch (e: any) {
+      const msg = e?.message ?? '';
+      if (!msg.toLowerCase().includes('did not complete')) {
+        Alert.alert('Print error', msg || 'Cannot open print dialog.');
+      }
+    } finally {
+      setPrinting(false);
+    }
+  };
 
   const handleSave = async () => {
     const trimmed = name.trim();
@@ -82,7 +99,17 @@ export default function NewBoxScreen() {
           ) : null}
 
           <View style={styles.qrWrap}>
-            <QRCode value={createdBox.qr_code} size={220} backgroundColor="#FFFFFF" />
+            <QRCode
+              value={createdBox.qr_code}
+              size={220}
+              backgroundColor="#FFFFFF"
+              ecl="H"
+              logo={require('@/assets/label-logo.png')}
+              logoSize={92}
+              logoBackgroundColor="#FFFFFF"
+              logoMargin={0}
+              logoBorderRadius={12}
+            />
           </View>
 
           <Text style={styles.qrCodeText}>{createdBox.qr_code}</Text>
@@ -93,9 +120,23 @@ export default function NewBoxScreen() {
             </Text>
           </View>
 
-          <Pressable style={styles.btnDisabled} disabled>
-            <Icon sf="printer" size={18} color={colors.textSubtle} />
-            <Text style={styles.btnDisabledText}>Print (Sprint 3)</Text>
+          <Pressable
+            style={({ pressed }) => [
+              styles.printBtn,
+              printing && { opacity: 0.6 },
+              pressed && !printing && { opacity: 0.7 },
+            ]}
+            onPress={handlePrint}
+            disabled={printing}
+          >
+            {printing ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : (
+              <>
+                <Icon sf="printer" size={18} color={colors.primary} />
+                <Text style={styles.printBtnText}>Print label</Text>
+              </>
+            )}
           </Pressable>
 
           <Pressable
@@ -246,7 +287,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontWeight: '600',
   },
-  btnDisabled: {
+  printBtn: {
     marginTop: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
@@ -254,13 +295,14 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingVertical: spacing.lg,
     borderRadius: radius.md,
-    backgroundColor: colors.palette.neutral[100],
-    opacity: 0.7,
+    backgroundColor: colors.primaryTint,
+    borderWidth: 1,
+    borderColor: colors.primarySubtle,
   },
-  btnDisabledText: {
+  printBtnText: {
     ...typography.body,
-    color: colors.textSubtle,
-    fontWeight: '600',
+    color: colors.primary,
+    fontWeight: '700',
   },
   // QR preview
   qrScroll: {

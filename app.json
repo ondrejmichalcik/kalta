@@ -41,7 +41,8 @@
           "photosPermission": "Stockr uses your photo library to attach product images to items.",
           "cameraPermission": "Stockr uses the camera to take item photos."
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true

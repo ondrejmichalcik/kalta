@@ -39,6 +39,7 @@ import {
   openOneItem,
   subscribeItems,
 } from '@/src/lib/supabase';
+import { printBoxLabel, shareBoxLabelPdf } from '@/src/lib/qrLabel';
 import type { Box, Item, Category } from '@/src/types/database';
 import {
   EXPIRY_COLORS,
@@ -483,6 +484,7 @@ export default function BoxDetailScreen() {
 
 function LabelModalContent({ box, onClose }: { box: Box; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
+  const [printing, setPrinting] = useState(false);
 
   const handleCopy = async () => {
     try {
@@ -492,6 +494,33 @@ function LabelModalContent({ box, onClose }: { box: Box; onClose: () => void }) 
       setTimeout(() => setCopied(false), 1500);
     } catch {
       /* noop */
+    }
+  };
+
+  const handlePrint = async () => {
+    try {
+      setPrinting(true);
+      await printBoxLabel(box);
+    } catch (e: any) {
+      // User-cancelled dismiss throws "Printing did not complete" — swallow
+      // quietly. Real errors (network, etc.) surface to the user.
+      const msg = e?.message ?? '';
+      if (!msg.toLowerCase().includes('did not complete')) {
+        Alert.alert('Print error', msg || 'Cannot open print dialog.');
+      }
+    } finally {
+      setPrinting(false);
+    }
+  };
+
+  const handleSharePdf = async () => {
+    try {
+      setPrinting(true);
+      await shareBoxLabelPdf(box);
+    } catch (e: any) {
+      Alert.alert('Share error', e?.message ?? 'Cannot share PDF.');
+    } finally {
+      setPrinting(false);
     }
   };
 
@@ -514,7 +543,17 @@ function LabelModalContent({ box, onClose }: { box: Box; onClose: () => void }) 
         ) : null}
 
         <View style={styles.labelQrWrap}>
-          <QRCode value={box.qr_code} size={220} backgroundColor="#FFFFFF" />
+          <QRCode
+            value={box.qr_code}
+            size={220}
+            backgroundColor="#FFFFFF"
+            ecl="H"
+            logo={require('@/assets/label-logo.png')}
+            logoSize={92}
+            logoBackgroundColor="#FFFFFF"
+            logoMargin={0}
+            logoBorderRadius={12}
+          />
         </View>
 
         <Pressable
@@ -543,9 +582,36 @@ function LabelModalContent({ box, onClose }: { box: Box; onClose: () => void }) 
           </Text>
         </View>
 
-        <Pressable style={styles.printBtn} disabled>
-          <Icon sf="printer" size={18} color={colors.textSubtle} />
-          <Text style={styles.printBtnText}>Print (Sprint 3)</Text>
+        <Pressable
+          style={({ pressed }) => [
+            styles.printBtn,
+            printing && { opacity: 0.6 },
+            pressed && !printing && { opacity: 0.7 },
+          ]}
+          onPress={handlePrint}
+          disabled={printing}
+        >
+          {printing ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : (
+            <>
+              <Icon sf="printer" size={18} color={colors.primary} />
+              <Text style={styles.printBtnText}>Print label</Text>
+            </>
+          )}
+        </Pressable>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.sharePdfBtn,
+            printing && { opacity: 0.6 },
+            pressed && !printing && { opacity: 0.7 },
+          ]}
+          onPress={handleSharePdf}
+          disabled={printing}
+        >
+          <Icon sf="square.and.arrow.up" size={16} color={colors.textMuted} />
+          <Text style={styles.sharePdfBtnText}>Save PDF</Text>
         </Pressable>
       </View>
     </SafeAreaView>
@@ -1080,17 +1146,34 @@ const styles = StyleSheet.create({
   printBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: spacing.sm,
     marginTop: spacing.xl,
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.md,
     borderRadius: radius.md,
-    backgroundColor: colors.palette.neutral[100],
-    opacity: 0.7,
+    backgroundColor: colors.primaryTint,
+    borderWidth: 1,
+    borderColor: colors.primarySubtle,
+    minWidth: 180,
   },
   printBtnText: {
     ...typography.body,
-    color: colors.textSubtle,
+    color: colors.primary,
+    fontWeight: '700',
+  },
+  sharePdfBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs + 2,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm + 2,
+  },
+  sharePdfBtnText: {
+    ...typography.footnote,
+    color: colors.textMuted,
     fontWeight: '600',
   },
 });
