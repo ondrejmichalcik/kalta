@@ -552,6 +552,65 @@ export async function verifyItems(itemIds: string[]): Promise<void> {
 }
 
 /**
+ * Split off 1 unit from a multi-quantity item and apply conditions
+ * (opened, damaged, notes). If qty=1, updates in-place instead of
+ * splitting. No merge into existing — each conditioned unit stays as
+ * its own row since notes make merge matching impractical.
+ */
+export async function markItemCondition(
+  itemId: string,
+  conditions: { opened: boolean; damaged: boolean; notes: string | null },
+  addedBy: string,
+): Promise<void> {
+  const { data: srcData, error: srcErr } = await supabase
+    .from('items')
+    .select('*')
+    .eq('id', itemId)
+    .single();
+  if (srcErr) throw srcErr;
+  if (!srcData) throw new Error('Item not found.');
+  const src = srcData as Item;
+
+  if (src.quantity <= 1) {
+    // Single unit — update in place, no split needed.
+    await supabase
+      .from('items')
+      .update({
+        opened: conditions.opened,
+        damaged: conditions.damaged,
+        notes: conditions.notes,
+      })
+      .eq('id', itemId);
+    return;
+  }
+
+  // Decrement source
+  const { error: decErr } = await supabase
+    .from('items')
+    .update({ quantity: src.quantity - 1 })
+    .eq('id', itemId);
+  if (decErr) throw decErr;
+
+  // Create conditioned copy with qty=1
+  const { error: insErr } = await supabase.from('items').insert({
+    box_id: src.box_id,
+    name: src.name,
+    quantity: 1,
+    unit: src.unit,
+    expiry_date: src.expiry_date,
+    barcode: src.barcode,
+    image_url: src.image_url,
+    category: src.category,
+    opened: conditions.opened,
+    damaged: conditions.damaged,
+    notes: conditions.notes,
+    pack_count: src.pack_count,
+    added_by: addedBy,
+  });
+  if (insErr) throw insErr;
+}
+
+/**
  * "Open one unit" — atomic split via the `open_one_item` RPC.
  * Decrements (or deletes) the sealed source and upserts a matching opened
  * sibling in the same box. Returns the opened sibling row so the caller
@@ -567,8 +626,23 @@ export async function openOneItem(itemId: string): Promise<Item> {
 }
 
 export async function deleteItem(id: string) {
+  // Fetch image_url before deleting so we can clean up storage.
+  const { data: item } = await supabase
+    .from('items')
+    .select('image_url')
+    .eq('id', id)
+    .maybeSingle();
+
   const { error } = await supabase.from('items').delete().eq('id', id);
   if (error) throw error;
+
+  // Fire-and-forget: clean up product image from Storage if it's ours.
+  // deleteProductImage safely no-ops for external URLs (OFF thumbnails).
+  if ((item as any)?.image_url) {
+    import('./storage').then(({ deleteProductImage }) => {
+      deleteProductImage((item as any).image_url).catch(() => {});
+    });
+  }
 }
 
 /**
@@ -780,6 +854,21 @@ export function buildInviteLink(token: string): string {
 // ============================================================================
 // CUSTOM PRODUCTS
 // ============================================================================
+
+export async function listCustomProducts(warehouseId: string): Promise<CustomProduct[]> {
+  const { data, error } = await supabase
+    .from('custom_products')
+    .select('*')
+    .eq('warehouse_id', warehouseId)
+    .order('name', { ascending: true });
+  if (error) throw error;
+  return (data as CustomProduct[]) ?? [];
+}
+
+export async function deleteCustomProduct(id: string): Promise<void> {
+  const { error } = await supabase.from('custom_products').delete().eq('id', id);
+  if (error) throw error;
+}
 
 export async function findCustomProduct(
   warehouseId: string,

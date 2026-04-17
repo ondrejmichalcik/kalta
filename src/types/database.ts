@@ -112,6 +112,7 @@ export interface Item {
   category: Category | null;
   notes: string | null;
   opened: boolean;
+  damaged: boolean;
   pack_count: number | null;
   last_verified: string | null;
   added_by: string | null;

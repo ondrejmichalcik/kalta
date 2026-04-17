@@ -92,6 +92,7 @@ create table if not exists public.items (
   category     text check (category in ('food','medicine','water','disinfectant','equipment','energy','documents','other')),
   notes        text,
   opened       boolean not null default false,
+  damaged      boolean not null default false,
   pack_count   int,
   last_verified timestamptz,
   added_by     uuid references public.users(id) on delete set null,
@@ -174,6 +175,7 @@ alter table public.items drop column if exists pack_unit;
 alter table public.custom_products drop column if exists pack_size;
 alter table public.custom_products drop column if exists pack_unit;
 alter table public.items add column if not exists opened boolean not null default false;
+alter table public.items add column if not exists damaged boolean not null default false;
 alter table public.items add column if not exists pack_count int;
 alter table public.items add column if not exists last_verified timestamptz;
 

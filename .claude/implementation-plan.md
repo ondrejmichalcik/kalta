@@ -166,7 +166,7 @@ Insertnutý mezi Sprint 2 a Sprint 3. Cíl: projekt převést do angličtiny, sj
 
 ---
 
-## Sprint 2.6 – UI redesign (NoWaste style) 🚧
+## Sprint 2.6 – UI redesign (NoWaste style) ✅
 
 **Kontext:** Sprint 2.5 uzavřel dark frosted-glass theme napříč celou appkou. User po použití v kontextu zpětně odmítl tento směr pro utility screens ("z toho UI designu se mi líbí akorát ta login screen, zbytek jsem asi trochu přemyslel"). Login hero zůstává, zbytek redesign do clean light NoWaste-style — pill cards, tab bar, FAB, SF Symbols místo 3D custom ikon.
 

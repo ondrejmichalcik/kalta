@@ -43,6 +43,8 @@ interface FoundEntry {
   dbQuantity: number;
   foundQty: number;
   opened: boolean;
+  damaged: boolean;
+  notes: string | null;
   barcode: string | null;
 }
 
@@ -122,6 +124,8 @@ export default function InventoryScreen() {
               dbQuantity: match.quantity,
               foundQty: 1,
               opened: match.opened,
+              damaged: match.damaged,
+              notes: match.notes,
               barcode,
             },
           };
@@ -154,6 +158,8 @@ export default function InventoryScreen() {
           dbQuantity: item.quantity,
           foundQty: 1,
           opened: item.opened,
+          damaged: item.damaged,
+          notes: item.notes,
           barcode: item.barcode,
         },
       };
@@ -183,13 +189,44 @@ export default function InventoryScreen() {
     });
   };
 
-  // ---- Toggle opened ----
+  // ---- Toggle conditions ----
   const toggleOpened = (itemId: string) => {
     setFoundMap((prev) => {
       const e = prev[itemId];
       if (!e) return prev;
       return { ...prev, [itemId]: { ...e, opened: !e.opened } };
     });
+  };
+
+  const toggleDamaged = (itemId: string) => {
+    setFoundMap((prev) => {
+      const e = prev[itemId];
+      if (!e) return prev;
+      return { ...prev, [itemId]: { ...e, damaged: !e.damaged } };
+    });
+  };
+
+  const editNotes = (itemId: string) => {
+    const current = foundMap[itemId]?.notes ?? '';
+    Alert.prompt(
+      'Item note',
+      'Add a note about this item\'s condition.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Save',
+          onPress: (text?: string) => {
+            setFoundMap((prev) => {
+              const e = prev[itemId];
+              if (!e) return prev;
+              return { ...prev, [itemId]: { ...e, notes: text?.trim() || null } };
+            });
+          },
+        },
+      ],
+      'plain-text',
+      current,
+    );
   };
 
   // ---- Remove from scanned ----
@@ -296,6 +333,8 @@ export default function InventoryScreen() {
         const patch: Record<string, any> = {};
         if (e.foundQty !== dbItem.quantity) patch.quantity = e.foundQty;
         if (e.opened !== dbItem.opened) patch.opened = e.opened;
+        if (e.damaged !== dbItem.damaged) patch.damaged = e.damaged;
+        if ((e.notes ?? null) !== (dbItem.notes ?? null)) patch.notes = e.notes;
         if (Object.keys(patch).length > 0) {
           await updateItem(e.itemId, patch);
         }
@@ -389,11 +428,17 @@ export default function InventoryScreen() {
                     />
                     <View style={styles.reportRowBody}>
                       <Text style={styles.reportRowName} numberOfLines={1}>{e.name}</Text>
-                      <Text style={styles.reportRowExpected}>
-                        Found {e.foundQty} of {e.dbQuantity} {e.unit}
-                        {isExtra ? ' (+' + (e.foundQty - e.dbQuantity) + ' extra)' : ''}
-                        {e.opened ? ' · OPENED' : ''}
-                      </Text>
+                      <View style={styles.reportRowDetail}>
+                        <Text style={styles.reportRowExpected}>
+                          Found {e.foundQty} of {e.dbQuantity} {e.unit}
+                          {isExtra ? ` (+${e.foundQty - e.dbQuantity} extra)` : ''}
+                        </Text>
+                        <View style={styles.reportBadges}>
+                          {e.opened && <Text style={styles.reportBadgeOpened}>OPENED</Text>}
+                          {e.damaged && <Text style={styles.reportBadgeDamaged}>DAMAGED</Text>}
+                          {e.notes && <Text style={styles.reportBadgeNote}>NOTE</Text>}
+                        </View>
+                      </View>
                     </View>
                   </View>
                 );
@@ -516,10 +561,20 @@ export default function InventoryScreen() {
             <View style={styles.tallyRow}>
               <View style={styles.tallyRowBody}>
                 <Text style={styles.tallyRowName} numberOfLines={1}>{e.name}</Text>
-                <Pressable onPress={() => toggleOpened(e.itemId)} style={styles.tallyOpenedToggle}>
-                  <Icon sf={e.opened ? 'checkmark.square.fill' : 'square'} size={16} color={e.opened ? colors.warningText : colors.textMuted} />
-                  <Text style={[styles.tallyOpenedText, e.opened && { color: colors.warningText }]}>Opened</Text>
-                </Pressable>
+                <View style={styles.tallyConditions}>
+                  <Pressable onPress={() => toggleOpened(e.itemId)} style={styles.tallyCondToggle}>
+                    <Icon sf={e.opened ? 'checkmark.square.fill' : 'square'} size={14} color={e.opened ? colors.warningText : colors.textMuted} />
+                    <Text style={[styles.tallyCondText, e.opened && { color: colors.warningText }]}>Opened</Text>
+                  </Pressable>
+                  <Pressable onPress={() => toggleDamaged(e.itemId)} style={styles.tallyCondToggle}>
+                    <Icon sf={e.damaged ? 'checkmark.square.fill' : 'square'} size={14} color={e.damaged ? colors.danger : colors.textMuted} />
+                    <Text style={[styles.tallyCondText, e.damaged && { color: colors.danger }]}>Damaged</Text>
+                  </Pressable>
+                  <Pressable onPress={() => editNotes(e.itemId)} style={styles.tallyCondToggle}>
+                    <Icon sf={e.notes ? 'note.text' : 'square.and.pencil'} size={14} color={e.notes ? colors.infoText : colors.textMuted} />
+                    <Text style={[styles.tallyCondText, e.notes && { color: colors.infoText }]}>{e.notes ? 'Note ✓' : 'Note'}</Text>
+                  </Pressable>
+                </View>
               </View>
               <View style={styles.tallyQtyWrap}>
                 <Pressable onPress={() => adjustQty(e.itemId, -1)} style={styles.tallyQtyBtn}>
@@ -612,8 +667,9 @@ const styles = StyleSheet.create({
   tallyRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.sm + 2, borderWidth: 1, borderColor: colors.border },
   tallyRowBody: { flex: 1, gap: 4 },
   tallyRowName: { ...typography.body, color: colors.text, fontWeight: '600' },
-  tallyOpenedToggle: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  tallyOpenedText: { ...typography.caption, color: colors.textMuted, fontWeight: '600' },
+  tallyConditions: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
+  tallyCondToggle: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  tallyCondText: { ...typography.caption, color: colors.textMuted, fontWeight: '600' },
   tallyQtyWrap: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   tallyQtyBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.palette.neutral[100], alignItems: 'center', justifyContent: 'center' },
   tallyQtyInput: { ...typography.headline, color: colors.text, textAlign: 'center', width: 40, paddingVertical: 2, backgroundColor: colors.surface, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border },
@@ -643,7 +699,12 @@ const styles = StyleSheet.create({
   reportRowMissing: { backgroundColor: colors.dangerBg },
   reportRowBody: { flex: 1, gap: 2 },
   reportRowName: { ...typography.body, color: colors.text, fontWeight: '600' },
+  reportRowDetail: { gap: 4 },
   reportRowExpected: { ...typography.caption, color: colors.textMuted },
+  reportBadges: { flexDirection: 'row', gap: 4, flexWrap: 'wrap' },
+  reportBadgeOpened: { fontSize: 8, fontWeight: '800', color: colors.warningText, backgroundColor: colors.warningBg, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, overflow: 'hidden' },
+  reportBadgeDamaged: { fontSize: 8, fontWeight: '800', color: colors.danger, backgroundColor: colors.dangerBg, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, overflow: 'hidden' },
+  reportBadgeNote: { fontSize: 8, fontWeight: '800', color: colors.infoText, backgroundColor: colors.infoBg, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, overflow: 'hidden' },
   reportFooter: { padding: spacing.lg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   reportConfirmBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, backgroundColor: colors.success, paddingVertical: spacing.lg, borderRadius: radius.md },
   reportConfirmText: { ...typography.bodyStrong, color: colors.textOnPrimary },

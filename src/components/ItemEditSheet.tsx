@@ -24,6 +24,7 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import {
   deleteItem,
+  markItemCondition,
   moveItemQuantity,
   openOneItem,
   supabase,
@@ -94,6 +95,10 @@ export function ItemEditSheet({
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [showBoxPicker, setShowBoxPicker] = useState(false);
+  const [showConditionSheet, setShowConditionSheet] = useState(false);
+  const [condOpened, setCondOpened] = useState(false);
+  const [condDamaged, setCondDamaged] = useState(false);
+  const [condNotes, setCondNotes] = useState('');
   const [quantityText, setQuantityText] = useState(
     Number.isInteger(item.quantity) ? String(item.quantity) : item.quantity.toString(),
   );
@@ -119,11 +124,36 @@ export function ItemEditSheet({
     setShowDatePicker(false);
   }, [item.id]);
 
-  // Show the split action only for sealed items with discrete units —
-  // opening "1 kg" of rice is meaningless, and opened rows can't be
-  // re-opened.
-  const canOpen =
-    !item.opened && (item.unit === 'pcs' || item.unit === 'pack') && item.quantity >= 1;
+  // Condition marking available for discrete units (pcs/pack).
+  const canMarkCondition =
+    (item.unit === 'pcs' || item.unit === 'pack') && item.quantity >= 1;
+
+  const openConditionSheet = () => {
+    setCondOpened(item.opened);
+    setCondDamaged(item.damaged);
+    setCondNotes(item.notes ?? '');
+    setShowConditionSheet(true);
+  };
+
+  const handleConfirmCondition = async () => {
+    try {
+      setSaving(true);
+      const { data: sess } = await supabase.auth.getSession();
+      const userId = sess.session?.user.id ?? '';
+      await markItemCondition(
+        item.id,
+        { opened: condOpened, damaged: condDamaged, notes: condNotes.trim() || null },
+        userId,
+      );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      setShowConditionSheet(false);
+      onOpened?.({} as any);
+      onClose();
+    } catch (e: any) {
+      setSaving(false);
+      Alert.alert('Error', e?.message ?? 'Cannot mark condition.');
+    }
+  };
 
   // ---- Image picker flow --------------------------------------------------
 
@@ -211,10 +241,12 @@ export function ItemEditSheet({
     );
   };
 
+  // handleMarkOpened kept as legacy for swipe action — delegates to
+  // openOneItem RPC for the quick "just open one" path.
   const handleMarkOpened = () => {
     Alert.alert(
       'Mark one as opened',
-      `Decrement this row's sealed count by 1 and push one unit to an opened sibling. Continue?`,
+      `Decrement sealed count by 1 and push one unit to an opened sibling. Continue?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -502,15 +534,17 @@ export function ItemEditSheet({
             allowNull
           />
 
-          {canOpen && (
+          {canMarkCondition && (
             <Pressable
               style={[styles.openBtn, saving && { opacity: 0.5 }]}
-              onPress={handleMarkOpened}
+              onPress={openConditionSheet}
               disabled={saving}
             >
               <View style={styles.openBtnContent}>
-                <Icon sf="shippingbox.fill" size={18} color={colors.warningText} />
-                <Text style={styles.openBtnText}>Mark one as opened</Text>
+                <Icon sf="tag.fill" size={18} color={colors.warningText} />
+                <Text style={styles.openBtnText}>
+                  {item.quantity > 1 ? 'Mark condition (split 1 unit)' : 'Mark condition'}
+                </Text>
               </View>
             </Pressable>
           )}
@@ -552,6 +586,96 @@ export function ItemEditSheet({
           onSelect={(box) => handleMoveToBox(box)}
           onClose={() => setShowBoxPicker(false)}
         />
+      </Modal>
+
+      {/* Condition marking sheet */}
+      <Modal
+        visible={showConditionSheet}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowConditionSheet(false)}
+      >
+        <SafeAreaView style={styles.condContainer} edges={['top', 'bottom']}>
+          <View style={styles.condHeader}>
+            <Text style={styles.condTitle}>
+              {item.quantity > 1 ? 'Mark condition (splits 1 unit)' : 'Mark condition'}
+            </Text>
+            <Pressable hitSlop={12} onPress={() => setShowConditionSheet(false)}>
+              <Text style={styles.condClose}>Cancel</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.condBody}>
+            <Text style={styles.condHint}>
+              {item.quantity > 1
+                ? 'This will split off 1 unit with the selected conditions. The rest stays unchanged.'
+                : 'Set the condition of this item.'}
+            </Text>
+
+            <View style={styles.condToggleRow}>
+              <View style={styles.condToggleText}>
+                <Text style={styles.condToggleLabel}>Opened</Text>
+                <Text style={styles.condToggleHint}>Package has been started</Text>
+              </View>
+              <Pressable
+                onPress={() => setCondOpened((v) => !v)}
+                style={styles.condCheckbox}
+              >
+                <Icon
+                  sf={condOpened ? 'checkmark.square.fill' : 'square'}
+                  size={24}
+                  color={condOpened ? colors.warningText : colors.textMuted}
+                />
+              </Pressable>
+            </View>
+
+            <View style={styles.condToggleRow}>
+              <View style={styles.condToggleText}>
+                <Text style={styles.condToggleLabel}>Damaged packaging</Text>
+                <Text style={styles.condToggleHint}>Packaging is compromised or torn</Text>
+              </View>
+              <Pressable
+                onPress={() => setCondDamaged((v) => !v)}
+                style={styles.condCheckbox}
+              >
+                <Icon
+                  sf={condDamaged ? 'checkmark.square.fill' : 'square'}
+                  size={24}
+                  color={condDamaged ? colors.danger : colors.textMuted}
+                />
+              </Pressable>
+            </View>
+
+            <Text style={styles.condNotesLabel}>Notes (optional)</Text>
+            <TextInput
+              value={condNotes}
+              onChangeText={setCondNotes}
+              placeholder="E.g. dent on top, seal broken..."
+              placeholderTextColor={colors.textSubtle}
+              style={styles.condNotesInput}
+              multiline
+              numberOfLines={3}
+            />
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.condConfirmBtn,
+                saving && { opacity: 0.6 },
+                pressed && !saving && { opacity: 0.8 },
+              ]}
+              onPress={handleConfirmCondition}
+              disabled={saving}
+            >
+              {saving ? (
+                <ActivityIndicator color={colors.textOnPrimary} />
+              ) : (
+                <Text style={styles.condConfirmText}>
+                  {item.quantity > 1 ? 'Split & mark' : 'Save condition'}
+                </Text>
+              )}
+            </Pressable>
+          </ScrollView>
+        </SafeAreaView>
       </Modal>
     </SafeAreaView>
   );
@@ -748,6 +872,58 @@ const styles = StyleSheet.create({
     color: colors.warningText,
     fontWeight: '700',
   },
+  // Condition sheet
+  condContainer: { flex: 1, backgroundColor: colors.background },
+  condHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  condTitle: { ...typography.headline, color: colors.text, flex: 1, marginRight: spacing.md },
+  condClose: { ...typography.body, color: colors.primary, fontWeight: '600' },
+  condBody: { padding: spacing.lg, gap: spacing.md },
+  condHint: { ...typography.footnote, color: colors.textMuted, lineHeight: 19 },
+  condToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md + 2,
+    gap: spacing.md,
+  },
+  condToggleText: { flex: 1, gap: 4 },
+  condToggleLabel: { ...typography.body, color: colors.text, fontWeight: '600' },
+  condToggleHint: { ...typography.footnote, color: colors.textMuted },
+  condCheckbox: { padding: spacing.xs },
+  condNotesLabel: { ...typography.label, color: colors.textMuted, marginTop: spacing.sm },
+  condNotesInput: {
+    ...typography.body,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md + 2,
+    paddingVertical: spacing.md,
+    color: colors.text,
+    borderWidth: 1,
+    borderColor: colors.border,
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  condConfirmBtn: {
+    marginTop: spacing.md,
+    paddingVertical: spacing.lg,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+  },
+  condConfirmText: { ...typography.bodyStrong, color: colors.textOnPrimary },
+
   moveBtn: {
     marginTop: spacing.lg,
     paddingVertical: spacing.md + 2,

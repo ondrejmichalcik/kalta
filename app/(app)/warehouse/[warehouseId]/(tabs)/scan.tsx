@@ -2,10 +2,10 @@
 // Stockr – QR scanner
 // Fullscreen camera, detect QR → getBoxByQr → navigate to detail
 // ============================================================================
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { getBoxByQr } from '@/src/lib/supabase';
 import { colors, radius, spacing, typography } from '@/src/theme';
@@ -15,9 +15,19 @@ export default function ScanScreen() {
   const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
   const [processing, setProcessing] = useState(false);
+  const [isFocused, setIsFocused] = useState(true);
   // Debounce: expo-camera fires onBarcodeScanned on every frame. We keep the
   // last handled code in a ref so we don't re-open it.
   const lastCodeRef = useRef<string | null>(null);
+
+  // Pause camera when tab is not focused — saves battery + prevents
+  // background barcode firing when on another tab.
+  useFocusEffect(
+    useCallback(() => {
+      setIsFocused(true);
+      return () => setIsFocused(false);
+    }, []),
+  );
 
   useEffect(() => {
     if (permission && !permission.granted && permission.canAskAgain) {
@@ -85,12 +95,14 @@ export default function ScanScreen() {
 
   return (
     <View style={styles.container}>
-      <CameraView
-        style={StyleSheet.absoluteFill}
-        facing="back"
-        barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-        onBarcodeScanned={({ data }) => handleCode(data)}
-      />
+      {isFocused && (
+        <CameraView
+          style={StyleSheet.absoluteFill}
+          facing="back"
+          barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+          onBarcodeScanned={({ data }) => handleCode(data)}
+        />
+      )}
       {/* Viewfinder overlay */}
       <View style={styles.overlay} pointerEvents="none">
         <View style={styles.frame} />

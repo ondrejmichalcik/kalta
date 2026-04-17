@@ -389,6 +389,23 @@ export default function WarehouseSettingsScreen() {
         ListHeaderComponent={<Text style={styles.sectionHeader}>MEMBERS</Text>}
         ListFooterComponent={
           <View style={styles.dangerZone}>
+            <Text style={styles.sectionHeader}>DATA</Text>
+            <Pressable
+              style={({ pressed }) => [styles.dataBtn, pressed && { opacity: 0.7 }]}
+              onPress={() => {
+                if (warehouseId) {
+                  router.push(`/warehouse/${warehouseId}/products` as any);
+                }
+              }}
+            >
+              <Icon sf="barcode" size={18} color={colors.primary} />
+              <View style={styles.dataBtnBody}>
+                <Text style={styles.dataBtnTitle}>Product cache</Text>
+                <Text style={styles.dataBtnHint}>Manage cached barcode lookups</Text>
+              </View>
+              <Icon sf="chevron.right" size={14} color={colors.textSubtle} />
+            </Pressable>
+
             <Text style={styles.sectionHeader}>DANGER ZONE</Text>
             {isOwner && (
               <Pressable
@@ -763,6 +780,22 @@ const styles = StyleSheet.create({
   badgeMemberText: {
     color: colors.textMuted,
   },
+
+  // Data section
+  dataBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md + 2,
+    marginBottom: spacing.md,
+  },
+  dataBtnBody: { flex: 1, gap: 2 },
+  dataBtnTitle: { ...typography.body, color: colors.text, fontWeight: '600' },
+  dataBtnHint: { ...typography.footnote, color: colors.textMuted },
 
   // Danger zone
   dangerZone: {

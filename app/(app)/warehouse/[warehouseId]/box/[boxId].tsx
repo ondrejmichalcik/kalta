@@ -36,6 +36,7 @@ import {
   deleteBox,
   deleteItem,
   getBoxById,
+  getMyWarehouses,
   listItems,
   moveItemQuantity,
   openOneItem,
@@ -49,7 +50,7 @@ import {
   shareBoxLabelPdf,
 } from '@/src/lib/qrLabel';
 import { BoxPicker } from '@/src/components/BoxPicker';
-import type { Box, Item, Category } from '@/src/types/database';
+import type { Box, Item, Category, Role } from '@/src/types/database';
 import {
   EXPIRY_COLORS,
   compareItemsByPriority,
@@ -82,6 +83,7 @@ export default function BoxDetailScreen() {
   const { warehouseId, boxId: id } = useLocalSearchParams<{ warehouseId: string; boxId: string }>();
   const [box, setBox] = useState<Box | null>(null);
   const [items, setItems] = useState<Item[]>([]);
+  const [myRole, setMyRole] = useState<Role | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showLabel, setShowLabel] = useState(false);
@@ -124,11 +126,21 @@ export default function BoxDetailScreen() {
       const [b, is] = await Promise.all([getBoxById(id), listItems(id)]);
       setBox(b);
       setItems(is);
+      // Resolve user's role in this warehouse for gating destructive actions
+      if (warehouseId) {
+        const { data: sess } = await supabase.auth.getSession();
+        const uid = sess.session?.user.id;
+        if (uid) {
+          const whs = await getMyWarehouses(uid);
+          const wh = whs.find((w) => w.id === warehouseId);
+          if (wh) setMyRole(wh.my_role);
+        }
+      }
     } catch (e: any) {
       setError(e?.message ?? 'Cannot load box.');
       throw e;
     }
-  }, [id]);
+  }, [id, warehouseId]);
 
   const retry = async () => {
     setLoading(true);
@@ -195,6 +207,8 @@ export default function BoxDetailScreen() {
     );
   };
 
+  const isOwner = myRole === 'owner';
+
   const showBoxActionSheet = () => {
     const options = [
       'Show QR label',
@@ -202,14 +216,17 @@ export default function BoxDetailScreen() {
       'Select & move items',
       'Inventory check',
       'Inventory history',
-      'Delete box',
+      ...(isOwner ? ['Delete box'] : []),
       'Cancel',
     ];
+    const destructiveIdx = isOwner ? options.length - 2 : -1;
+    const cancelIdx = options.length - 1;
+
     ActionSheetIOS.showActionSheetWithOptions(
       {
         options,
-        destructiveButtonIndex: 5,
-        cancelButtonIndex: 6,
+        destructiveButtonIndex: destructiveIdx >= 0 ? destructiveIdx : undefined,
+        cancelButtonIndex: cancelIdx,
         title: box?.name ?? undefined,
       },
       (idx) => {
@@ -233,7 +250,7 @@ export default function BoxDetailScreen() {
             );
           }
         }
-        else if (idx === 5) handleDeleteBox();
+        else if (isOwner && idx === options.length - 2) handleDeleteBox();
       },
     );
   };
@@ -1073,6 +1090,17 @@ function SwipeableRow({
                   <Text style={styles.openedBadgeText}>OPENED</Text>
                 </View>
               )}
+              {item.damaged && (
+                <View style={styles.damagedBadge}>
+                  <Text style={styles.damagedBadgeText}>DAMAGED</Text>
+                </View>
+              )}
+              {item.notes && (
+                <View style={styles.notesBadge}>
+                  <Icon sf="note.text" size={9} color={colors.infoText} />
+                  <Text style={styles.notesBadgeText}>NOTE</Text>
+                </View>
+              )}
             </View>
             <Text style={styles.rowQty} numberOfLines={1}>
               {formatItemQuantity(item)}
@@ -1313,6 +1341,37 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '800',
     color: colors.warningText,
+    letterSpacing: 0.5,
+  },
+  damagedBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    backgroundColor: colors.dangerBg,
+    borderWidth: 1,
+    borderColor: colors.dangerBgStrong,
+  },
+  damagedBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.danger,
+    letterSpacing: 0.5,
+  },
+  notesBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    backgroundColor: colors.infoBg,
+    borderWidth: 1,
+    borderColor: colors.infoBg,
+  },
+  notesBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.infoText,
     letterSpacing: 0.5,
   },
   rowQty: {

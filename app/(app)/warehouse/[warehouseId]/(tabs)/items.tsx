@@ -427,6 +427,16 @@ function ItemRow({
               <Text style={styles.openedBadgeText}>OPENED</Text>
             </View>
           )}
+          {item.damaged && (
+            <View style={styles.damagedBadge}>
+              <Text style={styles.damagedBadgeText}>DAMAGED</Text>
+            </View>
+          )}
+          {item.notes && (
+            <View style={styles.notesBadge}>
+              <Text style={styles.notesBadgeText}>NOTE</Text>
+            </View>
+          )}
         </View>
         <Text style={styles.cardSubtitle} numberOfLines={1}>
           {subtitleParts.join(' · ')}
@@ -594,6 +604,32 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '800',
     color: colors.warningText,
+    letterSpacing: 0.5,
+  },
+  damagedBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    backgroundColor: colors.dangerBg,
+    borderWidth: 1,
+    borderColor: colors.dangerBgStrong,
+  },
+  damagedBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.danger,
+    letterSpacing: 0.5,
+  },
+  notesBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    backgroundColor: colors.infoBg,
+  },
+  notesBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.infoText,
     letterSpacing: 0.5,
   },
   cardSubtitle: {

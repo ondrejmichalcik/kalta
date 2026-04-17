@@ -2,7 +2,7 @@
 // Stockr – Add items (batch session)
 // Flow: EAN scan → OFF lookup → form → queue → save all
 // ============================================================================
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -20,7 +20,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
@@ -118,11 +118,13 @@ export default function AddItemsScreen() {
   const [identifying, setIdentifying] = useState(false);
   const [shelfLifeDaysHint, setShelfLifeDaysHint] = useState<number | null>(null);
 
-  // Probe for the API key once on mount. Refresh if the user comes back
-  // from Profile after setting/removing a key mid-session.
-  useEffect(() => {
-    hasAnthropicKey().then(setVisionEnabled).catch(() => {});
-  }, []);
+  // Re-probe API key on every focus — user might return from Profile
+  // after setting/removing a key mid-session.
+  useFocusEffect(
+    useCallback(() => {
+      hasAnthropicKey().then(setVisionEnabled).catch(() => {});
+    }, []),
+  );
 
   // Toast shown after an item is added to the queue
   const [toast, setToast] = useState<string | null>(null);
@@ -820,6 +822,10 @@ export default function AddItemsScreen() {
             <Pressable
               style={[styles.btn, styles.btnSecondary]}
               onPress={() => {
+                // Clean up orphan upload if user picked a photo but cancels
+                if (draft?.image_url) {
+                  deleteProductImage(draft.image_url).catch(() => {});
+                }
                 setDraft(null);
                 setDraftSource(null);
                 setShowDatePicker(false);
