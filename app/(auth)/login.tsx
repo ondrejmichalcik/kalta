@@ -1,7 +1,7 @@
 // ============================================================================
 // Stockr – Login (Apple Sign In + dev email fallback)
 // ============================================================================
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,16 +17,52 @@ import {
 } from 'react-native';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { useRouter } from 'expo-router';
 import { signInWithApple, supabase } from '@/src/lib/supabase';
+import { hasInitialSync } from '@/src/lib/sync';
 import { colors, radius, spacing, typography } from '@/src/theme';
+import { Icon } from '@/src/components/Icon';
+
+const CACHED_USER_KEY = 'stockr:cachedUser';
+const LAST_USER_KEY = 'stockr:lastUser';
 
 export default function LoginScreen() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [devEmail, setDevEmail] = useState('');
   const [devPassword, setDevPassword] = useState('');
   const [devLoading, setDevLoading] = useState(false);
+  // Show "Continue offline" when local data exists from a previous session
+  const [canContinueOffline, setCanContinueOffline] = useState(false);
+  const [offlineUserId, setOfflineUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Check if we have local SQLite data AND a last known user identity.
+    // lastUser survives sign-out (unlike cachedUser) so the user can
+    // recover access to their local data without internet.
+    if (hasInitialSync()) {
+      AsyncStorage.getItem(LAST_USER_KEY).then((raw) => {
+        if (raw) {
+          const u = JSON.parse(raw);
+          setOfflineUserId(u.id);
+          setCanContinueOffline(true);
+        }
+      }).catch(() => {});
+    }
+  }, []);
+
+  const handleContinueOffline = async () => {
+    if (!offlineUserId) return;
+    // Re-persist cachedUser so auth guard lets us through
+    await AsyncStorage.setItem(
+      CACHED_USER_KEY,
+      JSON.stringify({ id: offlineUserId, email: null }),
+    );
+    router.replace('/' as any);
+  };
 
   const handleAppleSignIn = async () => {
     try {
@@ -134,6 +170,16 @@ export default function LoginScreen() {
               />
               {loading && <Text style={styles.loading}>Signing in…</Text>}
 
+              {canContinueOffline && (
+                <Pressable
+                  style={({ pressed }) => [styles.offlineBtn, pressed && { opacity: 0.7 }]}
+                  onPress={handleContinueOffline}
+                >
+                  <Icon sf="wifi.slash" size={16} color={colors.heroText} />
+                  <Text style={styles.offlineBtnText}>Continue offline</Text>
+                </Pressable>
+              )}
+
               {__DEV__ && (
                 <View style={styles.devSection}>
                   <View style={styles.divider}>
@@ -230,6 +276,23 @@ const styles = StyleSheet.create({
   appleBtn: {
     width: '100%',
     height: 52,
+  },
+  offlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    width: '100%',
+    height: 48,
+    marginTop: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  offlineBtnText: {
+    ...typography.body,
+    color: colors.heroText,
+    fontWeight: '600',
   },
   loading: {
     ...typography.footnote,

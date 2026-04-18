@@ -5,6 +5,7 @@
 import { File } from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { supabase } from './supabase';
+import { cacheImageFromLocal, removeCachedImage } from './imageCache';
 
 const BUCKET = 'product-images';
 
@@ -53,6 +54,10 @@ export async function uploadProductImage(
   if (!data?.publicUrl) {
     throw new Error('Upload succeeded but public URL is missing.');
   }
+
+  // Cache the resized image locally so it's available offline immediately.
+  cacheImageFromLocal(data.publicUrl, manipulated.uri).catch(() => {});
+
   return data.publicUrl;
 }
 
@@ -69,4 +74,7 @@ export async function deleteProductImage(publicUrl: string): Promise<void> {
   const path = publicUrl.slice(idx + marker.length);
   if (!path) return;
   await supabase.storage.from(BUCKET).remove([path]);
+
+  // Also remove from local image cache
+  removeCachedImage(publicUrl).catch(() => {});
 }

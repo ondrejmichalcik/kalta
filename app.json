@@ -21,8 +21,10 @@
         "NSCameraUsageDescription": "Stockr uses the camera to scan box QR codes and product barcodes, and to take photos of items.",
         "NSPhotoLibraryUsageDescription": "Stockr uses your photo library to attach product images to items.",
         "NSPhotoLibraryAddUsageDescription": "Stockr saves item photos to your library.",
-        "NSBluetoothAlwaysUsageDescription": "Stockr uses Bluetooth to print QR labels on the Brother label printer.",
-        "NSBluetoothPeripheralUsageDescription": "Stockr uses Bluetooth to communicate with the label printer.",
+        "NSBluetoothAlwaysUsageDescription": "Stockr uses Bluetooth to print QR labels and sync with nearby devices.",
+        "NSBluetoothPeripheralUsageDescription": "Stockr uses Bluetooth to communicate with the label printer and nearby devices.",
+        "NSLocalNetworkUsageDescription": "Stockr uses your local network to sync data with nearby devices.",
+        "NSBonjourServices": ["_stockr-sync._tcp", "_stockr-sync._udp"],
         "ITSAppUsesNonExemptEncryption": false
       },
       "associatedDomains": []
@@ -46,7 +48,8 @@
       ],
       "expo-sharing",
       "expo-brother-printer-sdk",
-      "expo-font"
+      "expo-font",
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true

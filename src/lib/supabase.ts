@@ -21,6 +21,41 @@ import type {
   Category,
 } from '@/src/types/database';
 
+import { hasInitialSync } from './sync';
+import {
+  addItemLocal,
+  addItemsBatchLocal,
+  createBoxLocal,
+  deleteBoxLocal,
+  deleteItemLocal,
+  markItemConditionLocal,
+  moveItemQuantityLocal,
+  openOneItemLocal,
+  updateBoxLocal,
+  updateItemLocal,
+  createWarehouseLocal,
+  renameWarehouseLocal,
+  verifyItemsLocal,
+  createInventorySessionLocal,
+  completeInventorySessionLocal,
+  upsertCustomProductLocal,
+  deleteCustomProductLocal,
+} from './localWrites';
+import {
+  findCustomProductLocal,
+  getBoxByIdLocal,
+  getBoxByQrLocal,
+  getMyWarehousesLocal,
+  getWarehouseByIdLocal,
+  listAllItemsInWarehouseLocal,
+  listBoxesLocal,
+  listCustomProductsLocal,
+  listItemsLocal,
+  listMembersLocal,
+  listInventorySessionsLocal,
+  getInventoryLinesLocal,
+} from './localQueries';
+
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
 // Nový publishable key (sb_publishable_...), nahrazuje legacy anon key
 const SUPABASE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -54,6 +89,8 @@ export async function signInWithApple(identityToken: string, nonce?: string) {
 }
 
 export async function signOut() {
+  // Clear cached user identity so auth guard redirects to login
+  await AsyncStorage.removeItem('stockr:cachedUser');
   return supabase.auth.signOut();
 }
 
@@ -73,6 +110,11 @@ export async function getSession() {
  * `subscribeMyWarehouses`.
  */
 export async function getMyWarehouses(userId: string): Promise<WarehouseWithRole[]> {
+  // SQLite-first: instant, offline-capable
+  try {
+    if (hasInitialSync()) return getMyWarehousesLocal(userId);
+  } catch { /* fallback to Supabase */ }
+
   const { data, error } = await supabase
     .from('warehouse_members')
     .select('role, joined_at, warehouses(*)')
@@ -95,14 +137,46 @@ export async function getMyWarehouses(userId: string): Promise<WarehouseWithRole
  *
  * Parametr `userId` zůstává pro API kompatibilitu — RPC používá auth.uid() uvnitř.
  */
-export async function createWarehouse(_userId: string, name: string): Promise<Warehouse> {
-  const { data, error } = await supabase.rpc('create_warehouse_for_me', { wh_name: name });
-  if (error) throw error;
-  if (!data) throw new Error('Warehouse was not created.');
-  return data as Warehouse;
+export async function createWarehouse(userId: string, name: string): Promise<Warehouse> {
+  // createWarehouse uses an RPC that atomically creates warehouse +
+  // membership + owner_id. Offline creation is tricky (composite PK
+  // membership, RLS bootstrap) so we try server first, fall back to
+  // local-only if offline.
+  try {
+    const { data, error } = await supabase.rpc('create_warehouse_for_me', { wh_name: name });
+    if (error) throw error;
+    if (!data) throw new Error('Warehouse was not created.');
+    const wh = data as Warehouse;
+    // Persist to SQLite so local reads work immediately
+    if (hasInitialSync()) {
+      const db = (await import('./localDb')).getDb();
+      const now = new Date().toISOString();
+      db.runSync(
+        `INSERT OR REPLACE INTO warehouses (id, owner_id, name, created_at, _synced, _local_updated_at)
+         VALUES (?, ?, ?, ?, 1, ?)`,
+        [wh.id, wh.owner_id, wh.name, wh.created_at, now],
+      );
+      db.runSync(
+        `INSERT OR REPLACE INTO warehouse_members (warehouse_id, user_id, role, joined_at, _synced)
+         VALUES (?, ?, 'owner', ?, 1)`,
+        [wh.id, userId, now],
+      );
+    }
+    return wh;
+  } catch (e: any) {
+    // Offline fallback: create locally, will need manual sync later
+    if (hasInitialSync()) {
+      return createWarehouseLocal(userId, name);
+    }
+    throw e;
+  }
 }
 
 export async function getWarehouseById(id: string): Promise<Warehouse | null> {
+  try {
+    if (hasInitialSync()) return getWarehouseByIdLocal(id);
+  } catch { /* fallback */ }
+
   const { data, error } = await supabase
     .from('warehouses')
     .select('*')
@@ -113,6 +187,12 @@ export async function getWarehouseById(id: string): Promise<Warehouse | null> {
 }
 
 export async function renameWarehouse(id: string, name: string): Promise<Warehouse> {
+  if (hasInitialSync()) {
+    const wh = renameWarehouseLocal(id, name);
+    supabase.from('warehouses').update({ name }).eq('id', id).then(() => {}, () => {});
+    return wh;
+  }
+
   const { data, error } = await supabase
     .from('warehouses')
     .update({ name })
@@ -156,6 +236,10 @@ export async function leaveWarehouse(warehouseId: string, userId: string): Promi
 export async function listMembers(warehouseId: string): Promise<
   (WarehouseMember & { user: { display_name: string | null; email: string | null } })[]
 > {
+  try {
+    if (hasInitialSync()) return listMembersLocal(warehouseId);
+  } catch { /* fallback */ }
+
   const { data, error } = await supabase
     .from('warehouse_members')
     .select('*, user:users(display_name, email)')
@@ -251,6 +335,10 @@ export function subscribeMyWarehouses(userId: string, onChange: () => void): () 
 // ============================================================================
 
 export async function listBoxes(warehouseId: string): Promise<Box[]> {
+  try {
+    if (hasInitialSync()) return listBoxesLocal(warehouseId);
+  } catch { /* fallback */ }
+
   const { data, error } = await supabase
     .from('boxes')
     .select('*')
@@ -260,12 +348,20 @@ export async function listBoxes(warehouseId: string): Promise<Box[]> {
 }
 
 export async function getBoxById(id: string): Promise<Box | null> {
+  try {
+    if (hasInitialSync()) return getBoxByIdLocal(id);
+  } catch { /* fallback */ }
+
   const { data, error } = await supabase.from('boxes').select('*').eq('id', id).maybeSingle();
   if (error) throw error;
   return (data as Box) ?? null;
 }
 
 export async function getBoxByQr(qrCode: string): Promise<Box | null> {
+  try {
+    if (hasInitialSync()) return getBoxByQrLocal(qrCode);
+  } catch { /* fallback */ }
+
   const { data, error } = await supabase
     .from('boxes')
     .select('*')
@@ -280,6 +376,17 @@ export async function createBox(input: {
   name: string;
   location?: string | null;
 }): Promise<Box> {
+  // SQLite-first: immediate local insert, background Supabase push.
+  if (hasInitialSync()) {
+    const box = createBoxLocal(input);
+    // Fire-and-forget server push
+    supabase.from('boxes').insert({
+      id: box.id, warehouse_id: box.warehouse_id, name: box.name,
+      location: box.location, qr_code: box.qr_code,
+    }).then(() => {}, () => {});
+    return box;
+  }
+
   const { data, error } = await supabase
     .from('boxes')
     .insert({
@@ -294,12 +401,22 @@ export async function createBox(input: {
 }
 
 export async function updateBox(id: string, patch: Partial<Pick<Box, 'name' | 'location'>>) {
+  if (hasInitialSync()) {
+    const box = updateBoxLocal(id, patch);
+    supabase.from('boxes').update(patch).eq('id', id).then(() => {}, () => {});
+    return box;
+  }
   const { data, error } = await supabase.from('boxes').update(patch).eq('id', id).select().single();
   if (error) throw error;
   return data as Box;
 }
 
 export async function deleteBox(id: string) {
+  if (hasInitialSync()) {
+    deleteBoxLocal(id);
+    supabase.from('boxes').delete().eq('id', id).then(() => {}, () => {});
+    return;
+  }
   const { error } = await supabase.from('boxes').delete().eq('id', id);
   if (error) throw error;
 }
@@ -335,6 +452,10 @@ export function subscribeBoxes(warehouseId: string, onChange: () => void): () =>
 // ============================================================================
 
 export async function listItems(boxId: string): Promise<Item[]> {
+  try {
+    if (hasInitialSync()) return listItemsLocal(boxId);
+  } catch { /* fallback */ }
+
   const { data, error } = await supabase
     .from('items')
     .select('*')
@@ -352,6 +473,10 @@ export async function listItems(boxId: string): Promise<Item[]> {
 export async function listAllItemsInWarehouse(
   warehouseId: string,
 ): Promise<ItemWithBox[]> {
+  try {
+    if (hasInitialSync()) return listAllItemsInWarehouseLocal(warehouseId);
+  } catch { /* fallback */ }
+
   const { data, error } = await supabase
     .from('items')
     .select('*, boxes!inner(name, warehouse_id)')
@@ -383,6 +508,12 @@ export async function addItem(
   addedBy: string,
   input: NewItemInput,
 ): Promise<Item> {
+  if (hasInitialSync()) {
+    const item = addItemLocal(boxId, addedBy, input);
+    supabase.from('items').insert({ id: item.id, box_id: boxId, added_by: addedBy, ...input })
+      .then(() => {}, () => {});
+    return item;
+  }
   const { data, error } = await supabase
     .from('items')
     .insert({ box_id: boxId, added_by: addedBy, ...input })
@@ -401,6 +532,15 @@ export async function addItemsBatch(
   items: NewItemInput[],
 ): Promise<Item[]> {
   if (items.length === 0) return [];
+
+  if (hasInitialSync()) {
+    const result = addItemsBatchLocal(boxId, addedBy, items);
+    // Background push
+    const rows = result.map((i) => ({ id: i.id, box_id: boxId, added_by: addedBy, ...items[result.indexOf(i)] }));
+    supabase.from('items').insert(rows).then(() => {}, () => {});
+    return result;
+  }
+
   const rows = items.map((i) => ({ box_id: boxId, added_by: addedBy, ...i }));
   const { data, error } = await supabase.from('items').insert(rows).select();
   if (error) throw error;
@@ -408,6 +548,11 @@ export async function addItemsBatch(
 }
 
 export async function updateItem(id: string, patch: Partial<NewItemInput>) {
+  if (hasInitialSync()) {
+    const item = updateItemLocal(id, patch);
+    supabase.from('items').update(patch).eq('id', id).then(() => {}, () => {});
+    return item;
+  }
   const { data, error } = await supabase.from('items').update(patch).eq('id', id).select().single();
   if (error) throw error;
   return data as Item;
@@ -463,6 +608,12 @@ export async function moveItemQuantity(
   targetBoxId: string,
   addedBy: string,
 ): Promise<void> {
+  if (hasInitialSync()) {
+    moveItemQuantityLocal(itemId, quantity, targetBoxId, addedBy);
+    // Background sync will push individual changes from queue
+    return;
+  }
+
   const { data: srcData, error: srcErr } = await supabase
     .from('items')
     .select('*')
@@ -544,6 +695,12 @@ export async function moveItemQuantity(
  */
 export async function verifyItems(itemIds: string[]): Promise<void> {
   if (itemIds.length === 0) return;
+  if (hasInitialSync()) {
+    verifyItemsLocal(itemIds);
+    const now = new Date().toISOString();
+    supabase.from('items').update({ last_verified: now }).in('id', itemIds).then(() => {}, () => {});
+    return;
+  }
   const { error } = await supabase
     .from('items')
     .update({ last_verified: new Date().toISOString() })
@@ -562,6 +719,11 @@ export async function markItemCondition(
   conditions: { opened: boolean; damaged: boolean; notes: string | null },
   addedBy: string,
 ): Promise<void> {
+  if (hasInitialSync()) {
+    markItemConditionLocal(itemId, conditions, addedBy);
+    return;
+  }
+
   const { data: srcData, error: srcErr } = await supabase
     .from('items')
     .select('*')
@@ -617,6 +779,13 @@ export async function markItemCondition(
  * can haptic + close sheet without needing to know the detail.
  */
 export async function openOneItem(itemId: string): Promise<Item> {
+  if (hasInitialSync()) {
+    const { data: sess } = await supabase.auth.getSession();
+    const userId = sess.session?.user.id ?? '';
+    return openOneItemLocal(itemId, userId);
+    // Background sync will push changes from queue
+  }
+
   const { data, error } = await supabase.rpc('open_one_item', {
     source_id: itemId,
   });
@@ -626,7 +795,12 @@ export async function openOneItem(itemId: string): Promise<Item> {
 }
 
 export async function deleteItem(id: string) {
-  // Fetch image_url before deleting so we can clean up storage.
+  if (hasInitialSync()) {
+    deleteItemLocal(id); // handles image cleanup + box cache recalc
+    supabase.from('items').delete().eq('id', id).then(() => {}, () => {});
+    return;
+  }
+
   const { data: item } = await supabase
     .from('items')
     .select('image_url')
@@ -636,8 +810,6 @@ export async function deleteItem(id: string) {
   const { error } = await supabase.from('items').delete().eq('id', id);
   if (error) throw error;
 
-  // Fire-and-forget: clean up product image from Storage if it's ours.
-  // deleteProductImage safely no-ops for external URLs (OFF thumbnails).
   if ((item as any)?.image_url) {
     import('./storage').then(({ deleteProductImage }) => {
       deleteProductImage((item as any).image_url).catch(() => {});
@@ -751,6 +923,15 @@ export async function createInventorySession(
   boxId: string,
   performedBy: string,
 ): Promise<InventorySession> {
+  if (hasInitialSync()) {
+    const session = createInventorySessionLocal(boxId, performedBy);
+    supabase.from('inventory_sessions').insert({
+      id: session.id, box_id: boxId, performed_by: performedBy,
+      started_at: session.started_at,
+    }).then(() => {}, () => {});
+    return session;
+  }
+
   const { data, error } = await supabase
     .from('inventory_sessions')
     .insert({ box_id: boxId, performed_by: performedBy })
@@ -765,6 +946,12 @@ export async function completeInventorySession(
   lines: { item_id: string | null; item_name: string; item_quantity: number; item_unit: string; found_quantity: number; status: InventoryLineStatus; scanned_barcode: string | null }[],
   foundItemIds: string[],
 ): Promise<void> {
+  if (hasInitialSync()) {
+    completeInventorySessionLocal(sessionId, lines, foundItemIds);
+    // Sync queue will push lines + session update + verified items
+    return;
+  }
+
   const foundCount = lines.filter((l) => l.status === 'found').length;
   const missingCount = lines.filter((l) => l.status === 'missing').length;
 
@@ -799,6 +986,9 @@ export async function completeInventorySession(
 export async function listInventorySessions(
   boxId: string,
 ): Promise<(InventorySession & { user: { display_name: string | null; email: string | null } | null })[]> {
+  try {
+    if (hasInitialSync()) return listInventorySessionsLocal(boxId);
+  } catch { /* fallback */ }
   // Step 1: fetch sessions without join (avoids PostgREST FK detection issues)
   const { data, error } = await supabase
     .from('inventory_sessions')
@@ -834,6 +1024,10 @@ export async function listInventorySessions(
 }
 
 export async function getInventoryLines(sessionId: string): Promise<InventoryLine[]> {
+  try {
+    if (hasInitialSync()) return getInventoryLinesLocal(sessionId);
+  } catch { /* fallback */ }
+
   const { data, error } = await supabase
     .from('inventory_lines')
     .select('*')
@@ -856,6 +1050,10 @@ export function buildInviteLink(token: string): string {
 // ============================================================================
 
 export async function listCustomProducts(warehouseId: string): Promise<CustomProduct[]> {
+  try {
+    if (hasInitialSync()) return listCustomProductsLocal(warehouseId);
+  } catch { /* fallback */ }
+
   const { data, error } = await supabase
     .from('custom_products')
     .select('*')
@@ -866,6 +1064,11 @@ export async function listCustomProducts(warehouseId: string): Promise<CustomPro
 }
 
 export async function deleteCustomProduct(id: string): Promise<void> {
+  if (hasInitialSync()) {
+    deleteCustomProductLocal(id);
+    supabase.from('custom_products').delete().eq('id', id).then(() => {}, () => {});
+    return;
+  }
   const { error } = await supabase.from('custom_products').delete().eq('id', id);
   if (error) throw error;
 }
@@ -874,6 +1077,10 @@ export async function findCustomProduct(
   warehouseId: string,
   barcode: string,
 ): Promise<CustomProduct | null> {
+  try {
+    if (hasInitialSync()) return findCustomProductLocal(warehouseId, barcode);
+  } catch { /* fallback */ }
+
   const { data, error } = await supabase
     .from('custom_products')
     .select('*')
@@ -893,6 +1100,13 @@ export async function upsertCustomProduct(input: {
   typical_expiry_days?: number | null;
   created_by: string;
 }): Promise<CustomProduct> {
+  if (hasInitialSync()) {
+    const cp = upsertCustomProductLocal(input);
+    supabase.from('custom_products')
+      .upsert(input, { onConflict: 'warehouse_id,barcode' })
+      .then(() => {}, () => {});
+    return cp;
+  }
   const { data, error } = await supabase
     .from('custom_products')
     .upsert(input, { onConflict: 'warehouse_id,barcode' })

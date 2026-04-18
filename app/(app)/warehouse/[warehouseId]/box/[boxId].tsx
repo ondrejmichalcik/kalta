@@ -26,6 +26,7 @@ import QRCode from 'react-native-qrcode-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
+import { getCachedUri } from '@/src/lib/imageCache';
 import { ItemEditSheet } from '@/src/components/ItemEditSheet';
 import { BoxEditSheet } from '@/src/components/BoxEditSheet';
 import { Icon } from '@/src/components/Icon';
@@ -1115,7 +1116,7 @@ function SwipeableRow({
             </View>
           ) : null}
           {item.image_url ? (
-            <Image source={{ uri: item.image_url }} style={styles.rowThumb} />
+            <Image source={{ uri: getCachedUri(item.image_url)! }} style={styles.rowThumb} />
           ) : (
             <Icon sf={sfIcon} size={20} color={colors.textMuted} />
           )}
@@ -1149,7 +1150,7 @@ function GridCard({ item, onPress }: { item: Item; onPress: () => void }) {
     >
       <View style={styles.gridImageWrap}>
         {item.image_url ? (
-          <Image source={{ uri: item.image_url }} style={styles.gridImage} />
+          <Image source={{ uri: getCachedUri(item.image_url)! }} style={styles.gridImage} />
         ) : (
           <Icon sf={sfIcon} size={36} color={colors.textMuted} />
         )}

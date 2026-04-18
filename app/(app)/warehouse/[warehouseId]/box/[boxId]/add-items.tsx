@@ -25,6 +25,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
+import { getCachedUri } from '@/src/lib/imageCache';
 import {
   addItemsBatch,
   findCustomProduct,
@@ -670,7 +671,7 @@ export default function AddItemsScreen() {
               style={({ pressed }) => [styles.draftImageTile, pressed && { opacity: 0.7 }]}
             >
               {draft.image_url ? (
-                <Image source={{ uri: draft.image_url }} style={styles.draftImage} />
+                <Image source={{ uri: getCachedUri(draft.image_url)! }} style={styles.draftImage} />
               ) : (
                 <View style={styles.draftImagePlaceholder}>
                   <Icon
@@ -994,7 +995,7 @@ function QueueChip({
         <Icon sf="xmark" size={12} color="#FFFFFF" />
       </Pressable>
       {draft.image_url ? (
-        <Image source={{ uri: draft.image_url }} style={styles.queueImage} />
+        <Image source={{ uri: getCachedUri(draft.image_url)! }} style={styles.queueImage} />
       ) : (
         <Icon
           sf={draft.category ? CATEGORY_SF[draft.category] : 'shippingbox.fill'}

@@ -11,11 +11,13 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
+import * as Network from 'expo-network';
 import { signOut, supabase } from '@/src/lib/supabase';
 import {
   clearAnthropicKey,
@@ -23,6 +25,14 @@ import {
   setAnthropicKey,
 } from '@/src/lib/secureStore';
 import { testAnthropicKey } from '@/src/lib/vision';
+import {
+  ALL_WINDOWS,
+  getReminderWindows,
+  isNotificationsEnabled,
+  setNotificationsEnabled,
+  setReminderWindows,
+  type ReminderWindow,
+} from '@/src/lib/notifications';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
 
@@ -32,6 +42,8 @@ export default function ProfileScreen() {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [keyStatus, setKeyStatus] = useState<'loading' | 'absent' | 'present'>('loading');
   const [testing, setTesting] = useState(false);
+  const [notifEnabled, setNotifEnabled] = useState(true);
+  const [activeWindows, setActiveWindows] = useState<ReminderWindow[]>([...ALL_WINDOWS]);
 
   const loadProfile = useCallback(async () => {
     const { data: sess } = await supabase.auth.getSession();
@@ -48,6 +60,10 @@ export default function ProfileScreen() {
     }
     const key = await getAnthropicKey();
     setKeyStatus(key ? 'present' : 'absent');
+    const notif = await isNotificationsEnabled();
+    setNotifEnabled(notif);
+    const windows = await getReminderWindows();
+    setActiveWindows(windows);
   }, []);
 
   useEffect(() => {
@@ -131,17 +147,42 @@ export default function ProfileScreen() {
 
   // ---- Sign out ------------------------------------------------------------
 
-  const handleSignOut = () => {
-    Alert.alert('Sign out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign out',
-        style: 'destructive',
-        onPress: () => {
-          signOut().catch(() => {});
+  const handleSignOut = async () => {
+    // Block sign out when offline — login requires Apple Sign In which needs internet.
+    // Without internet the user would be permanently locked out.
+    try {
+      const state = await Network.getNetworkStateAsync();
+      if (!state.isConnected || !state.isInternetReachable) {
+        Alert.alert(
+          'You are offline',
+          'Signing back in requires internet (Apple Sign In). You can still use "Continue offline" on the login screen to access your local data.',
+          [
+            { text: 'Stay signed in', style: 'cancel' },
+            {
+              text: 'Sign out anyway',
+              style: 'destructive',
+              onPress: () => { signOut().catch(() => {}); },
+            },
+          ],
+        );
+        return;
+      }
+    } catch { /* can't check — let them proceed with warning */ }
+
+    Alert.alert(
+      'Sign out',
+      'You will need internet and Apple Sign In to log back in. Your local data will be kept on this device.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign out',
+          style: 'destructive',
+          onPress: () => {
+            signOut().catch(() => {});
+          },
         },
-      },
-    ]);
+      ],
+    );
   };
 
   // ---- Render --------------------------------------------------------------
@@ -250,6 +291,75 @@ export default function ProfileScreen() {
             </Pressable>
           )}
         </View>
+
+        {/* Notifications */}
+        <Text style={styles.sectionHeader}>NOTIFICATIONS</Text>
+        <View style={styles.card}>
+          <View style={styles.notifRow}>
+            <View style={styles.notifText}>
+              <Text style={styles.visionTitle}>Expiry reminders</Text>
+              <Text style={styles.visionDescription}>
+                Local notifications for items approaching expiry. Works offline.
+              </Text>
+            </View>
+            <Switch
+              value={notifEnabled}
+              onValueChange={async (val) => {
+                setNotifEnabled(val);
+                await setNotificationsEnabled(val);
+              }}
+              trackColor={{ false: colors.border, true: colors.primary }}
+            />
+          </View>
+
+          {notifEnabled && (
+            <View style={styles.windowsSection}>
+              <Text style={styles.windowsLabel}>Remind me</Text>
+              {ALL_WINDOWS.map((w) => {
+                const enabled = activeWindows.includes(w);
+                const label = w === 0 ? 'On expiry day' : w === 1 ? '1 day before' : `${w} days before`;
+                return (
+                  <Pressable
+                    key={w}
+                    style={styles.windowRow}
+                    onPress={async () => {
+                      const next = enabled
+                        ? activeWindows.filter((x) => x !== w)
+                        : [...activeWindows, w].sort((a, b) => b - a);
+                      setActiveWindows(next);
+                      await setReminderWindows(next);
+                    }}
+                  >
+                    <Icon
+                      sf={enabled ? 'checkmark.circle.fill' : 'circle'}
+                      size={20}
+                      color={enabled ? colors.primary : colors.textMuted}
+                    />
+                    <Text style={[styles.windowText, !enabled && { color: colors.textMuted }]}>{label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+        </View>
+
+        {/* P2P Sync */}
+        <Text style={styles.sectionHeader}>DEVICE SYNC</Text>
+        <Pressable
+          style={({ pressed }) => [styles.p2pBtn, pressed && { opacity: 0.7 }]}
+          onPress={() => router.push('/p2p-sync' as any)}
+        >
+          <View style={styles.p2pIconWrap}>
+            <Icon sf="antenna.radiowaves.left.and.right" size={20} color={colors.primary} />
+          </View>
+          <View style={styles.p2pText}>
+            <Text style={styles.visionTitle}>Sync with nearby iPhone</Text>
+            <Text style={styles.visionDescription}>
+              Exchange data via Bluetooth/WiFi. No internet needed.
+            </Text>
+          </View>
+          <Icon sf="chevron.right" size={14} color={colors.textSubtle} />
+        </Pressable>
 
         {/* Sign out */}
         <Text style={styles.sectionHeader}>SESSION</Text>
@@ -401,6 +511,65 @@ const styles = StyleSheet.create({
     ...typography.footnote,
     color: colors.danger,
     fontWeight: '700',
+  },
+
+  // Notifications
+  notifRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  notifText: {
+    flex: 1,
+    gap: 4,
+  },
+  windowsSection: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    gap: spacing.xs,
+  },
+  windowsLabel: {
+    ...typography.caption,
+    color: colors.textMuted,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    marginBottom: spacing.xs,
+  },
+  windowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.xs + 1,
+  },
+  windowText: {
+    ...typography.body,
+    color: colors.text,
+  },
+
+  // P2P Sync
+  p2pBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md + 2,
+  },
+  p2pIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primaryTint,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  p2pText: {
+    flex: 1,
+    gap: 4,
   },
 
   // Sign out

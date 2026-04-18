@@ -22,6 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
+import { getCachedUri } from '@/src/lib/imageCache';
 import {
   deleteItem,
   markItemCondition,
@@ -425,7 +426,7 @@ export function ItemEditSheet({
             style={({ pressed }) => [styles.imageTile, pressed && { opacity: 0.7 }]}
           >
             {draft.image_url ? (
-              <Image source={{ uri: draft.image_url }} style={styles.imagePreview} />
+              <Image source={{ uri: getCachedUri(draft.image_url)! }} style={styles.imagePreview} />
             ) : (
               <View style={styles.imagePlaceholder}>
                 <Icon sf="camera.fill" size={32} color={colors.textMuted} />
