@@ -20,6 +20,7 @@ import {
   getMyWarehouses,
   listAllItemsInWarehouse,
 } from '@/src/lib/supabase';
+import { setAppBadge } from '@/src/lib/notifications';
 import type { ItemWithBox } from '@/src/types/database';
 import { EXPIRY_COLORS, daysUntil, getExpiryStatus } from '@/src/types/database';
 import { colors, radius, spacing, typography } from '@/src/theme';
@@ -71,6 +72,11 @@ export default function AlertsScreen() {
   useFocusEffect(
     useCallback(() => {
       load().catch(() => {});
+      // Treat opening the alerts list as "seen" — clear the icon badge so
+      // it doesn't keep nagging after the user has looked at the items.
+      // It'll re-populate on next Warehouses-list focus if things are
+      // still due to expire.
+      setAppBadge(0).catch(() => {});
     }, [load]),
   );
 

@@ -753,6 +753,52 @@ Po otevření nové session:
 2. **Test na 2 iPhonech** — offline flow, P2P sync, invite deep link, notifications, image cache, session persistence
 3. **App Store prep** — privacy policy, screenshots, metadata, submit
 
+### Session 2026-04-19 — P2P crash deep-dive, attention banner, Hermes bisect
+
+Post-build-18 den plný debuggingu TestFlight crashe. **Výsledek: P2P sync dočasně vypnutý jako placeholder, zbytek appky stabilní.** Sprint 5 App Store release je odblokovaný.
+
+**Attention banner na Warehouses list:**
+- User postřeh: "badge na ikoně ukazuje číslo, ale když appku otevřu, tak mi nic neukáže o čem ten badge je"
+- Přidán 3-tier banner: červený (≤1d), žlutý (≤30d), sage (≤60d), dole podle nejurgentnější skupiny
+- Badge count = items expirující v ≤60 dnech (user chtěl zachovat 60d threshold)
+- `src/lib/notifications.ts:setAppBadge()` helper pro live update bez full reschedule
+- Tap banner → `/alerts/[window]` a clear badge
+
+**Oprava `.gitignore` — kritická:**
+- Pravidlo `ios/` (bez leading slash) ignorovalo **všechny** `ios/` adresáře v tree, nejen root. Znamenalo to že náš **custom Swift modul `modules/stockr-multipeer/ios/`** nebyl v gitu a pravděpodobně ani v EAS Build uploadu. Fix: změna na `/ios/` (anchored na root). Swift zdrojáky + podspec přidány do gitu (sprint 5 commit #2).
+
+**`expo.autolinking.nativeModulesDir` fix:**
+- `npx expo-modules-autolinking resolve -p ios` nevracel stockr-multipeer. Expo neskenuje `modules/` directory defaultně — pouze `node_modules/`.
+- Fix: `"expo": { "autolinking": { "nativeModulesDir": "./modules" } }` v `package.json`
+- Po fixu autolinking vrací `podName: 'StockrMultipeer'`, `swiftModuleNames: ['StockrMultipeer']`, `modules: [{ class: 'StockrMultipeerModule' }]` → modul pak v podfile/xcode buildu
+
+**P2P sync crash — bisect přes 10+ TestFlight buildů / OTA updates:**
+
+Posloupnost crashů a jejich diagnóz:
+- **Build 16:** `EXC_CRASH SIGABRT` v `ObjCTurboModule::performVoidMethodInvocation` (ObjC NSException ze Swift MCP kódu). Teorie: `MCPeerID(displayName:)` s empty/long string nebo `MCNearbyServiceBrowser` bez NSBonjourServices. Fix: Info.plist (přidání `_stockr-sync._tcp/_udp`), Swift validace displayName.
+- **Build 17/18:** crash na startup 4s po launchi v `expo-updates` `ErrorRecovery.crash()`. Teorie: OTA bundle nekompatibilní s native. Po reinstallu padalo **i offline** → bug v embedded bundle, ne OTA cache.
+- **Autolinking fix → Build 19:** crash přesunut do `hermes::vm::stringPrototypeIncludesOrStartsWith` (EXC_BAD_ACCESS v Hermes při `.includes()` call). Defensive `String(e.message ?? '').includes(...)` coercion.
+- **Build 19 + OTA chain:** další crash v `hermes::vm::errorStackGetter` — Hermes při tvorbě `.stack` Error objektu. Exhausted attempts → temporary placeholder P2P screen.
+
+**Bisect při znovu zapínání (A1 → A10):**
+- A1 auto-push ✅ / A2 urgency iteration ✅ / A3 side-effect import ✅ / A5 minimal state ✅ / A6 +useEffect+refs ✅ / A7 all state+callbacks no native ✅ 
+- **A8/A8b/A8c/A9:** jakákoli statická reference `Multipeer.startSession` (i `Multipeer['startSession']` bracket access, i pouhé `typeof Multipeer.startSession`) **v useCallback closure body** → **crash na mount screenu**. Hermes HBC bug — bytecode generace pro module-member access v closure je broken.
+- **A10 dynamic import:** `const mod = await import(...)` v handler body prošel, screen naběhl, `mod.startSession(displayName)` **padl v native vrstvě** → to je druhý, nezávislý problém ve Swift MCP kódu
+
+**Závěr:**
+1. **Hermes HBC bug** — workaroundable dynamic importem. Worth filing upstream.
+2. **Native Swift MCP crash** — neladitelný z JS/TestFlight. Potřebuje `npx expo run:ios --device` + Xcode Console s live Swift/MCP stack tracem. Odloženo na samostatnou session.
+
+**Co zůstalo v kódu:**
+- P2P screen = placeholder "Temporarily disabled"
+- `modules/stockr-multipeer/` a `src/lib/p2pSync.ts` — netknuté, žádný import z screenu
+- `app.json` NSBonjourServices + Info.plist NSBonjourServices + Swift validace displayName — jsou v buildu pro až P2P znovu zapneme
+- `expo.autolinking.nativeModulesDir` — zůstává, modul bude k dispozici v buildech
+
+**Sprint 5 status:** všechno ostatní stabilní, core flows otestované na reálných zařízeních (invite, offline, sync, filter, notifications, badge/banner). Next: privacy policy → App Store metadata → submit.
+
+---
+
 ### Session 2026-04-18 — post-TestFlight bug-fix pass
 
 TestFlight build 16 uploaded, první reálný multi-device test odhalil hromadu edge-case bugů napříč auth / sync / P2P / UI. Všechny vyřešené, jde se pro build 17.

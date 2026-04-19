@@ -952,7 +952,7 @@ function LabelModalContent({ box, onClose }: { box: Box; onClose: () => void }) 
     } catch (e: any) {
       // User-cancelled dismiss throws "Printing did not complete" — swallow
       // quietly. Real errors (network, etc.) surface to the user.
-      const msg = e?.message ?? '';
+      const msg = String(e?.message ?? '');
       if (!msg.toLowerCase().includes('did not complete')) {
         Alert.alert('Print error', msg || 'Cannot open print dialog.');
       }

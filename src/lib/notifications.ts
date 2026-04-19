@@ -147,7 +147,9 @@ export async function rescheduleExpiryNotifications(
     const [y, m, d] = item.expiry_date.split('-').map(Number);
     const expiryMs = new Date(y, m - 1, d).getTime();
 
-    // Count items expiring within 60 days for badge (widest window).
+    // Count items within the 60-day urgency bucket for the app badge.
+    // The Warehouses-list attention banner tiers the 60/30/1d counts so
+    // the user sees what the badge is about with the right urgency color.
     const daysLeft = Math.ceil((expiryMs - now) / DAY_MS);
     if (daysLeft <= 60) expiringCount++;
 
@@ -206,7 +208,21 @@ export async function rescheduleExpiryNotifications(
     });
   }
 
-  // Set app badge to count of items expiring within 60 days (widest window).
+  // Set app badge to count of items in the 60-day urgency bucket.
   // 0 clears the badge.
   await Notifications.setBadgeCountAsync(expiringCount);
+}
+
+/**
+ * Set the app icon badge directly. Used by screens that compute the count
+ * themselves (Warehouses list refresh) or want to clear the badge on view
+ * (alerts screen). The full reschedule above also sets the badge — use
+ * this for lighter-weight updates that don't need to touch the schedule.
+ */
+export async function setAppBadge(count: number): Promise<void> {
+  try {
+    await Notifications.setBadgeCountAsync(Math.max(0, count));
+  } catch {
+    // Permission may not be granted yet; ignore.
+  }
 }

@@ -2,10 +2,18 @@
 // Stockr – MultipeerConnectivity JS API
 // Wraps the native StockrMultipeer module for P2P sync between iPhones.
 // ============================================================================
-import { requireNativeModule, LegacyEventEmitter } from 'expo-modules-core';
+import { requireNativeModule } from 'expo-modules-core';
 
+// New-style Expo modules are themselves event emitters — they expose
+// addListener / removeListeners directly. `LegacyEventEmitter` is an
+// compatibility wrapper for the old bridge protocol; on an Expo Modules
+// v2 module it just returns the module back, so using the module as
+// the emitter is equivalent AND avoids the Hermes-Legacy code path
+// that was implicated in a segfault on P2P screen mount.
 const StockrMultipeer = requireNativeModule('StockrMultipeer');
-const emitter = new LegacyEventEmitter(StockrMultipeer);
+const emitter: {
+  addListener: (event: string, fn: (e: any) => void) => { remove(): void };
+} = StockrMultipeer as any;
 
 // ---- Core API ---------------------------------------------------------------
 

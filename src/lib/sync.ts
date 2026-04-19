@@ -469,8 +469,12 @@ export async function pushSync(): Promise<{ pushed: number; failed: number }> {
           .from(entry.table_name)
           .delete()
           .eq('id', entry.row_id);
-        // Ignore "not found" errors on delete (row might already be gone)
-        if (error && !error.message.includes('0 rows')) throw error;
+        // Ignore "not found" errors on delete (row might already be gone).
+        // String-coerce defensively — Supabase errors have been observed
+        // with non-string `message` fields under some conditions and
+        // Hermes can segfault on String.prototype.includes with malformed
+        // StringPrimitives.
+        if (error && !String(error.message ?? '').includes('0 rows')) throw error;
       }
 
       // Mark as pushed
