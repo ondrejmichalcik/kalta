@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Login (Apple Sign In + dev email fallback)
+// Kalta – Login (Apple Sign In + dev email fallback)
 // ============================================================================
 import { useEffect, useState } from 'react';
 import {
@@ -27,8 +27,8 @@ import { emitCachedUserChanged } from '@/src/lib/authBridge';
 import { colors, radius, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
 
-const CACHED_USER_KEY = 'stockr:cachedUser';
-const LAST_USER_KEY = 'stockr:lastUser';
+const CACHED_USER_KEY = 'kalta:cachedUser';
+const LAST_USER_KEY = 'kalta:lastUser';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -163,7 +163,7 @@ export default function LoginScreen() {
             <View style={styles.heroSpacer} />
 
             <View style={styles.titleBlock}>
-              <Text style={styles.title}>Stockr</Text>
+              <Text style={styles.title}>Kalta</Text>
               <Text style={styles.subtitle}>Emergency supplies tracker</Text>
             </View>
 

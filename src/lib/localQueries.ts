@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Local SQLite read queries
+// Kalta – Local SQLite read queries
 // Mirror of the Supabase read functions but hitting local SQLite instead
 // of the network. Every function returns the same types as the Supabase
 // originals so the UI layer doesn't need any changes.

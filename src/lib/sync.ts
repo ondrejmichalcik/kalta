@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Sync engine
+// Kalta – Sync engine
 // Handles bidirectional sync between local SQLite and Supabase.
 //
 // Pull: fetch server rows newer than last_pulled_at → upsert into SQLite.

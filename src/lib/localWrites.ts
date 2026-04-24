@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Local SQLite write operations
+// Kalta – Local SQLite write operations
 // Each write goes to SQLite immediately (offline-capable), then enqueues
 // a sync entry. Background sync pushes to Supabase when online.
 //

@@ -1,6 +1,6 @@
 // ============================================================================
-// Stockr – root layout
-// Auth guard + deep link handler pro stockr://invite/TOKEN
+// Kalta – root layout
+// Auth guard + deep link handler pro kalta://invite/TOKEN
 // ============================================================================
 import 'react-native-gesture-handler';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -33,10 +33,10 @@ initImageCache()
 
 // Stash key for an invitation token that arrived while the user was signed
 // out. Consumed on the next successful auth state change.
-const PENDING_INVITE_KEY = 'stockr:pendingInviteToken';
-const CACHED_USER_KEY = 'stockr:cachedUser';
+const PENDING_INVITE_KEY = 'kalta:pendingInviteToken';
+const CACHED_USER_KEY = 'kalta:cachedUser';
 // Last known user — NOT cleared on sign out, used for offline recovery
-const LAST_USER_KEY = 'stockr:lastUser';
+const LAST_USER_KEY = 'kalta:lastUser';
 
 /** Minimal user identity cached in AsyncStorage for offline auth bypass. */
 interface CachedUser {
@@ -195,15 +195,15 @@ export default function RootLayout() {
     }
   }, [isAuthenticated, loading, segments]);
 
-  // --- Deep link handler: stockr://invite/TOKEN ---
+  // --- Deep link handler: kalta://invite/TOKEN ---
   useEffect(() => {
     const handle = async (url: string | null, origin: string) => {
       if (!url) return;
       const parsed = Linking.parse(url);
       const hostname = parsed.hostname ?? '';
       const path = parsed.path ?? '';
-      // stockr://invite/TOKEN → hostname=invite, path=TOKEN
-      // stockr:///invite/TOKEN → hostname="", path=invite/TOKEN
+      // kalta://invite/TOKEN → hostname=invite, path=TOKEN
+      // kalta:///invite/TOKEN → hostname="", path=invite/TOKEN
       let token: string | null = null;
       if (hostname === 'invite' && path) {
         token = path;

@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Warehouses list (root of the app stack)
+// Kalta – Warehouses list (root of the app stack)
 // Shows every warehouse the user belongs to. Empty state prompts them to
 // create one or accept a pending invitation. Populated state is a pill card
 // list with FAB + New warehouse and a profile icon that opens the sign-out

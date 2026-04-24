@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – BoxPicker modal
+// Kalta – BoxPicker modal
 // Reusable picker that lists all boxes in a warehouse. Used by the "Move
 // to another box" flow in ItemEditSheet and the multi-select batch move
 // in box detail.

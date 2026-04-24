@@ -1,10 +1,10 @@
-# Stockr – Project Context for Claude Code
+# Kalta – Project Context for Claude Code
 
 Tento soubor se automaticky načítá do každé session. Obsahuje klíčový kontext — delší detaily jsou v `.claude/` souborech, které si podle potřeby vyžádáš.
 
 ---
 
-## Co Stockr je
+## Co Kalta je
 
 iOS appka pro evidenci nouzových zásob (prepper supplies) v fyzických bednách se QR kódy.
 
@@ -46,8 +46,8 @@ stockr/
 │   └── schema.sql                ← celé DB schéma + RLS + triggery (spustit v Supabase SQL Editoru)
 ├── modules/
 │   └── stockr-multipeer/                             ← custom Expo native modul pro MultipeerConnectivity P2P sync
-│       ├── ios/StockrMultipeerModule.swift            ← MCSession + advertiser + browser
-│       ├── ios/StockrMultipeer.podspec
+│       ├── ios/KaltaMultipeerModule.swift            ← MCSession + advertiser + browser
+│       ├── ios/KaltaMultipeer.podspec
 │       ├── expo-module.config.json
 │       └── src/index.ts                              ← JS API: startSession, invitePeer, sendData, events
 ├── src/
@@ -161,7 +161,7 @@ Konkrétní barvy jsou v `src/theme/colors.ts` (Sprint 2.5 design system). Funkc
   `<Icon sf="magnifyingglass" />` pro SF Symbols,
   `<Icon brand="box-generic" size={96} />` pro hero 3D PNG assety.
 - **NO `@expo/vector-icons` / Ionicons** — SF Symbols jsou více iOS-native.
-  (Poznámka: Stockr je iOS-only, SF Symbols nejsou Android compat.)
+  (Poznámka: Kalta je iOS-only, SF Symbols nejsou Android compat.)
 - Emoji v UI jen pokud jsou záměrná součást obsahu, ne jako ikony.
 
 ---
@@ -175,7 +175,7 @@ Konkrétní barvy jsou v `src/theme/colors.ts` (Sprint 2.5 design system). Funkc
 
 ### 2. TestFlight distribuce
 - Jen iOS, Android se neřeší
-- Single bundle ID: `com.ondrejmichalcik.stockr`
+- Single bundle ID: `com.ondrejmichalcik.kalta`
 - Distribuce přes EAS Build → TestFlight (Sprint 5)
 
 ### 3. Jazyk

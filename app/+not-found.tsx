@@ -1,6 +1,6 @@
 // ============================================================================
-// Stockr – Catch-all for unmatched routes
-// Handles deep links like stockr://invite/TOKEN that don't map to a file
+// Kalta – Catch-all for unmatched routes
+// Handles deep links like kalta://invite/TOKEN that don't map to a file
 // route. The actual invite processing happens in _layout.tsx via
 // Linking.getInitialURL / addEventListener. This screen just redirects home
 // so the user doesn't see a blank "unmatched route" page.

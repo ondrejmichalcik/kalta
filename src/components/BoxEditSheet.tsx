@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – BoxEditSheet
+// Kalta – BoxEditSheet
 // Modal-like sheet for editing an existing box (name, location).
 // ============================================================================
 import { useEffect, useState } from 'react';

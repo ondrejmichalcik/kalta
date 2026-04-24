@@ -1,6 +1,6 @@
 // ============================================================================
-// Stockr – Invite deep link route
-// Matches stockr://invite/TOKEN. Processes the invitation directly here
+// Kalta – Invite deep link route
+// Matches kalta://invite/TOKEN. Processes the invitation directly here
 // instead of relying on the Linking handler in _layout.tsx.
 // ============================================================================
 import { useEffect, useRef } from 'react';

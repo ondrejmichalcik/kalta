@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Expiry alerts list
+// Kalta – Expiry alerts list
 // Deep-link target for the grouped expiry notifications. Shows items across
 // all warehouses the user is a member of, filtered to daysUntil(expiry)
 // <= `window`. Sorted by urgency (soonest first). Tap → open box detail.

@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – P2P sync data exchange
+// Kalta – P2P sync data exchange
 // Serializes local SQLite data into a JSON bundle for sending to another
 // device via MultipeerConnectivity. Receives and merges incoming bundles.
 //

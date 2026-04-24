@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Stockr",
-    "slug": "stockr",
+    "name": "Kalta",
+    "slug": "kalta",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "stockr",
+    "scheme": "kalta",
     "userInterfaceStyle": "automatic",
     "splash": {
       "image": "./assets/login-hero.png",
@@ -14,16 +14,16 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.ondrejmichalcik.stockr",
+      "bundleIdentifier": "com.ondrejmichalcik.kalta",
       "buildNumber": "1",
       "usesAppleSignIn": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "Stockr uses the camera to scan box QR codes and product barcodes, and to take photos of items.",
-        "NSPhotoLibraryUsageDescription": "Stockr uses your photo library to attach product images to items.",
-        "NSPhotoLibraryAddUsageDescription": "Stockr saves item photos to your library.",
-        "NSBluetoothAlwaysUsageDescription": "Stockr uses Bluetooth to print QR labels and sync with nearby devices.",
-        "NSBluetoothPeripheralUsageDescription": "Stockr uses Bluetooth to communicate with the label printer and nearby devices.",
-        "NSLocalNetworkUsageDescription": "Stockr uses your local network to sync data with nearby devices.",
+        "NSCameraUsageDescription": "Kalta uses the camera to scan box QR codes and product barcodes, and to take photos of items.",
+        "NSPhotoLibraryUsageDescription": "Kalta uses your photo library to attach product images to items.",
+        "NSPhotoLibraryAddUsageDescription": "Kalta saves item photos to your library.",
+        "NSBluetoothAlwaysUsageDescription": "Kalta uses Bluetooth to print QR labels and sync with nearby devices.",
+        "NSBluetoothPeripheralUsageDescription": "Kalta uses Bluetooth to communicate with the label printer and nearby devices.",
+        "NSLocalNetworkUsageDescription": "Kalta uses your local network to sync data with nearby devices.",
         "NSBonjourServices": ["_expo._tcp", "_stockr-sync._tcp", "_stockr-sync._udp"],
         "ITSAppUsesNonExemptEncryption": false
       },
@@ -36,14 +36,14 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Stockr uses the camera to scan box QR codes, product barcodes, and take item photos."
+          "cameraPermission": "Kalta uses the camera to scan box QR codes, product barcodes, and take item photos."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Stockr uses your photo library to attach product images to items.",
-          "cameraPermission": "Stockr uses the camera to take item photos."
+          "photosPermission": "Kalta uses your photo library to attach product images to items.",
+          "cameraPermission": "Kalta uses the camera to take item photos."
         }
       ],
       "expo-sharing",

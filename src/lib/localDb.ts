@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Local SQLite database
+// Kalta – Local SQLite database
 // Offline-first data layer. Every table mirrors its Supabase counterpart
 // plus sync metadata columns (_synced, _changed_fields, _deleted_at,
 // _local_updated_at). Reads always go to SQLite. Writes go to SQLite
@@ -18,7 +18,7 @@
 // ============================================================================
 import * as SQLite from 'expo-sqlite';
 
-const DB_NAME = 'stockr.db';
+const DB_NAME = 'kalta.db';
 const DB_VERSION = 1;
 
 let _db: SQLite.SQLiteDatabase | null = null;

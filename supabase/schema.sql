@@ -1,5 +1,5 @@
 -- ============================================================================
--- Stockr – Supabase schema (idempotentní, source of truth)
+-- Kalta – Supabase schema (idempotentní, source of truth)
 -- Spusť celé v Supabase SQL Editoru. Lze spustit opakovaně bez errorů.
 -- Obsahuje: tables, indexes, triggers, RLS policies, RPC funkce, realtime
 -- publication, storage bucket.
@@ -695,7 +695,7 @@ create policy custom_products_delete on public.custom_products for delete
 -- ============================================================================
 -- Supabase používá `supabase_realtime` publication pro postgres_changes
 -- events. Tabulky musí být explicitně přidány, jinak `subscribeBoxes` /
--- `subscribeItems` ve Stockr klientovi nedostanou žádné eventy.
+-- `subscribeItems` ve Kalta klientovi nedostanou žádné eventy.
 --
 -- DO block s exception handlingem — kdyby už tabulky v publication byly
 -- (při re-runu schematu), alter by hodil duplicate_object error.

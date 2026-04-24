@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Create warehouse form
+// Kalta – Create warehouse form
 // Sprint 2.7 Phase 4: simple name input → createWarehouse RPC → jump into
 // the new warehouse's tab group.
 // ============================================================================

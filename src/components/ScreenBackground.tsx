@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – ScreenBackground
+// Kalta – ScreenBackground
 // Wraps screen content in the diagonal sage-green gradient image. Use as the
 // outermost element of any screen that should share the brand background.
 // ============================================================================

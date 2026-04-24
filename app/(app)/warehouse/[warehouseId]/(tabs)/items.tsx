@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Items tab
+// Kalta – Items tab
 // Flat cross-box expiring timeline. Every item in the current warehouse,
 // sorted by nearest expiry. Tap a row to edit the item in-place via the
 // shared ItemEditSheet.

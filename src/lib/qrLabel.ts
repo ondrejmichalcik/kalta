@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Brother PT-P710BT QR label HTML template
+// Kalta – Brother PT-P710BT QR label HTML template
 // Generates a print-ready HTML string for `expo-print` that renders a
 // single 24 mm TZe tape label: QR code on the left, box name + optional
 // location on the right. Layout is horizontal (short tape run) and uses

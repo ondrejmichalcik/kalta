@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Create new box
+// Kalta – Create new box
 // Form → createBox → shows a QR label preview ready to print
 // ============================================================================
 import { useState } from 'react';

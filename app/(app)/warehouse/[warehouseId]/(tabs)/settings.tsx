@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Warehouse settings tab
+// Kalta – Warehouse settings tab
 // Per-warehouse settings: rename, member management (promote/demote/remove),
 // destructive Delete (owner) vs Leave (member / non-last owner) actions.
 // Invitation UI lives in Phase 6.
@@ -523,7 +523,7 @@ function InviteSheet({
     if (!link) return;
     try {
       await Share.share({
-        message: `Join my Stockr warehouse "${warehouseName}": ${link}`,
+        message: `Join my Kalta warehouse "${warehouseName}": ${link}`,
         url: link,
       });
     } catch {

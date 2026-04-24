@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Global sync status bar
+// Kalta – Global sync status bar
 // Sits at the bottom of the (app) layout. Shows current sync state:
 // - hidden when fully synced & online
 // - "Offline · X pending" when no network

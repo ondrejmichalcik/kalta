@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Box detail
+// Kalta – Box detail
 // List of items in a single box with swipe-to-delete, realtime subscription,
 // and a contextual "Add items" FAB.
 // ============================================================================
@@ -75,7 +75,7 @@ import {
 } from '@/src/components/FilterSheet';
 
 type ViewMode = 'list' | 'grid';
-const VIEW_MODE_KEY = 'stockr:boxViewMode';
+const VIEW_MODE_KEY = 'kalta:boxViewMode';
 
 // Category → SF Symbol mapping. Kept here because it's a display concern
 // and the SF symbol names are stable strings.

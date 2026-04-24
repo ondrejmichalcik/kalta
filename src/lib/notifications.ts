@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Local expiry notifications
+// Kalta – Local expiry notifications
 // Schedules iOS local notifications for items approaching expiry. Runs on
 // every app foreground — cancels all previously scheduled notifications
 // and re-schedules from scratch based on current DB state. This idempotent
@@ -15,8 +15,8 @@
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const SETTINGS_KEY = 'stockr:notificationsEnabled';
-const WINDOWS_KEY = 'stockr:notificationWindows';
+const SETTINGS_KEY = 'kalta:notificationsEnabled';
+const WINDOWS_KEY = 'kalta:notificationWindows';
 const MAX_SCHEDULED = 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
 

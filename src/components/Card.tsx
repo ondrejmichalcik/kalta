@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Card
+// Kalta – Card
 // Opaque pill-style card used for list rows, cards in grids, form sections.
 // Replaces the frosted-glass rgba(white) surfaces from Sprint 2.5.
 // ============================================================================

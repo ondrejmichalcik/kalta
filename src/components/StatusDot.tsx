@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – StatusDot
+// Kalta – StatusDot
 // Small colored circle used as the leading indicator on list cards to signal
 // expiry status at a glance. Mirrors NoWaste's card layout.
 // ============================================================================

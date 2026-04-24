@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Add items (batch session)
+// Kalta – Add items (batch session)
 // Flow: EAN scan → OFF lookup → form → queue → save all
 // ============================================================================
 import { useCallback, useEffect, useRef, useState } from 'react';

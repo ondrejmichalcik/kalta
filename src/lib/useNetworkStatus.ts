@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Network connectivity hook
+// Kalta – Network connectivity hook
 // Returns current online/offline status via expo-network.
 // Also triggers a sync cycle when the device comes back online.
 // ============================================================================

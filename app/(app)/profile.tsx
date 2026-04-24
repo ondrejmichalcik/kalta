@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Profile / global settings
+// Kalta – Profile / global settings
 // Per-device settings that don't belong to a single warehouse: signed-in
 // user, Anthropic API key for Claude Vision, sign out. Pushed from the
 // profile icon on the Warehouses list screen.

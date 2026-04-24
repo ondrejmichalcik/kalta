@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – QR scanner
+// Kalta – QR scanner
 // Fullscreen camera, detect QR → getBoxByQr → navigate to detail
 // ============================================================================
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -84,7 +84,7 @@ export default function ScanScreen() {
         <Icon brand="camera" size={96} style={styles.permIcon} />
         <Text style={styles.permTitle}>Camera access needed</Text>
         <Text style={styles.permText}>
-          Stockr needs camera access to scan box QR codes.
+          Kalta needs camera access to scan box QR codes.
         </Text>
         <Pressable style={styles.btnPrimary} onPress={requestPermission}>
           <Text style={styles.btnPrimaryText}>Allow camera</Text>

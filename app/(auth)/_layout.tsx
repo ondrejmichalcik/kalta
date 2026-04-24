@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – (auth) group layout
+// Kalta – (auth) group layout
 // Bez header baru, bez back gesta — auth obrazovky jsou "terminální" před loginem
 // ============================================================================
 import { Stack } from 'expo-router';

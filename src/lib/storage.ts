@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Storage helpers
+// Kalta – Storage helpers
 // Upload / delete product images on the Supabase `product-images` bucket.
 // ============================================================================
 import { File } from 'expo-file-system';

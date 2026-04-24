@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Box Inventory session
+// Kalta – Box Inventory session
 // Flow: empty the box physically → scan each item one by one (app auto-
 // counts) or scan once + enter qty → mark opened items → complete →
 // report of found vs DB state → confirm → save.

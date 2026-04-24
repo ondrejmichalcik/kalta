@@ -1,4 +1,4 @@
-# Testovací scénáře – Stockr
+# Testovací scénáře – Kalta
 
 Manuální testy, které projít po každé větší změně. Cílem není TDD/unit testy (projekt zatím žádné nemá), ale ověření key flows — co funguje, co ne, co vizuálně blbne.
 
@@ -24,7 +24,7 @@ Před testováním:
 ## 1. Login flow
 
 ### 🟢 1.1 První přihlášení (nový user)
-1. Otevřít appku → zobrazí se Login screen s logem 📦, názvem "Stockr", Apple Sign In tlačítkem
+1. Otevřít appku → zobrazí se Login screen s logem 📦, názvem "Kalta", Apple Sign In tlačítkem
 2. Tap na Apple button → systémový dialog
 3. Schválit Face ID / heslo
 4. Appka se přepne na Dashboard — prázdný state "Zatím žádné bedny" s CTA "+ Vytvořit první bednu"
@@ -324,7 +324,7 @@ Před testováním:
 3. Alert "Chybí množství"
 
 ### 🔴 5.12 Permission denied pro kameru
-1. V iOS Settings → Stockr → Camera → vypnout
+1. V iOS Settings → Kalta → Camera → vypnout
 2. Otevřít add-items
 3. Zobrazí se permission screen "Potřebuju kameru" + "Povolit kameru" + "Přidat ručně"
 4. Manual flow pořád funguje
@@ -383,10 +383,10 @@ Vytvořit položky s daty:
 
 ## 8. Deep linking
 
-### 🟢 8.1 `stockr://invite/TOKEN`
+### 🟢 8.1 `kalta://invite/TOKEN`
 1. Vytvořit invitation v DB ručně (přes `createInvitation`)
-2. V Safari zadat `stockr://invite/{token}`
-3. iOS se zeptá, jestli otevřít ve Stockr
+2. V Safari zadat `kalta://invite/{token}`
+3. iOS se zeptá, jestli otevřít ve Kalta
 4. Appka zpracuje token, pokud user přihlášen → `acceptInvitation`
 5. Alert "Hotovo — pozvánka přijata"
 6. Redirect na dashboard nového skladu

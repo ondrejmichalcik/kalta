@@ -1,4 +1,4 @@
-// Light-first palette for Stockr utility screens. The login/splash hero is
+// Light-first palette for Kalta utility screens. The login/splash hero is
 // the only dark surface — `hero*` tokens are kept for it. All other screens
 // use the light tokens exposed directly on `colors`.
 

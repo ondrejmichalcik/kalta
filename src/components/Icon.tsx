@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Icon
+// Kalta – Icon
 // Unified icon component with two namespaces:
 //
 //   <Icon sf="magnifyingglass" size={20} color={colors.text} />

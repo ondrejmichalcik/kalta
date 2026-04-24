@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – ListHeader
+// Kalta – ListHeader
 // Large title + optional trailing action icons (search, filter, sort, ...).
 // Used at the top of list screens (Boxes tab, Items tab, Box detail).
 // ============================================================================

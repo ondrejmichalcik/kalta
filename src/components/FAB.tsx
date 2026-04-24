@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Floating Action Button (pill style)
+// Kalta – Floating Action Button (pill style)
 // A rounded sage-green pill button that floats above the tab bar. Each screen
 // decides its own primary action by rendering <FAB /> (usually inside the
 // screen's SafeAreaView but positioned absolutely).

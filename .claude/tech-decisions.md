@@ -1,4 +1,4 @@
-# Technologická rozhodnutí – Stockr
+# Technologická rozhodnutí – Kalta
 
 Tento dokument zachycuje **proč** jsme si vybrali konkrétní technologie a patterny. Slouží jako reference pro budoucí rozhodování — pokud někdo navrhne „přepsat X na Y", tady najde, jaká byla původní úvaha.
 
@@ -55,7 +55,7 @@ Jedeme **prebuild** (`npx expo prebuild --platform ios` generuje `ios/` složku)
 
 ### Proč
 - File-based routing = méně boilerplate (`app/box/[id].tsx` = dynamická route)
-- Deep linking free — `stockr://invite/TOKEN` automaticky mapuje na `app/invite/[token].tsx`
+- Deep linking free — `kalta://invite/TOKEN` automaticky mapuje na `app/invite/[token].tsx`
 - Typed routes (experimental flag zapnut v `app.json`) — při `router.push` je path typovaný
 - Pod kapotou pořád React Navigation, takže plný ekosystém funguje (Stack, Tabs, Modal)
 
@@ -195,7 +195,7 @@ OFF vrací `categories_tags` jako pole stringů (`"en:dairy"`, `"en:medicine"`, 
 
 ### Co je v AsyncStorage
 - Supabase session (spravuje supabase-js sám)
-- `stockr:boxViewMode` — preference mřížka/seznam v detailu bedny (viz `box/[id].tsx`)
+- `kalta:boxViewMode` — preference mřížka/seznam v detailu bedny (viz `box/[id].tsx`)
 
 ### Co **NENÍ** persistované
 - Draft v naskladňovací session — když user zavře appku uprostřed skenování, fronta se ztratí. Úmyslně. Přidat persistenci by vyžadovalo řešit invalidaci (co když se v mezičase změnilo custom_products) a user benefit je nízký.
@@ -339,7 +339,7 @@ Server push vyžaduje Expo Push Token (nebo APNs device token), který se musí 
 
 ### List vs. Grid toggle (D)
 - **Jen 2 módy** (ne "malá/velká mřížka" jako Photos). Více módů = více práce + málo hodnoty.
-- **Perzistence** v AsyncStorage pod klíčem `stockr:boxViewMode` — **globálně**, ne per-box. User, kterému se líbí grid, chce grid všude.
+- **Perzistence** v AsyncStorage pod klíčem `kalta:boxViewMode` — **globálně**, ne per-box. User, kterému se líbí grid, chce grid všude.
 - **FlatList re-mount trick**: `key={viewMode}` kvůli changed `numColumns` (RN crashne bez toho).
 
 ### Swipe-to-delete jen v list (A2)

@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – P2P Sync screen
+// Kalta – P2P Sync screen
 // Placeholder. Native MultipeerConnectivity module crashes on startSession()
 // call in TestFlight builds (NSException from iOS's MC framework that isn't
 // Swift-catchable). Bisect narrowed down both:

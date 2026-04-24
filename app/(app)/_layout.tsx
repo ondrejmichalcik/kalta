@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – (app) stack layout
+// Kalta – (app) stack layout
 // ============================================================================
 import { useCallback } from 'react';
 import { View } from 'react-native';

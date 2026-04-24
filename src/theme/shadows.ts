@@ -1,7 +1,7 @@
 import type { ViewStyle } from 'react-native';
 
 // iOS shadow presets tuned for light-mode cards. Opacities are higher than
-// the usual "subtle" values because Stockr's background is near-white and
+// the usual "subtle" values because Kalta's background is near-white and
 // needs visible lift for pill cards. `elevation` is Android-only and inert
 // on iOS but kept for parity.
 export const shadows = {

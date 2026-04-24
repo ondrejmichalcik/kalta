@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Sync conflict resolution screen
+// Kalta – Sync conflict resolution screen
 // Shows unresolved conflicts from bidirectional sync. User resolves
 // per-field: pick local or server value for each conflicting field.
 // ============================================================================

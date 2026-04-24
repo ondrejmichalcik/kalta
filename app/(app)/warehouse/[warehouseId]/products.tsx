@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Custom products management
+// Kalta – Custom products management
 // Lists all cached products (from EAN scans, Claude Vision, manual entry)
 // in this warehouse. User can edit name/category or delete.
 // ============================================================================

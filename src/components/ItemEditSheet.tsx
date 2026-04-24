@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – ItemEditSheet
+// Kalta – ItemEditSheet
 // Modal-like sheet for editing an existing item. Used from box/[id].tsx.
 // ============================================================================
 import { useEffect, useState } from 'react';

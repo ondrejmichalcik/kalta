@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Offline image cache
+// Kalta – Offline image cache
 // Downloads product images from Supabase Storage to device filesystem so
 // they're available without network. Cache lives in documentDirectory and
 // persists across app launches.

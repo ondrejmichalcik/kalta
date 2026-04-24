@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – (tabs) layout
+// Kalta – (tabs) layout
 // 4-tab root for the main app: Boxes / Items / Scan / Settings.
 // Outer stack screens (box/[id], box/new, box/[id]/add-items) are pushed
 // over these tabs from the parent (app)/_layout Stack.

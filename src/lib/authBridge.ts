@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Tiny auth bridge
+// Kalta – Tiny auth bridge
 // Expo Router screens can't directly mutate the root layout's React state,
 // so "Continue offline" would write to AsyncStorage and navigate without
 // the root's `cachedUser` state updating — the auth guard then bounces the

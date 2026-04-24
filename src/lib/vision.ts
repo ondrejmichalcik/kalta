@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Claude Vision wrapper
+// Kalta – Claude Vision wrapper
 // Direct call to api.anthropic.com from the React Native client. Uses the
 // user's per-device API key from SecureStore (see src/lib/secureStore.ts).
 // No Supabase Edge Function — the key never leaves the device except in

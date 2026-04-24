@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Inventory history for a box
+// Kalta – Inventory history for a box
 // Lists all completed inventory sessions with expandable detail (found /
 // partial / missing lines).
 // ============================================================================

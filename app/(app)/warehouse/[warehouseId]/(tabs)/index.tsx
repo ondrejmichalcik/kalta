@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Boxes tab (the list of all boxes in the current warehouse)
+// Kalta – Boxes tab (the list of all boxes in the current warehouse)
 // ============================================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {

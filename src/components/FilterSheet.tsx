@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – FilterSheet
+// Kalta – FilterSheet
 // Bottom-sheet modal for filtering the items list. Three sections:
 //   - Status (radio: All / Expired / ≤1d / ≤30d / ≤60d / OK / No date)
 //   - Condition (multi-select: Opened / Damaged / Has note — OR semantics)

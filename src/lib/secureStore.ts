@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – SecureStore helpers
+// Kalta – SecureStore helpers
 // Device-local secrets backed by iOS Keychain (via expo-secure-store).
 // Currently only stores the Anthropic API key used for Claude Vision product
 // identification. Each device manages its own key — nothing is synced or
@@ -7,7 +7,7 @@
 // ============================================================================
 import * as SecureStore from 'expo-secure-store';
 
-const ANTHROPIC_KEY = 'stockr.anthropicKey';
+const ANTHROPIC_KEY = 'kalta.anthropicKey';
 
 export async function getAnthropicKey(): Promise<string | null> {
   try {

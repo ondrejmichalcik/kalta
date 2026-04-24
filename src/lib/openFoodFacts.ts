@@ -80,7 +80,7 @@ export async function lookupByBarcode(barcode: string): Promise<OpenFoodFactsPro
     response = await fetch(url, {
       headers: {
         // OFF asks clients to identify themselves
-        'User-Agent': 'Stockr/1.0 (https://github.com/ondrejmichalcik/stockr)',
+        'User-Agent': 'Kalta/1.0 (https://github.com/ondrejmichalcik/kalta)',
       },
     });
   } catch (e) {

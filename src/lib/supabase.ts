@@ -1,5 +1,5 @@
 // ============================================================================
-// Stockr – Supabase client + API
+// Kalta – Supabase client + API
 // ============================================================================
 import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -63,7 +63,7 @@ const SUPABASE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KE
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
   // eslint-disable-next-line no-console
   console.warn(
-    '[stockr] Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY – nastav je v .env',
+    '[kalta] Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY – nastav je v .env',
   );
 }
 
@@ -130,7 +130,7 @@ export async function getActiveUserId(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();
   if (data.session?.user.id) return data.session.user.id;
   try {
-    const raw = await AsyncStorage.getItem('stockr:cachedUser');
+    const raw = await AsyncStorage.getItem('kalta:cachedUser');
     if (raw) {
       const parsed = JSON.parse(raw) as { id?: string };
       if (parsed?.id) return parsed.id;
@@ -150,7 +150,7 @@ export async function getActiveUser(): Promise<{ id: string; email: string | nul
     return { id: data.session.user.id, email: data.session.user.email ?? null };
   }
   try {
-    const raw = await AsyncStorage.getItem('stockr:cachedUser');
+    const raw = await AsyncStorage.getItem('kalta:cachedUser');
     if (raw) {
       const parsed = JSON.parse(raw) as { id?: string; email?: string | null };
       if (parsed?.id) return { id: parsed.id, email: parsed.email ?? null };
@@ -1168,7 +1168,7 @@ export async function getInventoryLines(sessionId: string): Promise<InventoryLin
 // ============================================================================
 
 export function buildInviteLink(token: string): string {
-  return `stockr://invite/${token}`;
+  return `kalta://invite/${token}`;
 }
 
 // ============================================================================
