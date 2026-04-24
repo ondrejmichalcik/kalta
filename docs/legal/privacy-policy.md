@@ -1,7 +1,7 @@
 # Privacy Policy
 
-**Effective date:** [FILL IN ON PUBLICATION, e.g., 2026-05-01]
-**Last updated:** [FILL IN ON PUBLICATION]
+**Effective date:** 2026-04-24
+**Last updated:** 2026-04-24
 
 This Privacy Policy describes how the Kalta iOS app ("Kalta", "the app", "we", "our") collects, uses, and shares information when you use the app.
 
@@ -13,7 +13,7 @@ Kalta is a personal home inventory tracker designed for emergency supplies, focu
 
 The data controller responsible for your personal data is:
 
-**Ondřej Michálčík**
+**Ondřej Michalčík**
 Self-employed (OSVČ) based in Prague, Czech Republic
 IČO: 04801792
 DIČ: CZ8801235993
@@ -246,5 +246,5 @@ Continuing to use Kalta after a change means you accept the updated policy.
 
 Questions, requests, or complaints:
 
-**Ondřej Michálčík**
+**Ondřej Michalčík**
 Email: **ondrej.michalcik@gmail.com**

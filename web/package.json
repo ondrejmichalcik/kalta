@@ -6,9 +6,17 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "og": "node scripts/generate-og.mjs",
+    "favicons": "node scripts/generate-favicons.mjs"
   },
   "dependencies": {
+    "@astrojs/sitemap": "^3.7.2",
+    "@fontsource-variable/inter": "^5.2.8",
     "astro": "^5.2.0"
+  },
+  "devDependencies": {
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.34.5"
   }
 }

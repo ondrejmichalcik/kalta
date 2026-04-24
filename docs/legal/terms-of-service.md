@@ -1,7 +1,7 @@
 # Terms of Service
 
-**Effective date:** [FILL IN ON PUBLICATION]
-**Last updated:** [FILL IN ON PUBLICATION]
+**Effective date:** 2026-04-24
+**Last updated:** 2026-04-24
 
 These Terms of Service ("Terms") govern your use of the Kalta iOS app ("Kalta", "the app") and the sync service that powers it ("the service"). By downloading, installing, or using Kalta, you agree to these Terms.
 
@@ -13,14 +13,14 @@ If you do not agree, do not install or use the app.
 
 Kalta is provided by:
 
-**Ondřej Michálčík**
+**Ondřej Michalčík**
 Self-employed (OSVČ) based in Prague, Czech Republic
 IČO: 04801792
 DIČ: CZ8801235993
 
 Email: **ondrej.michalcik@gmail.com**
 
-References to "we", "us", and "our" in these Terms refer to Ondřej Michálčík.
+References to "we", "us", and "our" in these Terms refer to Ondřej Michalčík.
 
 ---
 
@@ -202,5 +202,5 @@ Disputes arising out of or related to these Terms are subject to the jurisdictio
 
 ## 19. Contact
 
-**Ondřej Michálčík**
+**Ondřej Michalčík**
 Email: **ondrej.michalcik@gmail.com**

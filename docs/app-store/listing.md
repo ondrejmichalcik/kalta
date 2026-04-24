@@ -174,7 +174,7 @@ All categories → **None**:
 ## Copyright
 
 ```
-© 2026 Ondřej Michálčík
+© 2026 Ondřej Michalčík
 ```
 
 (Apple uses this in the App Store footer under your app.)

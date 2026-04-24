@@ -37,7 +37,7 @@ For privacy requests (access, correction, deletion, complaints), see the dedicat
 
 Data Controller:
 
-**Ondřej Michálčík**
+**Ondřej Michalčík**
 Self-employed (OSVČ) based in Prague, Czech Republic
 IČO: 04801792
 DIČ: CZ8801235993

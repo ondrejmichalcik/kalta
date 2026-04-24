@@ -2,13 +2,21 @@
 import Layout from '../layouts/Layout.astro';
 ---
 
-<Layout title="Page not found — Kalta">
+<Layout
+  title="Page not found — Kalta"
+  description="We couldn't find that page. Head back home, or jump to privacy, terms, or support."
+>
   <section class="hero">
     <div class="container">
-      <h1>Page not found</h1>
-      <p class="hero-tagline">We couldn't find that page. It may have moved or never existed.</p>
-      <div class="hero-actions">
-        <a class="btn btn-primary" href="/">Go home</a>
+      <div style="text-align: center;">
+        <h1>Page not found</h1>
+        <p class="hero-tagline" style="margin: 0 auto 32px;">
+          The URL you landed on doesn't exist. It may have moved, or it never did.
+        </p>
+        <div class="hero-actions" style="justify-content: center;">
+          <a class="btn btn-primary" href="/">Go home</a>
+          <a class="btn btn-secondary" href="/support">Support</a>
+        </div>
       </div>
     </div>
   </section>

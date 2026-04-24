@@ -1,194 +1,147 @@
 # Kalta — Support
 
-## Frequently Asked Questions
+Troubleshooting and common issues. For "how does this feature work?" questions, head over to the [Documentation](/docs).
 
-### Getting started
+## App crashes or freezes
 
-**What is Kalta?**
-Kalta is a home inventory app for tracking emergency supplies. Organize items in physical boxes labeled with QR codes, scan barcodes to look up product info, and get reminders before items expire.
+### App crashes on launch
 
-**How does it work?**
+Usually caused by corrupted local cache. Try, in order:
 
-1. Create a warehouse (e.g., "Basement pantry").
-2. Create a box inside it and print or write down the QR label it generates.
-3. Stick the label on the physical box.
-4. Scan a product barcode — Kalta fills in the product info from the Open Food Facts database.
-5. Add an expiration date and save. Kalta sorts items by urgency and notifies you before they expire.
+1. **Restart your iPhone** and reopen Kalta.
+2. If it still crashes, **delete and reinstall** the app. Your data is safe in our backend and restores automatically on sign-in.
+3. If the reinstalled app also crashes immediately, **email us** with your iPhone model and iOS version — it's likely a bug we need to patch.
 
----
+### Specific screen freezes
 
-### Scanning and adding items
+Force-close the app (swipe up from the bottom, hold, swipe Kalta off screen) and reopen. If the same screen freezes every time, email us the details so we can reproduce.
 
-**The barcode scan shows "Unknown product". What now?**
-Not every product is in the Open Food Facts database, especially private-label store brands. You can:
+## Sync and data issues
 
-- Enter the product name and category manually.
-- Use the **AI suggestion** feature (see Claude Vision below) — take a photo and let it fill in fields.
-- Save a "custom product" so that the next time you scan the same barcode, your filled-in data loads automatically.
+### Changes I made aren't showing on my other device
 
-**Can I add items without scanning?**
-Yes. In the box detail, tap **Add items** and choose **Manual entry** from the menu.
+1. Check that **both devices have internet** — cloud sync requires it. For offline-to-offline transfer, use [P2P sync](/docs/collaboration#p2p-sync-two-nearby-iphones).
+2. **Pull down to refresh** on the warehouses list or inside a warehouse.
+3. Force-close Kalta on the other device and reopen — it'll sync on launch.
+4. Check the sync indicator in the top bar. If it shows **"Syncing…"** for a very long time, there may be a backend issue. Try again in a few minutes.
 
-**How do I change the expiration date after saving?**
-Tap the item → edit sheet opens → change date → save.
+### I see "Conflicts" — what do I do?
 
----
+A conflict means the same item was edited differently on two devices while offline. Kalta merged most changes automatically, but flagged the ambiguous ones for you to resolve.
 
-### Expiration tracking and notifications
+1. Settings → **Conflicts** → list of unresolved items.
+2. For each, pick whether you want the **local** version or the **server** version.
+3. After resolving, the item updates across all your devices.
 
-**When do I get notified about expiring items?**
-Kalta schedules local iOS notifications for each item with an expiry date. Default reminder windows are 30 days, 7 days, 1 day before, and on the expiry day. You can customize these in Settings → Notifications.
+### I signed out and my data disappeared
 
-**I'm not getting notifications.**
-Check:
+Only the **local cache** on that device was cleared. Your inventory is safe in our backend. Sign back in with the **same Apple ID** and everything restores.
 
-1. iOS Settings → Notifications → Kalta — make sure they're allowed.
-2. iOS Focus / Do Not Disturb modes are not blocking them.
-3. In Kalta Settings → Notifications, check that the reminder windows you expect are enabled.
-4. If you changed reminder windows recently, existing items need to be reopened for the new schedule to apply (we're improving this in a future update).
+## Sharing and invitations
 
-**How does the expiry color coding work?**
+### My invite link isn't working for the recipient
 
-- **Red** — Already expired.
-- **Orange** — Within 30 days.
-- **Yellow** — Within 90 days.
-- **Green** — More than 90 days away.
-- **Grey** — No expiry date set.
+Possible causes:
 
-Boxes on the dashboard are sorted by the earliest expiry of any item inside.
+1. **Link expired** (7-day window). Generate a fresh one from the warehouse's Settings → Invite.
+2. **Recipient hasn't installed Kalta yet.** The link opens the App Store; they need to install, then tap the link again — or Kalta should process the pending invite automatically on first launch.
+3. **Recipient is signed into the wrong Apple ID.** The invitation binds to the Apple ID that's signed in when the link is accepted.
 
----
+### I removed the wrong person — can I undo?
 
-### Sharing a warehouse
+No, but you can re-invite them with a new link. Their previous access is fully revoked from the moment of removal.
 
-**How do I share a warehouse with my partner?**
+## Scanning issues
 
-1. Open the warehouse → **Settings** tab → **Invite** button.
-2. Kalta generates a share link valid for 7 days.
-3. Send the link however you like (iMessage, email, WhatsApp, AirDrop).
-4. The recipient opens the link on their iPhone — if Kalta is installed, it opens directly; otherwise they get the App Store link first.
-5. After they sign in with Apple, they can accept and the warehouse appears in their list.
+### Barcode scanner not recognizing anything
 
-**Can the other person edit items?**
-Yes. All members of a warehouse have read and write access: add, edit, delete items. Only the owner can remove members and delete the warehouse.
+1. **Clean the camera lens** — a smudged lens throws off focus.
+2. **Light the product** — harsh shadows or glare on barcodes confuse the reader.
+3. **Hold at ~15 cm distance** — too close and the phone can't focus, too far and the bars are too thin.
+4. **Flat surfaces work better** than curved ones. For bottles or tubes, angle the phone so the barcode is as flat as possible in view.
 
-**How do I remove someone?**
-Warehouse → Settings tab → Members → swipe on the member → Remove. Their access is revoked immediately.
+### Scanner shows "Unknown product"
 
-**Can I be in multiple warehouses?**
-Yes. You can own your own warehouses and also be a member of warehouses other people share with you.
+This means the barcode is not in Open Food Facts' database (common for private-label store brands). Tap **Manual entry** to fill in the fields. Kalta saves your entry as a custom product — next time you scan that barcode, it loads automatically.
 
----
+See [Scanning and AI → Custom products](/docs/scanning-and-ai#when-barcode-lookup-fails-custom-products) for details.
 
-### P2P sync (sync between two nearby iPhones)
+### AI "Suggest with AI" button is missing
 
-**What is P2P sync?**
-P2P sync lets two iPhones running Kalta exchange inventory data directly over Bluetooth and WiFi, without going through the internet. Useful in locations with no signal.
+The AI feature is **off by default**. Enable it in Settings → AI by adding your Anthropic API key. See [Scanning and AI → AI-assisted product recognition](/docs/scanning-and-ai#ai-assisted-product-recognition-claude-vision) for setup.
 
-**How do I use it?**
+## Notifications
 
-1. Both devices open Kalta → **Settings** (or from the warehouse) → **P2P Sync**.
-2. Tap **Start searching** on both devices.
-3. When the other device appears in the list, tap it on one device to initiate the connection.
-4. After confirming, tap **Sync** to exchange data.
+### I'm not getting expiry reminders
 
-**Which device wins if we edited the same item on both?**
-Kalta uses a last-write-wins rule per field: the most recent edit for each field of each item survives. If you edit different fields on different devices, both edits are preserved.
+Check in this order:
 
-**P2P doesn't find the other device.**
+1. **iOS Settings → Notifications → Kalta** — make sure alerts are allowed.
+2. **Focus modes / Do Not Disturb** not blocking Kalta.
+3. Kalta **Settings → Notifications** — verify that expiry reminders are toggled on and the windows you expect (30d / 7d / 1d / today) are enabled.
+4. **Low Power Mode** can delay notifications.
+5. For items added **before** you enabled notifications, open each item and save it again to re-schedule with current settings.
 
-- Make sure Bluetooth and WiFi are **on** on both devices (WiFi doesn't need to be connected to the same network, just enabled).
-- Make sure neither device is in Low Power Mode (it limits Bluetooth discovery).
-- Both devices must have the P2P Sync screen **open** at the same time.
-- Force-close and re-open Kalta on both devices if it still doesn't work.
+### The badge count is wrong
 
----
+The badge counts **expired** items (already past expiry date). Not items in the 0–30 day "critical" window.
 
-### Printing QR labels
+To clear the badge: open each expired item and either update the expiry date, mark it as consumed/discarded (delete), or the badge updates on next launch after sync.
 
-**What printer is supported?**
-Brother label printers via Bluetooth (Brother Print SDK). Tested with the Brother QL and PT series.
+## Printer issues
 
-**I don't have a Brother printer.**
-Tap the QR label on screen → **Share as image** → print or save it from the iOS share sheet. Or take a screenshot of the QR code when creating a box and stick the printout on.
+### Printer not found
 
-**The printer is not found.**
+1. **Printer must be on and paired in iOS Bluetooth** (Settings → Bluetooth) before Kalta can see it.
+2. Some older Brother printers need a button press to accept the pairing.
+3. In Kalta → box → Print QR → **Select printer** → tap refresh.
 
-- Make sure the printer is on, paired with your iPhone in iOS Settings → Bluetooth.
-- Open Kalta → box detail → **Print QR label** → tap **Select printer** again.
+### Prints blank or misaligned labels
 
----
+- **Label size in Kalta must match** the roll loaded in the printer.
+- Reload the paper roll if it's misaligned.
 
-### AI-assisted product recognition (Claude Vision)
+See [Printing QR labels](/docs/printing) for full printer setup.
 
-**What is the AI feature?**
-Kalta can use Anthropic's Claude Vision to analyze a product photo and fill in the product name, category, and typical shelf life. It's optional and requires your own Anthropic API key.
+## P2P sync issues
 
-**How do I enable it?**
+See [Sharing & P2P sync → Troubleshooting P2P](/docs/collaboration#troubleshooting-p2p). Common fixes:
 
-1. Create an account at https://console.anthropic.com and generate an API key.
-2. Add credit to your Anthropic account (pay-as-you-go; a typical scan costs a fraction of a cent).
-3. In Kalta → Settings → **AI** → paste your API key.
-4. When scanning a product without a barcode match, tap **Suggest with AI**.
+- Bluetooth on, not in Low Power Mode.
+- Both devices on the P2P Sync screen at the same time.
+- Force-close and reopen the app on both devices.
 
-**How much does it cost?**
-Anthropic charges per call based on image size and model. At the current pricing for Claude Haiku 4.5, a typical scan costs roughly **$0.001–0.005** depending on image size. Kalta never charges you for AI — you pay Anthropic directly.
+## Refunds and purchases
 
-**Is my API key safe?**
-Your API key is stored in the iOS Keychain on your device and never leaves your device except as the `x-api-key` header in requests to Anthropic. We don't see it.
+### How do I get a refund?
 
----
+Refunds are handled by Apple, not by us. Visit https://reportaproblem.apple.com, find the Kalta purchase, and request a refund. Apple decides based on their own policy.
 
-### Privacy and data
+### Bought Kalta — can my family member use it too?
 
-**Is my inventory private?**
-Yes. Only you and people you explicitly invite to a warehouse can see your data. Kalta has no analytics, no ad tracking, no crash reporting. See the full [Privacy Policy](../legal/privacy-policy.md).
+Yes, if you're set up for **Apple Family Sharing** and Kalta's Family Sharing flag is enabled. Your family members can install Kalta without paying again.
 
-**Where is my data stored?**
-On your iPhone in a local database, and synced to our backend hosted at Supabase in **Ireland, EEA**.
+## Privacy and account
 
-**Can I export my data?**
-Email us at **ondrej.michalcik@gmail.com** and we'll provide a JSON export of your data.
+### Where is my data stored?
 
-**How do I delete my account?**
+On your iPhone (local SQLite + iOS Keychain for secrets) and in our Supabase backend hosted in **Ireland, EEA**. See the [Privacy Policy](/privacy) for the full breakdown.
+
+### Export my data
+
+Email us at **ondrej.michalcik@gmail.com**. We'll provide a JSON export.
+
+### Delete my account
+
 Email us at **ondrej.michalcik@gmail.com** from the email associated with your Apple ID. We delete your account and the warehouses you own within 30 days.
 
----
+## Still stuck?
 
-### Refunds and purchases
+Email **ondrej.michalcik@gmail.com** with:
 
-**How do I get a refund?**
-Refunds are handled by Apple. Visit https://reportaproblem.apple.com, find the Kalta purchase, and request a refund. Apple decides based on their policy.
+- A short description of the problem.
+- Your iPhone model and iOS version (Settings → General → About).
+- Your Kalta app version (Settings → bottom of the screen).
+- Screenshot if relevant.
 
-**I bought Kalta — can my family member use it too?**
-Yes, if you're set up for Apple Family Sharing and Kalta's Family Sharing flag is enabled in the App Store. Your family members can install Kalta without paying again.
-
----
-
-### Troubleshooting
-
-**App crashes on launch.**
-Usually caused by corrupt local data. Try:
-
-1. Restart your iPhone.
-2. If it still crashes, delete and reinstall the app. Your data remains safe in our backend and restores on sign-in.
-
-**Sync seems stuck.**
-
-- Check your internet connection.
-- Pull down to refresh on the warehouses list.
-- Force-close the app and reopen.
-- If sync conflicts appear, resolve them from Settings → Conflicts.
-
-**I signed out and lost my data!**
-Your cloud data is safe — sign back in with the same Apple ID and it restores. Signing out only clears the local cache on that device.
-
----
-
-## Contact
-
-For anything not covered here:
-
-**Email:** ondrej.michalcik@gmail.com
-
-We're a one-person operation, so response times vary. We try to reply within 3–5 business days.
+We're a one-person operation, so replies may take 3–5 business days.

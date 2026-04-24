@@ -1,0 +1,100 @@
+---
+import Layout from './Layout.astro';
+import { docsNav, getAdjacentDocs } from '../data/docs-nav';
+
+interface Props {
+  title: string;
+  description?: string;
+  pageTitle: string;
+}
+
+const { title, description, pageTitle } = Astro.props;
+const cleanPath = Astro.url.pathname.replace(/\.html$/, '');
+const { prev, next } = getAdjacentDocs(cleanPath);
+---
+
+<Layout title={title} description={description}>
+  <div class="docs-container">
+    <aside class="docs-sidebar">
+      <details class="docs-mobile-toggle">
+        <summary>
+          <span>{pageTitle}</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </summary>
+        <nav class="docs-nav">
+          {docsNav.map((section) => (
+            <div class="docs-nav-section">
+              <div class="docs-nav-title">{section.title}</div>
+              <ul>
+                {section.items.map((item) => (
+                  <li>
+                    <a
+                      href={item.href}
+                      class:list={['docs-nav-link', { active: item.href === cleanPath }]}
+                    >
+                      {item.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </nav>
+      </details>
+      <nav class="docs-nav docs-nav-desktop">
+        {docsNav.map((section) => (
+          <div class="docs-nav-section">
+            <div class="docs-nav-title">{section.title}</div>
+            <ul>
+              {section.items.map((item) => (
+                <li>
+                  <a
+                    href={item.href}
+                    class:list={['docs-nav-link', { active: item.href === cleanPath }]}
+                  >
+                    {item.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </nav>
+    </aside>
+
+    <article class="docs-article prose">
+      <nav class="docs-breadcrumb" aria-label="Breadcrumb">
+        <a href="/">Home</a>
+        <span aria-hidden="true">/</span>
+        <a href="/docs">Docs</a>
+        {cleanPath !== '/docs' && (
+          <>
+            <span aria-hidden="true">/</span>
+            <span>{pageTitle}</span>
+          </>
+        )}
+      </nav>
+      <slot />
+      {(prev || next) && (
+        <nav class="docs-pagination" aria-label="Pagination">
+          {prev ? (
+            <a href={prev.href} class="docs-pagination-link prev">
+              <span class="label">← Previous</span>
+              <span class="title">{prev.title}</span>
+            </a>
+          ) : (
+            <span />
+          )}
+          {next && (
+            <a href={next.href} class="docs-pagination-link next">
+              <span class="label">Next →</span>
+              <span class="title">{next.title}</span>
+            </a>
+          )}
+        </nav>
+      )}
+    </article>
+  </div>
+</Layout>

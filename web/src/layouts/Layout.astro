@@ -5,16 +5,39 @@ interface Props {
   title: string;
   description?: string;
   ogImage?: string;
+  schemaType?: 'WebPage' | 'SoftwareApplication';
 }
 
 const {
   title,
   description = 'Track emergency supplies in real boxes with QR labels. Private. Offline-first. Built for people who actually rotate their stock.',
   ogImage = '/og-image.png',
+  schemaType = 'WebPage',
 } = Astro.props;
 
 const cleanPath = Astro.url.pathname.replace(/\.html$/, '').replace(/\/index$/, '/');
 const canonical = new URL(cleanPath, Astro.site);
+const year = new Date().getFullYear();
+
+const softwareAppSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Kalta',
+  description:
+    'Home emergency stock tracker. Organize supplies in QR-labeled boxes, scan barcodes, track expiration dates, share with family.',
+  applicationCategory: 'UtilitiesApplication',
+  operatingSystem: 'iOS',
+  offers: {
+    '@type': 'Offer',
+    price: '2.99',
+    priceCurrency: 'USD',
+  },
+  author: {
+    '@type': 'Person',
+    name: 'Ondřej Michalčík',
+  },
+  url: 'https://kalta.app',
+};
 ---
 
 <!doctype html>
@@ -31,24 +54,41 @@ const canonical = new URL(cleanPath, Astro.site);
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:image" content={new URL(ogImage, Astro.site)} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:site_name" content="Kalta" />
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={new URL(ogImage, Astro.site)} />
 
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="apple-mobile-web-app-title" content="Kalta" />
+    <meta name="application-name" content="Kalta" />
 
     <title>{title}</title>
+
+    {schemaType === 'SoftwareApplication' && (
+      <script type="application/ld+json" set:html={JSON.stringify(softwareAppSchema)} />
+    )}
   </head>
   <body>
     <header class="site-header">
       <div class="container-wide site-header-inner">
         <a href="/" class="site-logo">
-          <span class="site-logo-mark">K</span>
+          <img src="/app-icon.png" alt="" width="32" height="32" />
           <span>Kalta</span>
         </a>
         <nav class="site-nav">
+          <a href="/docs">Docs</a>
           <a href="/support">Support</a>
           <a href="/privacy">Privacy</a>
           <a href="/terms">Terms</a>
@@ -62,14 +102,14 @@ const canonical = new URL(cleanPath, Astro.site);
 
     <footer class="site-footer">
       <div class="container-wide site-footer-inner">
-        <div>
-          <a href="/privacy">Privacy Policy</a>
-          <a href="/terms">Terms of Service</a>
+        <div class="site-footer-links">
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
           <a href="/support">Support</a>
           <a href="mailto:ondrej.michalcik@gmail.com">Contact</a>
         </div>
-        <div class="site-footer-copy">
-          &copy; 2026 Ondřej Michálčík
+        <div class="site-footer-meta">
+          &copy; {year} Ondřej Michalčík
         </div>
       </div>
     </footer>

@@ -102,7 +102,7 @@ To test the AI feature, the reviewer can either:
 
 Questions during review:
 
-**Ondřej Michálčík**
+**Ondřej Michalčík**
 Email: ondrej.michalcik@gmail.com
 
 Typical response within 24 hours during business days (CET time zone).

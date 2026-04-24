@@ -1,13 +1,17 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import BackLink from '../components/BackLink.astro';
 import { Content } from '../../../docs/legal/terms-of-service.md';
 ---
 
 <Layout
   title="Terms of Service — Kalta"
-  description="Terms of Service for the Kalta iOS app — paid app license, backend service terms, user responsibilities, Czech law."
+  description="Terms of Service for the Kalta iOS app: paid one-time license, backend service terms, user responsibilities, Czech governing law."
 >
-  <article class="container prose">
-    <Content />
-  </article>
+  <div class="container">
+    <BackLink />
+    <article class="prose">
+      <Content />
+    </article>
+  </div>
 </Layout>

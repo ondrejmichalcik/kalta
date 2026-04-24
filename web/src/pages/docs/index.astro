@@ -1,0 +1,73 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+---
+
+<DocsLayout
+  title="Documentation — Kalta"
+  description="Everything you need to know about Kalta: getting started, organizing supplies, scanning, expiry tracking, sharing, P2P sync, printing."
+  pageTitle="Overview"
+>
+  <h1>Kalta Documentation</h1>
+  <p class="docs-lead">
+    Guides for every feature of the Kalta iOS app. Start with Getting started if you've just installed the app; otherwise jump straight to the topic you need.
+  </p>
+
+  <ul class="docs-cards">
+    <li>
+      <a class="docs-card" href="/docs/getting-started">
+        <h3>Getting started →</h3>
+        <p>Your first five minutes with Kalta: sign in, create a warehouse, scan your first item.</p>
+      </a>
+    </li>
+    <li>
+      <a class="docs-card" href="/docs/organizing">
+        <h3>Warehouses, boxes & items →</h3>
+        <p>How the three-level hierarchy works, when to use multiple warehouses, and how items are structured.</p>
+      </a>
+    </li>
+    <li>
+      <a class="docs-card" href="/docs/scanning-and-ai">
+        <h3>Scanning and AI →</h3>
+        <p>Barcode and QR scanning, Open Food Facts lookup, custom products, and optional Claude Vision BYOK setup.</p>
+      </a>
+    </li>
+    <li>
+      <a class="docs-card" href="/docs/expiry-and-reminders">
+        <h3>Expiry & reminders →</h3>
+        <p>Color-coded urgency, sorting by expiry, local notifications — all the tracking behavior.</p>
+      </a>
+    </li>
+    <li>
+      <a class="docs-card" href="/docs/collaboration">
+        <h3>Sharing & P2P sync →</h3>
+        <p>Cloud invites for family members and direct peer-to-peer sync between two iPhones.</p>
+      </a>
+    </li>
+    <li>
+      <a class="docs-card" href="/docs/printing">
+        <h3>Printing QR labels →</h3>
+        <p>Brother Bluetooth label printers, share-as-image for any regular printer, and label sizing tips.</p>
+      </a>
+    </li>
+  </ul>
+
+  <h2>Where to go for other things</h2>
+  <p>
+    If you're troubleshooting something that isn't working, check <a href="/support">Support</a> for common issues and solutions.
+  </p>
+  <p>
+    For how Kalta handles your data (GDPR, encryption, international transfers), see the <a href="/privacy">Privacy Policy</a>.
+  </p>
+  <p>
+    The terms under which the app is licensed are in <a href="/terms">Terms of Service</a>.
+  </p>
+</DocsLayout>
+
+<style>
+  .docs-lead {
+    font-size: 18px;
+    color: var(--text-muted);
+    margin: 8px 0 32px;
+    max-width: 620px;
+  }
+</style>
