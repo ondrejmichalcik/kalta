@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.ondrejmichalcik.kalta",
-      "buildNumber": "1",
+      "buildNumber": "21",
       "usesAppleSignIn": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Kalta uses the camera to scan box QR codes and product barcodes, and to take photos of items.",
@@ -24,7 +24,11 @@
         "NSBluetoothAlwaysUsageDescription": "Kalta uses Bluetooth to print QR labels and sync with nearby devices.",
         "NSBluetoothPeripheralUsageDescription": "Kalta uses Bluetooth to communicate with the label printer and nearby devices.",
         "NSLocalNetworkUsageDescription": "Kalta uses your local network to sync data with nearby devices.",
-        "NSBonjourServices": ["_expo._tcp", "_stockr-sync._tcp", "_stockr-sync._udp"],
+        "NSBonjourServices": [
+          "_expo._tcp",
+          "_kalta-sync._tcp",
+          "_kalta-sync._udp"
+        ],
         "ITSAppUsesNonExemptEncryption": false
       },
       "associatedDomains": []
@@ -59,7 +63,7 @@
         "origin": false
       },
       "eas": {
-        "projectId": "6bbb7a4b-68d2-423f-9832-a070ff1fa99e"
+        "projectId": "5ed08159-76b0-4afc-a2a2-17627128f235"
       }
     },
     "owner": "ondrej.michalcik",
@@ -67,7 +71,7 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/6bbb7a4b-68d2-423f-9832-a070ff1fa99e"
+      "url": "https://u.expo.dev/5ed08159-76b0-4afc-a2a2-17627128f235"
     },
     "android": {
       "permissions": [

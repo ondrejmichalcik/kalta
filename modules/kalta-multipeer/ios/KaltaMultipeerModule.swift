@@ -2,7 +2,7 @@ import ExpoModulesCore
 import MultipeerConnectivity
 
 // ============================================================================
-// Stockr – MultipeerConnectivity Expo Module
+// Kalta – MultipeerConnectivity Expo Module
 // Enables iPhone-to-iPhone P2P sync without internet via Bluetooth/WiFi.
 //
 // Flow:
@@ -15,9 +15,9 @@ import MultipeerConnectivity
 // 7. stopSession() when done
 // ============================================================================
 
-private let serviceType = "stockr-sync" // max 15 chars, lowercase + hyphens
+private let serviceType = "kalta-sync" // max 15 chars, lowercase + hyphens
 
-public class StockrMultipeerModule: Module {
+public class KaltaMultipeerModule: Module {
   fileprivate var peerID: MCPeerID?
   fileprivate var session: MCSession?
   fileprivate var advertiser: MCNearbyServiceAdvertiser?
@@ -25,7 +25,7 @@ public class StockrMultipeerModule: Module {
   fileprivate var delegate: SessionDelegate?
 
   public func definition() -> ModuleDefinition {
-    Name("StockrMultipeer")
+    Name("KaltaMultipeer")
 
     Events(
       "onPeerFound",
@@ -152,10 +152,10 @@ enum MultipeerError: Error, CustomStringConvertible {
 // MARK: - Session + Advertiser + Browser delegate
 
 private class SessionDelegate: NSObject, MCSessionDelegate, MCNearbyServiceAdvertiserDelegate, MCNearbyServiceBrowserDelegate {
-  weak var module: StockrMultipeerModule?
+  weak var module: KaltaMultipeerModule?
   var discoveredPeers: [MCPeerID] = []
 
-  init(module: StockrMultipeerModule) {
+  init(module: KaltaMultipeerModule) {
     self.module = module
   }
 
@@ -200,7 +200,7 @@ private class SessionDelegate: NSObject, MCSessionDelegate, MCNearbyServiceAdver
   // -- MCNearbyServiceAdvertiserDelegate --
 
   func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID, withContext context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
-    // Auto-accept invitations from Stockr peers (same serviceType = trusted family device).
+    // Auto-accept invitations from Kalta peers (same serviceType = trusted family device).
     if let session = module?.session {
       invitationHandler(true, session)
     } else {

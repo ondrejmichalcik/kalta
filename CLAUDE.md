@@ -36,7 +36,7 @@ Detailní technologická rozhodnutí a zdůvodnění → **[`.claude/tech-decisi
 ## Struktura projektu
 
 ```
-stockr/
+kalta/
 ├── CLAUDE.md                     ← tento soubor
 ├── .claude/
 │   ├── tech-decisions.md         ← proč jsme použili co a jaké alternativy jsme zvážili
@@ -45,7 +45,7 @@ stockr/
 ├── supabase/
 │   └── schema.sql                ← celé DB schéma + RLS + triggery (spustit v Supabase SQL Editoru)
 ├── modules/
-│   └── stockr-multipeer/                             ← custom Expo native modul pro MultipeerConnectivity P2P sync
+│   └── kalta-multipeer/                              ← custom Expo native modul pro MultipeerConnectivity P2P sync
 │       ├── ios/KaltaMultipeerModule.swift            ← MCSession + advertiser + browser
 │       ├── ios/KaltaMultipeer.podspec
 │       ├── expo-module.config.json
@@ -185,7 +185,7 @@ Konkrétní barvy jsou v `src/theme/colors.ts` (Sprint 2.5 design system). Funkc
 
 ### 4. Native moduly vyžadují rebuild
 Sprint 2 přidal: `expo-camera`, `expo-haptics`, `expo-clipboard`, `@react-native-community/datetimepicker`, `react-native-svg`.
-Sprint 4' přidal: `expo-network`, `expo-sqlite`, `expo-notifications`, `expo-document-picker`, `stockr-multipeer` (custom Expo module v `modules/`).
+Sprint 4' přidal: `expo-network`, `expo-sqlite`, `expo-notifications`, `expo-document-picker`, `kalta-multipeer` (custom Expo module v `modules/`).
 Každý z nich je nativní modul → při přidání nové nativní deps je nutný `eas build` nebo `npx expo run:ios`, ne jen Metro reload.
 
 ### 5. RLS je zdroj pravdy pro oprávnění
@@ -199,7 +199,7 @@ Vývoj běží po sprintech. Detailní stav → **[`.claude/implementation-plan.
 
 Aktuálně: **Sprint 4' + 4 code-complete** (2026-04-18). EAS build in progress.
 
-**Sprint 4' (offline-first) ✅**: expo-sqlite local-first data layer, bidirectional sync engine s per-field auto-merge, conflict resolution UI, global SyncStatusBar, image cache s orphan cleanup, session persistence (přežívá token expiry + sign-out recovery), MultipeerConnectivity P2P sync (custom Expo native modul `stockr-multipeer`), invite deep link fix.
+**Sprint 4' (offline-first) ✅**: expo-sqlite local-first data layer, bidirectional sync engine s per-field auto-merge, conflict resolution UI, global SyncStatusBar, image cache s orphan cleanup, session persistence (přežívá token expiry + sign-out recovery), MultipeerConnectivity P2P sync (custom Expo native modul `kalta-multipeer`), invite deep link fix.
 
 **Sprint 4 (notifications) ✅**: local expiry notifications (30d/7d/1d/today configurable windows), app badge count, notification tap → box detail deep link, foreground handler.
 

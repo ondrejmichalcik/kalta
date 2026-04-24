@@ -1,6 +1,6 @@
 // ============================================================================
-// Stockr – MultipeerConnectivity JS API
-// Wraps the native StockrMultipeer module for P2P sync between iPhones.
+// Kalta – MultipeerConnectivity JS API
+// Wraps the native KaltaMultipeer module for P2P sync between iPhones.
 // ============================================================================
 import { requireNativeModule } from 'expo-modules-core';
 
@@ -10,31 +10,31 @@ import { requireNativeModule } from 'expo-modules-core';
 // v2 module it just returns the module back, so using the module as
 // the emitter is equivalent AND avoids the Hermes-Legacy code path
 // that was implicated in a segfault on P2P screen mount.
-const StockrMultipeer = requireNativeModule('StockrMultipeer');
+const KaltaMultipeer = requireNativeModule('KaltaMultipeer');
 const emitter: {
   addListener: (event: string, fn: (e: any) => void) => { remove(): void };
-} = StockrMultipeer as any;
+} = KaltaMultipeer as any;
 
 // ---- Core API ---------------------------------------------------------------
 
 export function startSession(displayName: string): Promise<void> {
-  return StockrMultipeer.startSession(displayName);
+  return KaltaMultipeer.startSession(displayName);
 }
 
 export function invitePeer(peerDisplayName: string): Promise<void> {
-  return StockrMultipeer.invitePeer(peerDisplayName);
+  return KaltaMultipeer.invitePeer(peerDisplayName);
 }
 
 export function sendData(jsonString: string): Promise<void> {
-  return StockrMultipeer.sendData(jsonString);
+  return KaltaMultipeer.sendData(jsonString);
 }
 
 export function getConnectedPeers(): { displayName: string }[] {
-  return StockrMultipeer.getConnectedPeers();
+  return KaltaMultipeer.getConnectedPeers();
 }
 
 export function stopSession(): Promise<void> {
-  return StockrMultipeer.stopSession();
+  return KaltaMultipeer.stopSession();
 }
 
 // ---- Events -----------------------------------------------------------------

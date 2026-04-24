@@ -198,7 +198,7 @@ export default function LoginScreen() {
                   <TextInput
                     value={devEmail}
                     onChangeText={setDevEmail}
-                    placeholder="test@stockr.local"
+                    placeholder="test@kalta.local"
                     placeholderTextColor={colors.heroTextSubtle}
                     style={styles.input}
                     autoCapitalize="none"

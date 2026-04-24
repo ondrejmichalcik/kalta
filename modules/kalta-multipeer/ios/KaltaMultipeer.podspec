@@ -1,9 +1,9 @@
 Pod::Spec.new do |s|
-  s.name           = 'StockrMultipeer'
+  s.name           = 'KaltaMultipeer'
   s.version        = '1.0.0'
-  s.summary        = 'MultipeerConnectivity module for Stockr P2P sync'
+  s.summary        = 'MultipeerConnectivity module for Kalta P2P sync'
   s.description    = 'Enables iPhone-to-iPhone data sync via Bluetooth/WiFi without internet'
-  s.homepage       = 'https://github.com/ondrejmichalcik/stockr'
+  s.homepage       = 'https://github.com/ondrejmichalcik/kalta'
   s.license        = 'MIT'
   s.author         = 'Ondrej Michalcik'
   s.platform       = :ios, '16.0'
