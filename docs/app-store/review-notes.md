@@ -6,21 +6,19 @@ Paste this into **App Store Connect → App Information → App Review Informati
 
 ## Test account
 
-**Sign in with Apple** is the only auth method.
+**Sign in with Apple** is the only authentication method. Please use **any Apple ID** of your choice — the app works for any account, no pre-seeded test account is needed.
 
-For the reviewer's convenience we provide a demo Apple ID pre-seeded with sample data:
+We do not require email or name from your Apple ID; you can use a private relay email and any display name.
 
-- **Apple ID:** [FILL IN — e.g., kalta.review@icloud.com]
-- **Password:** [FILL IN]
-- Two-factor authentication: [FILL IN method — code via text, trusted device, etc.]
+Once signed in, you can:
 
-*(If you prefer to use your own Apple ID, that also works. The app accepts any Apple ID.)*
+1. Tap **+** on the warehouses screen to create a sample warehouse.
+2. Tap **+** inside the warehouse to create a sample box (a QR label is generated automatically).
+3. Open the box → **Add items** → use **Manual entry** to add a few sample items with expiration dates.
 
-After signing in, the demo account has:
+This produces a fully working app state in under two minutes for the review.
 
-- 2 sample warehouses ("Basement pantry", "Garage supplies").
-- Boxes with items at various expiration states (expired, soon, OK, no-date).
-- A membership in a shared warehouse to demonstrate multi-user behavior.
+The demo data shown in the App Store screenshots was generated this way for illustration purposes.
 
 ---
 

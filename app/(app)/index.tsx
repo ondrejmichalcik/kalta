@@ -30,6 +30,7 @@ import { colors, radius, spacing, typography } from '@/src/theme';
 import { Card } from '@/src/components/Card';
 import { FAB } from '@/src/components/FAB';
 import { Icon } from '@/src/components/Icon';
+import { ResourceIcon } from '@/src/components/ResourceIcon';
 
 export default function WarehousesListScreen() {
   const router = useRouter();
@@ -231,9 +232,8 @@ function WarehouseRow({
   const isOwner = warehouse.my_role === 'owner';
   return (
     <Card onPress={onPress} style={styles.card}>
-      <View style={styles.cardIconWrap}>
-        <Icon sf="archivebox.fill" size={22} color={colors.primary} />
-      </View>
+      <ResourceIcon table="warehouses" size={40} background={colors.primaryTint} />
+
       <View style={styles.cardBody}>
         <Text style={styles.cardTitle} numberOfLines={1}>
           {warehouse.name}

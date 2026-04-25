@@ -20,6 +20,54 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+// Tables whose schema has an `updated_at` column. We tag each captured
+// before-snapshot with the row's updated_at at edit time so the pull
+// engine can use it as a baseline timestamp when detecting conflicts.
+const TABLES_WITH_UPDATED_AT = new Set(['items', 'boxes']);
+
+/**
+ * Snapshot a row's current values for the named fields, BEFORE applying
+ * an UPDATE. The result is passed to enqueueChange's payload so the
+ * pending-changes screen can show "old → new" diffs and the sync engine
+ * can use the captured `updated_at` as a baseline for conflict detection.
+ * Booleans are normalized to true/false so they render the same as the
+ * after-value read by the pending screen.
+ *
+ * Field names are whitelisted by a strict regex to keep the interpolated
+ * SELECT free of injection — `_sync_queue` and the source columns are
+ * the only sources of these names but defending here is cheap.
+ */
+function captureBefore(
+  table: string,
+  id: string,
+  fields: string[],
+): Record<string, any> | undefined {
+  const db = getDb();
+  const safeFields = fields.filter((f) => /^[a-z_][a-z0-9_]*$/i.test(f));
+  if (safeFields.length === 0 && !TABLES_WITH_UPDATED_AT.has(table)) return undefined;
+  const cols = [...safeFields];
+  if (TABLES_WITH_UPDATED_AT.has(table)) cols.push('updated_at');
+  try {
+    const row = db.getFirstSync<any>(
+      `SELECT ${cols.join(', ')} FROM ${table} WHERE id = ?`,
+      [id],
+    );
+    if (!row) return undefined;
+    const out: Record<string, any> = {};
+    for (const f of safeFields) {
+      const v = row[f];
+      if (f === 'opened' || f === 'damaged') out[f] = !!v;
+      else out[f] = v ?? null;
+    }
+    if (TABLES_WITH_UPDATED_AT.has(table) && row.updated_at != null) {
+      out.updated_at = row.updated_at;
+    }
+    return out;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Find an item in `targetBoxId` that matches source's product identity
  * (name + barcode + expiry + category + unit + pack_count + opened).
@@ -103,15 +151,32 @@ export function updateBoxLocal(
 ): Box {
   const db = getDb();
   const now = nowIso();
+
+  // Filter no-op edits — same logic as updateItemLocal.
+  const before = captureBefore('boxes', id, Object.keys(patch));
+  const effectivePatch: Partial<Pick<Box, 'name' | 'location'>> = {};
+  for (const [key, val] of Object.entries(patch) as [keyof typeof patch, any][]) {
+    const oldVal = before?.[key];
+    if ((val ?? null) !== (oldVal === undefined ? null : oldVal)) {
+      (effectivePatch as any)[key] = val;
+    }
+  }
+
+  if (Object.keys(effectivePatch).length === 0) {
+    return db.getFirstSync<Box>(
+      'SELECT id, warehouse_id, name, location, qr_code, nearest_expiry, item_count, created_at, updated_at FROM boxes WHERE id = ?',
+      [id],
+    )!;
+  }
+
   const fields: string[] = [];
   const values: any[] = [];
-
-  if (patch.name !== undefined) { fields.push('name = ?'); values.push(patch.name); }
-  if (patch.location !== undefined) { fields.push('location = ?'); values.push(patch.location); }
+  if (effectivePatch.name !== undefined) { fields.push('name = ?'); values.push(effectivePatch.name); }
+  if (effectivePatch.location !== undefined) { fields.push('location = ?'); values.push(effectivePatch.location); }
   fields.push('updated_at = ?', '_synced = 0', '_local_updated_at = ?');
   values.push(now, now, id);
 
-  const changedFields = Object.keys(patch);
+  const changedFields = Object.keys(effectivePatch);
   db.runSync(`UPDATE boxes SET ${fields.join(', ')} WHERE id = ?`, values);
 
   // Track changed fields for per-field merge
@@ -122,7 +187,21 @@ export function updateBoxLocal(
   const merged = [...new Set([...prev, ...changedFields])];
   db.runSync('UPDATE boxes SET _changed_fields = ? WHERE id = ?', [JSON.stringify(merged), id]);
 
-  enqueueChange('boxes', id, 'UPDATE', changedFields);
+  const beforeForQueue = before
+    ? {
+        ...Object.fromEntries(
+          changedFields.filter((f) => f in before).map((f) => [f, before[f]]),
+        ),
+        ...(before.updated_at != null ? { updated_at: before.updated_at } : {}),
+      }
+    : undefined;
+  enqueueChange(
+    'boxes',
+    id,
+    'UPDATE',
+    changedFields,
+    beforeForQueue && Object.keys(beforeForQueue).length > 0 ? { before: beforeForQueue } : undefined,
+  );
 
   return db.getFirstSync<Box>(
     'SELECT id, warehouse_id, name, location, qr_code, nearest_expiry, item_count, created_at, updated_at FROM boxes WHERE id = ?',
@@ -233,10 +312,35 @@ export function updateItemLocal(
 ): Item {
   const db = getDb();
   const now = nowIso();
+
+  // Filter out noop edits — fields the caller submitted but whose value is
+  // identical to what's already stored. Saves the queue from useless rows
+  // and keeps the pending-changes screen clean. Booleans are normalized
+  // before comparison since SQLite stores them as 0/1 ints.
+  const before = captureBefore('items', id, Object.keys(patch));
+  const effectivePatch: Record<string, any> = {};
+  for (const [key, val] of Object.entries(patch)) {
+    const oldVal = before?.[key];
+    const newNorm = key === 'opened' || key === 'damaged' ? !!val : (val ?? null);
+    const oldNorm =
+      key === 'opened' || key === 'damaged'
+        ? !!oldVal
+        : oldVal === undefined
+          ? null
+          : oldVal;
+    if (newNorm !== oldNorm) effectivePatch[key] = val;
+  }
+
+  // No-op write — caller submitted unchanged values. Return current row
+  // without enqueuing anything.
+  if (Object.keys(effectivePatch).length === 0) {
+    const row = db.getFirstSync<any>('SELECT * FROM items WHERE id = ?', [id]);
+    return { ...row, opened: !!row.opened, damaged: !!row.damaged };
+  }
+
   const fields: string[] = [];
   const values: any[] = [];
-
-  for (const [key, val] of Object.entries(patch)) {
+  for (const [key, val] of Object.entries(effectivePatch)) {
     if (key === 'opened' || key === 'damaged') {
       fields.push(`${key} = ?`);
       values.push(val ? 1 : 0);
@@ -248,10 +352,10 @@ export function updateItemLocal(
   fields.push('updated_at = ?', '_synced = 0', '_local_updated_at = ?');
   values.push(now, now, id);
 
+  const changedFields = Object.keys(effectivePatch);
   db.runSync(`UPDATE items SET ${fields.join(', ')} WHERE id = ?`, values);
 
   // Track changed fields
-  const changedFields = Object.keys(patch);
   const existing = db.getFirstSync<{ _changed_fields: string | null; box_id: string }>(
     'SELECT _changed_fields, box_id FROM items WHERE id = ?', [id],
   );
@@ -260,7 +364,24 @@ export function updateItemLocal(
   db.runSync('UPDATE items SET _changed_fields = ? WHERE id = ?', [JSON.stringify(merged), id]);
 
   if (existing?.box_id) recalcBoxCacheLocal(existing.box_id);
-  enqueueChange('items', id, 'UPDATE', changedFields);
+  // Restrict the captured before-snapshot to fields we're actually
+  // recording as changed (plus updated_at as the baseline timestamp).
+  // Anything else is noise in the queue payload.
+  const beforeForQueue = before
+    ? {
+        ...Object.fromEntries(
+          changedFields.filter((f) => f in before).map((f) => [f, before[f]]),
+        ),
+        ...(before.updated_at != null ? { updated_at: before.updated_at } : {}),
+      }
+    : undefined;
+  enqueueChange(
+    'items',
+    id,
+    'UPDATE',
+    changedFields,
+    beforeForQueue && Object.keys(beforeForQueue).length > 0 ? { before: beforeForQueue } : undefined,
+  );
 
   const row = db.getFirstSync<any>('SELECT * FROM items WHERE id = ?', [id]);
   return { ...row, opened: !!row.opened, damaged: !!row.damaged };
@@ -289,9 +410,10 @@ export function moveItemQuantityLocal(
   if (matchId) {
     // MERGE into existing target
     const match = db.getFirstSync<any>('SELECT quantity FROM items WHERE id = ?', [matchId]);
+    const matchPrevQty = match?.quantity ?? 0;
     db.runSync('UPDATE items SET quantity = ?, updated_at = ?, _synced = 0, _local_updated_at = ? WHERE id = ?',
-      [(match?.quantity ?? 0) + moveQty, now, now, matchId]);
-    enqueueChange('items', matchId, 'UPDATE', ['quantity']);
+      [matchPrevQty + moveQty, now, now, matchId]);
+    enqueueChange('items', matchId, 'UPDATE', ['quantity'], { before: { quantity: matchPrevQty } });
 
     if (movingAll) {
       db.runSync('UPDATE items SET _deleted_at = ?, _synced = 0, _local_updated_at = ? WHERE id = ?', [now, now, itemId]);
@@ -299,17 +421,17 @@ export function moveItemQuantityLocal(
     } else {
       db.runSync('UPDATE items SET quantity = ?, updated_at = ?, _synced = 0, _local_updated_at = ? WHERE id = ?',
         [src.quantity - moveQty, now, now, itemId]);
-      enqueueChange('items', itemId, 'UPDATE', ['quantity']);
+      enqueueChange('items', itemId, 'UPDATE', ['quantity'], { before: { quantity: src.quantity } });
     }
   } else {
     if (movingAll) {
       db.runSync('UPDATE items SET box_id = ?, updated_at = ?, _synced = 0, _local_updated_at = ? WHERE id = ?',
         [targetBoxId, now, now, itemId]);
-      enqueueChange('items', itemId, 'UPDATE', ['box_id']);
+      enqueueChange('items', itemId, 'UPDATE', ['box_id'], { before: { box_id: src.box_id } });
     } else {
       db.runSync('UPDATE items SET quantity = ?, updated_at = ?, _synced = 0, _local_updated_at = ? WHERE id = ?',
         [src.quantity - moveQty, now, now, itemId]);
-      enqueueChange('items', itemId, 'UPDATE', ['quantity']);
+      enqueueChange('items', itemId, 'UPDATE', ['quantity'], { before: { quantity: src.quantity } });
 
       const newId = genId();
       db.runSync(
@@ -348,15 +470,16 @@ export function openOneItemLocal(itemId: string, addedBy: string): Item {
   } else {
     db.runSync('UPDATE items SET quantity = ?, updated_at = ?, _synced = 0, _local_updated_at = ? WHERE id = ?',
       [src.quantity - 1, now, now, itemId]);
-    enqueueChange('items', itemId, 'UPDATE', ['quantity']);
+    enqueueChange('items', itemId, 'UPDATE', ['quantity'], { before: { quantity: src.quantity } });
   }
 
   let resultId: string;
   if (matchId) {
     const match = db.getFirstSync<any>('SELECT quantity FROM items WHERE id = ?', [matchId]);
+    const matchPrevQty = match?.quantity ?? 0;
     db.runSync('UPDATE items SET quantity = ?, updated_at = ?, _synced = 0, _local_updated_at = ? WHERE id = ?',
-      [(match?.quantity ?? 0) + 1, now, now, matchId]);
-    enqueueChange('items', matchId, 'UPDATE', ['quantity']);
+      [matchPrevQty + 1, now, now, matchId]);
+    enqueueChange('items', matchId, 'UPDATE', ['quantity'], { before: { quantity: matchPrevQty } });
     resultId = matchId;
   } else {
     resultId = genId();
@@ -391,14 +514,20 @@ export function markItemConditionLocal(
       'UPDATE items SET opened = ?, damaged = ?, notes = ?, updated_at = ?, _synced = 0, _local_updated_at = ? WHERE id = ?',
       [conditions.opened ? 1 : 0, conditions.damaged ? 1 : 0, conditions.notes, now, now, itemId],
     );
-    enqueueChange('items', itemId, 'UPDATE', ['opened', 'damaged', 'notes']);
+    enqueueChange('items', itemId, 'UPDATE', ['opened', 'damaged', 'notes'], {
+      before: {
+        opened: !!src.opened,
+        damaged: !!src.damaged,
+        notes: src.notes ?? null,
+      },
+    });
     return;
   }
 
   // Split: decrement source, create conditioned copy
   db.runSync('UPDATE items SET quantity = ?, updated_at = ?, _synced = 0, _local_updated_at = ? WHERE id = ?',
     [src.quantity - 1, now, now, itemId]);
-  enqueueChange('items', itemId, 'UPDATE', ['quantity']);
+  enqueueChange('items', itemId, 'UPDATE', ['quantity'], { before: { quantity: src.quantity } });
 
   const newId = genId();
   db.runSync(
@@ -465,6 +594,7 @@ export function renameWarehouseLocal(id: string, name: string): Warehouse {
   const db = getDb();
   const now = nowIso();
 
+  const before = captureBefore('warehouses', id, ['name']);
   db.runSync(
     `UPDATE warehouses SET name = ?, _synced = 0, _local_updated_at = ? WHERE id = ?`,
     [name, now, id],
@@ -478,7 +608,7 @@ export function renameWarehouseLocal(id: string, name: string): Warehouse {
   const merged = [...new Set([...prev, 'name'])];
   db.runSync('UPDATE warehouses SET _changed_fields = ? WHERE id = ?', [JSON.stringify(merged), id]);
 
-  enqueueChange('warehouses', id, 'UPDATE', ['name']);
+  enqueueChange('warehouses', id, 'UPDATE', ['name'], before ? { before } : undefined);
 
   return db.getFirstSync<Warehouse>(
     'SELECT id, owner_id, name, created_at FROM warehouses WHERE id = ?', [id],
@@ -492,6 +622,7 @@ export function verifyItemsLocal(itemIds: string[]): void {
   const db = getDb();
   const now = nowIso();
   for (const id of itemIds) {
+    const before = captureBefore('items', id, ['last_verified']);
     db.runSync(
       'UPDATE items SET last_verified = ?, updated_at = ?, _synced = 0, _local_updated_at = ? WHERE id = ?',
       [now, now, now, id],
@@ -503,7 +634,7 @@ export function verifyItemsLocal(itemIds: string[]): void {
     const prev = existing?._changed_fields ? JSON.parse(existing._changed_fields) : [];
     const merged = [...new Set([...prev, 'last_verified'])];
     db.runSync('UPDATE items SET _changed_fields = ? WHERE id = ?', [JSON.stringify(merged), id]);
-    enqueueChange('items', id, 'UPDATE', ['last_verified']);
+    enqueueChange('items', id, 'UPDATE', ['last_verified'], before ? { before } : undefined);
   }
 }
 
@@ -553,11 +684,22 @@ export function completeInventorySessionLocal(
   }
 
   // Mark session complete
+  const before = captureBefore('inventory_sessions', sessionId, [
+    'completed_at',
+    'found_count',
+    'missing_count',
+  ]);
   db.runSync(
     `UPDATE inventory_sessions SET completed_at = ?, found_count = ?, missing_count = ? WHERE id = ?`,
     [now, foundCount, missingCount, sessionId],
   );
-  enqueueChange('inventory_sessions', sessionId, 'UPDATE', ['completed_at', 'found_count', 'missing_count']);
+  enqueueChange(
+    'inventory_sessions',
+    sessionId,
+    'UPDATE',
+    ['completed_at', 'found_count', 'missing_count'],
+    before ? { before } : undefined,
+  );
 
   // Verify found items
   if (foundItemIds.length > 0) {
@@ -586,11 +728,23 @@ export function upsertCustomProductLocal(input: {
   );
 
   if (existing) {
+    const before = captureBefore('custom_products', existing.id, [
+      'name',
+      'category',
+      'image_url',
+      'typical_expiry_days',
+    ]);
     db.runSync(
       `UPDATE custom_products SET name = ?, category = ?, image_url = ?, typical_expiry_days = ?, _synced = 0 WHERE id = ?`,
       [input.name, input.category ?? null, input.image_url ?? null, input.typical_expiry_days ?? null, existing.id],
     );
-    enqueueChange('custom_products', existing.id, 'UPDATE', ['name', 'category', 'image_url', 'typical_expiry_days']);
+    enqueueChange(
+      'custom_products',
+      existing.id,
+      'UPDATE',
+      ['name', 'category', 'image_url', 'typical_expiry_days'],
+      before ? { before } : undefined,
+    );
     return db.getFirstSync<CustomProduct>(
       'SELECT id, warehouse_id, barcode, name, category, image_url, typical_expiry_days, created_by, created_at FROM custom_products WHERE id = ?',
       [existing.id],

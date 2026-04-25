@@ -17,10 +17,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Alert } from 'react-native';
 import {
   getConflictCount,
-  getLastPushError,
   getPendingSyncCount,
   getSyncStatus,
   subscribeSyncStatus,
@@ -77,17 +75,18 @@ export function SyncStatusBar({ onReconnect }: { onReconnect?: () => void }) {
   if (state.kind === 'hidden') return null;
 
   const config = BAR_CONFIG[state.kind];
-  const tappable = state.kind === 'conflicts' || state.kind === 'pending';
+  // Offline with pending counts also navigates so the user can review what
+  // hasn't synced yet — same destination as the online "pending" state.
+  const tappable =
+    state.kind === 'conflicts' ||
+    state.kind === 'pending' ||
+    (state.kind === 'offline' && state.pending > 0);
 
   const onBarPress = () => {
     if (state.kind === 'conflicts') {
       router.push('/conflicts' as any);
-    } else if (state.kind === 'pending') {
-      const err = getLastPushError();
-      Alert.alert(
-        'Sync debug',
-        err ? `Last push error:\n${err}` : 'No error recorded. Push may not be running yet.',
-      );
+    } else if (state.kind === 'pending' || state.kind === 'offline') {
+      router.push('/pending' as any);
     }
   };
 

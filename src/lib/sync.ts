@@ -256,6 +256,579 @@ export function getPendingSyncCount(): number {
 }
 
 /**
+ * Pending sync queue entry, denormalized with a human-readable name and
+ * context (e.g. which box / warehouse the row belongs to). Used by the
+ * pending changes screen so the user sees what specifically is waiting
+ * to push, not just opaque row IDs.
+ */
+export interface PendingEntry {
+  /**
+   * Stable identifier for this aggregated entry — equal to the newest
+   * underlying queue entry's id. Use `entry_ids` if you need every queue
+   * row that this entry represents (e.g. for revert-all-on-this-resource).
+   */
+  id: number;
+  /** All queue rows aggregated into this entry, newest-first. */
+  entry_ids: number[];
+  /** How many raw queue rows are aggregated. >= 1. */
+  change_count: number;
+  table_name: string;
+  row_id: string;
+  /**
+   * Net operation across the aggregated entries:
+   *  any INSERT  → INSERT
+   *  else any DELETE → DELETE
+   *  else            → UPDATE
+   */
+  operation: 'INSERT' | 'UPDATE' | 'DELETE';
+  changed_fields: string[] | null;
+  /**
+   * Current values for the changed fields (for UPDATE ops). Read directly
+   * from the row as it now stands — these represent the "after" state that
+   * will get pushed to the server.
+   */
+  field_values: Record<string, any> | null;
+  /**
+   * Pre-update values for the changed fields, captured at enqueue time and
+   * stored in the queue payload. Used to render "before → after" diffs on
+   * the pending screen. Older entries (queued before this column was wired
+   * in) and operations that didn't capture before-values may be null.
+   */
+  before_values: Record<string, any> | null;
+  /** Timestamp of the OLDEST aggregated entry (when the resource first changed). */
+  created_at: string;
+  display_name: string;
+  context: string | null;
+  /**
+   * Where to navigate when the user taps the resource name. `null` for
+   * tables with no detail screen (custom_products, inventory_*).
+   */
+  nav: { href: string } | null;
+  /** For items, the row's current category — drives the resource icon. */
+  category: string | null;
+}
+
+// Whitelist of fields per table that the pending screen may read. Defends
+// against a malformed _sync_queue.changed_fields injecting arbitrary SQL
+// when interpolated into a SELECT.
+const SAFE_FIELDS: Record<string, Set<string>> = {
+  warehouses: new Set(['name']),
+  boxes: new Set(['name', 'location']),
+  items: new Set([
+    'name',
+    'quantity',
+    'unit',
+    'expiry_date',
+    'barcode',
+    'image_url',
+    'category',
+    'notes',
+    'opened',
+    'damaged',
+    'pack_count',
+    'last_verified',
+    'box_id',
+  ]),
+  custom_products: new Set(['name', 'category', 'image_url', 'typical_expiry_days']),
+  inventory_sessions: new Set(['notes', 'completed_at', 'found_count', 'missing_count']),
+};
+
+interface RawQueueRow {
+  id: number;
+  table_name: string;
+  row_id: string;
+  operation: 'INSERT' | 'UPDATE' | 'DELETE';
+  changed_fields: string | null;
+  payload: string | null;
+  created_at: string;
+}
+
+/**
+ * Fetch all pending (un-pushed) sync queue entries grouped by resource
+ * (table + row_id). Each returned PendingEntry represents the net pending
+ * change to one resource, even if the user edited it multiple times since
+ * the last sync. Groups are returned newest-activity first.
+ */
+export function getPendingEntries(): PendingEntry[] {
+  const db = getDb();
+  const rows = db.getAllSync<RawQueueRow>(
+    `SELECT id, table_name, row_id, operation, changed_fields, payload, created_at
+     FROM _sync_queue WHERE pushed_at IS NULL ORDER BY id ASC`,
+  );
+
+  // Group raw rows by resource (table + row_id), preserving chronological
+  // order within each group (id ASC).
+  const groups = new Map<string, RawQueueRow[]>();
+  for (const r of rows) {
+    const key = `${r.table_name}:${r.row_id}`;
+    const list = groups.get(key);
+    if (list) list.push(r);
+    else groups.set(key, [r]);
+  }
+
+  const aggregated: PendingEntry[] = [];
+  for (const list of groups.values()) {
+    aggregated.push(buildAggregatedEntry(db, list));
+  }
+
+  // Show most-recently touched resources first.
+  aggregated.sort((a, b) => b.entry_ids[0] - a.entry_ids[0]);
+  return aggregated;
+}
+
+function buildAggregatedEntry(
+  db: ReturnType<typeof getDb>,
+  rows: RawQueueRow[],
+): PendingEntry {
+  const newest = rows[rows.length - 1];
+  const oldest = rows[0];
+  const tableName = newest.table_name;
+  const rowId = newest.row_id;
+
+  // Net operation: INSERT trumps everything (means resource is new); else
+  // a final DELETE wins; else UPDATE.
+  const hasInsert = rows.some((r) => r.operation === 'INSERT');
+  const hasDelete = rows.some((r) => r.operation === 'DELETE');
+  const operation: PendingEntry['operation'] = hasInsert
+    ? 'INSERT'
+    : hasDelete
+      ? 'DELETE'
+      : 'UPDATE';
+
+  // Union of changed_fields across all UPDATE rows.
+  const changedFieldsSet = new Set<string>();
+  for (const r of rows) {
+    if (r.operation === 'UPDATE' && r.changed_fields) {
+      try {
+        for (const f of JSON.parse(r.changed_fields) as string[]) {
+          changedFieldsSet.add(f);
+        }
+      } catch {
+        /* malformed — skip */
+      }
+    }
+  }
+  const changedFields = changedFieldsSet.size > 0 ? Array.from(changedFieldsSet) : null;
+
+  // Before snapshot: take the OLDEST UPDATE's `before` for each field.
+  // That's the value from when the user first started modifying this row,
+  // i.e., the true "previous" state.
+  let beforeValues: Record<string, any> | null = null;
+  if (operation === 'UPDATE' && changedFields) {
+    const accumulated: Record<string, any> = {};
+    for (const r of rows) {
+      if (r.operation !== 'UPDATE' || !r.payload) continue;
+      const partial = extractBeforeValues(r.payload, tableName);
+      if (!partial) continue;
+      for (const [k, v] of Object.entries(partial)) {
+        // First write wins — earlier entries reflect older state.
+        if (!(k in accumulated)) accumulated[k] = v;
+      }
+    }
+    if (Object.keys(accumulated).length > 0) {
+      beforeValues = resolveBeforeDisplayValues(db, accumulated);
+    }
+  }
+
+  // After values: read current row state for the changed fields.
+  const fieldValues =
+    operation === 'UPDATE' && changedFields
+      ? lookupFieldValues(db, tableName, rowId, changedFields)
+      : null;
+
+  const { display_name, context, nav, category } = lookupDisplayInfo(
+    db,
+    tableName,
+    rowId,
+    newest.payload,
+  );
+
+  return {
+    id: newest.id,
+    entry_ids: rows.map((r) => r.id).reverse(), // newest first
+    change_count: rows.length,
+    table_name: tableName,
+    row_id: rowId,
+    operation,
+    changed_fields: changedFields,
+    field_values: fieldValues,
+    before_values: beforeValues,
+    created_at: oldest.created_at,
+    display_name,
+    context,
+    nav,
+    category,
+  };
+}
+
+// Parse the queue entry's payload and return its `before` map filtered to
+// fields the pending screen is allowed to show. Anything else (e.g., bad
+// JSON, unknown keys) is dropped silently.
+function extractBeforeValues(
+  payload: string,
+  table: string,
+): Record<string, any> | null {
+  const allowed = SAFE_FIELDS[table];
+  if (!allowed) return null;
+  try {
+    const obj = JSON.parse(payload);
+    const before = obj?.before;
+    if (!before || typeof before !== 'object') return null;
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(before)) {
+      if (!allowed.has(k)) continue;
+      if (k === 'opened' || k === 'damaged') out[k] = !!v;
+      else out[k] = v ?? null;
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+// Same as resolveDisplayValues above but called for the before-snapshot.
+// We need a separate call because the before's box_id refers to where the
+// item used to live, which may itself have been moved or deleted since.
+// `resolveDisplayValues` queries the boxes table by id which still works
+// for soft-deleted boxes (no _deleted_at filter).
+function resolveBeforeDisplayValues(
+  db: ReturnType<typeof getDb>,
+  values: Record<string, any> | null,
+): Record<string, any> | null {
+  if (!values) return null;
+  return resolveDisplayValues(db, values);
+}
+
+// Read current values of a row's changed fields, dropping anything not in
+// the per-table whitelist. Boolean SQLite ints are normalized to true/false
+// for display, and foreign-key UUIDs (currently just box_id) are resolved
+// to "Name · Parent" strings so the user actually understands what changed.
+function lookupFieldValues(
+  db: ReturnType<typeof getDb>,
+  table: string,
+  rowId: string,
+  fields: string[],
+): Record<string, any> | null {
+  const allowed = SAFE_FIELDS[table];
+  if (!allowed) return null;
+  const safeFields = fields.filter((f) => allowed.has(f));
+  if (safeFields.length === 0) return null;
+
+  try {
+    const row = db.getFirstSync<Record<string, any>>(
+      `SELECT ${safeFields.join(', ')} FROM ${table} WHERE id = ?`,
+      [rowId],
+    );
+    if (!row) return null;
+    const out: Record<string, any> = {};
+    for (const f of safeFields) {
+      const v = row[f];
+      if (f === 'opened' || f === 'damaged') out[f] = !!v;
+      else out[f] = v ?? null;
+    }
+    return resolveDisplayValues(db, out);
+  } catch {
+    return null;
+  }
+}
+
+// Replace UUID-typed fields with human-readable labels for display.
+// Currently only `box_id` is resolved — items can be moved between boxes
+// and the user should see the box name, not its hex UUID.
+function resolveDisplayValues(
+  db: ReturnType<typeof getDb>,
+  values: Record<string, any>,
+): Record<string, any> {
+  if (!('box_id' in values) || !values.box_id) return values;
+  try {
+    const box = db.getFirstSync<{ name: string; warehouse_name: string | null }>(
+      `SELECT b.name, w.name as warehouse_name
+       FROM boxes b LEFT JOIN warehouses w ON b.warehouse_id = w.id
+       WHERE b.id = ?`,
+      [values.box_id],
+    );
+    if (box) {
+      const label = box.warehouse_name ? `${box.name} · ${box.warehouse_name}` : box.name;
+      return { ...values, box_id: label };
+    }
+  } catch { /* best-effort */ }
+  return values;
+}
+
+// Look up a row's user-facing name and any context (e.g., which box / warehouse
+// it belongs to). The row itself may be soft-deleted (DELETE op) but is still
+// in SQLite, so we can still query without filtering on `_deleted_at`. If even
+// that fails — for example, the queue entry references a row hard-purged later —
+// fall back to whatever the queue payload remembered, then to the bare ID.
+function lookupDisplayInfo(
+  db: ReturnType<typeof getDb>,
+  table: string,
+  rowId: string,
+  payload: string | null,
+): {
+  display_name: string;
+  context: string | null;
+  nav: { href: string } | null;
+  category: string | null;
+} {
+  const fallbackName = (() => {
+    if (payload) {
+      try {
+        const p = JSON.parse(payload);
+        if (p?.name) return p.name as string;
+      } catch { /* malformed payload */ }
+    }
+    return rowId.slice(0, 8);
+  })();
+
+  try {
+    if (table === 'items') {
+      const row = db.getFirstSync<{
+        name: string;
+        category: string | null;
+        box_id: string | null;
+        box_name: string | null;
+        warehouse_id: string | null;
+        warehouse_name: string | null;
+      }>(
+        `SELECT i.name, i.category, i.box_id, b.name as box_name, b.warehouse_id, w.name as warehouse_name
+         FROM items i
+         LEFT JOIN boxes b ON i.box_id = b.id
+         LEFT JOIN warehouses w ON b.warehouse_id = w.id
+         WHERE i.id = ?`,
+        [rowId],
+      );
+      if (row) {
+        const ctx = [row.box_name, row.warehouse_name].filter(Boolean).join(' · ') || null;
+        const nav =
+          row.box_id && row.warehouse_id
+            ? { href: `/warehouse/${row.warehouse_id}/box/${row.box_id}?itemId=${rowId}` }
+            : null;
+        return { display_name: row.name, context: ctx, nav, category: row.category };
+      }
+    } else if (table === 'boxes') {
+      const row = db.getFirstSync<{ name: string; warehouse_id: string | null; warehouse_name: string | null }>(
+        `SELECT b.name, b.warehouse_id, w.name as warehouse_name
+         FROM boxes b LEFT JOIN warehouses w ON b.warehouse_id = w.id
+         WHERE b.id = ?`,
+        [rowId],
+      );
+      if (row) {
+        const nav = row.warehouse_id
+          ? { href: `/warehouse/${row.warehouse_id}/box/${rowId}` }
+          : null;
+        return { display_name: row.name, context: row.warehouse_name, nav, category: null };
+      }
+    } else if (table === 'warehouses') {
+      const row = db.getFirstSync<{ name: string }>(
+        `SELECT name FROM warehouses WHERE id = ?`,
+        [rowId],
+      );
+      if (row) {
+        return {
+          display_name: row.name,
+          context: null,
+          nav: { href: `/warehouse/${rowId}` },
+          category: null,
+        };
+      }
+    } else if (table === 'custom_products') {
+      const row = db.getFirstSync<{ name: string; warehouse_name: string | null }>(
+        `SELECT cp.name, w.name as warehouse_name
+         FROM custom_products cp LEFT JOIN warehouses w ON cp.warehouse_id = w.id
+         WHERE cp.id = ?`,
+        [rowId],
+      );
+      if (row) return { display_name: row.name, context: row.warehouse_name, nav: null, category: null };
+    } else if (table === 'inventory_sessions') {
+      const row = db.getFirstSync<{ box_name: string | null }>(
+        `SELECT b.name as box_name
+         FROM inventory_sessions s LEFT JOIN boxes b ON s.box_id = b.id
+         WHERE s.id = ?`,
+        [rowId],
+      );
+      if (row) return { display_name: 'Inventory session', context: row.box_name, nav: null, category: null };
+    } else if (table === 'inventory_lines') {
+      return { display_name: 'Inventory line', context: null, nav: null, category: null };
+    }
+  } catch { /* lookup failed, fall through to fallback */ }
+
+  return { display_name: fallbackName, context: null, nav: null, category: null };
+}
+
+/**
+ * Revert a single pending sync queue entry, rolling the local row back
+ * to whatever state existed before the change was made.
+ *
+ *   INSERT  → delete the row (and any later queue entries that reference
+ *              it; they'd be orphaned references anyway).
+ *   UPDATE  → restore the `before` values captured in the queue payload
+ *              and remove the corresponding fields from the row's
+ *              _changed_fields list. If no _changed_fields remain the
+ *              row is marked synced (_synced = 1).
+ *   DELETE  → un-soft-delete the row.
+ *
+ * Throws if the entry has already been pushed (pushed_at IS NOT NULL),
+ * or if it's an UPDATE without a captured before-snapshot in payload —
+ * older entries created before before-tracking was added will fall in
+ * this bucket; they can only be manually un-edited by the user.
+ */
+export function revertPendingEntry(
+  entryId: number,
+): { table: string; rowId: string; boxId: string | null } {
+  const db = getDb();
+  const entry = db.getFirstSync<{
+    table_name: string;
+    row_id: string;
+    operation: 'INSERT' | 'UPDATE' | 'DELETE';
+    changed_fields: string | null;
+    payload: string | null;
+    pushed_at: string | null;
+  }>('SELECT * FROM _sync_queue WHERE id = ?', [entryId]);
+
+  if (!entry) throw new Error('Change not found.');
+  if (entry.pushed_at) {
+    throw new Error('This change has already been synced and cannot be reverted.');
+  }
+
+  // Capture box_id BEFORE the revert so the caller can recompute box caches
+  // even when the row is about to be deleted (INSERT revert).
+  let boxId: string | null = null;
+  if (entry.table_name === 'items') {
+    boxId =
+      db.getFirstSync<{ box_id: string }>(
+        'SELECT box_id FROM items WHERE id = ?',
+        [entry.row_id],
+      )?.box_id ?? null;
+  } else if (entry.table_name === 'boxes' && entry.operation === 'INSERT') {
+    boxId = entry.row_id;
+  }
+
+  db.execSync('BEGIN TRANSACTION;');
+  try {
+    if (entry.operation === 'INSERT') {
+      // Hard-delete the row. Any later queue entries for the same row are
+      // also dropped — they'd reference a row that no longer exists.
+      db.runSync(`DELETE FROM ${entry.table_name} WHERE id = ?`, [entry.row_id]);
+      db.runSync(
+        `DELETE FROM _sync_queue WHERE table_name = ? AND row_id = ?`,
+        [entry.table_name, entry.row_id],
+      );
+    } else if (entry.operation === 'DELETE') {
+      // Restore the soft-deleted row.
+      db.runSync(
+        `UPDATE ${entry.table_name}
+           SET _deleted_at = NULL, _synced = 1, _local_updated_at = NULL
+         WHERE id = ?`,
+        [entry.row_id],
+      );
+      db.runSync('DELETE FROM _sync_queue WHERE id = ?', [entryId]);
+    } else {
+      // UPDATE — apply before values back.
+      const allowed = SAFE_FIELDS[entry.table_name];
+      if (!allowed) throw new Error(`Cannot revert changes to ${entry.table_name}.`);
+      const changedFields: string[] = entry.changed_fields
+        ? JSON.parse(entry.changed_fields)
+        : [];
+      const payload = entry.payload ? JSON.parse(entry.payload) : null;
+      const before = payload?.before;
+      if (!before || typeof before !== 'object' || Object.keys(before).length === 0) {
+        throw new Error(
+          'Cannot revert: no before snapshot was captured for this change.',
+        );
+      }
+
+      const restoreFields = changedFields.filter(
+        (f) => allowed.has(f) && f in before,
+      );
+      if (restoreFields.length === 0) {
+        throw new Error('Nothing to revert in this change.');
+      }
+
+      const setExprs = restoreFields.map((f) => `${f} = ?`);
+      const setValues = restoreFields.map((f) => {
+        const v = before[f];
+        if (f === 'opened' || f === 'damaged') return v ? 1 : 0;
+        return v ?? null;
+      });
+
+      // Update _changed_fields: remove the fields we just reverted. If
+      // nothing's left, the row is back in sync with the server.
+      const rowMeta = db.getFirstSync<{ _changed_fields: string | null }>(
+        `SELECT _changed_fields FROM ${entry.table_name} WHERE id = ?`,
+        [entry.row_id],
+      );
+      const currentChanged: string[] = rowMeta?._changed_fields
+        ? JSON.parse(rowMeta._changed_fields)
+        : [];
+      const remaining = currentChanged.filter((f) => !restoreFields.includes(f));
+      const remainingJson = remaining.length > 0 ? JSON.stringify(remaining) : null;
+      const fullySynced = remaining.length === 0;
+
+      db.runSync(
+        `UPDATE ${entry.table_name}
+           SET ${setExprs.join(', ')},
+               _changed_fields = ?,
+               _synced = ?,
+               _local_updated_at = ?
+         WHERE id = ?`,
+        [
+          ...setValues,
+          remainingJson,
+          fullySynced ? 1 : 0,
+          new Date().toISOString(),
+          entry.row_id,
+        ],
+      );
+      db.runSync('DELETE FROM _sync_queue WHERE id = ?', [entryId]);
+    }
+    db.execSync('COMMIT;');
+  } catch (e) {
+    db.execSync('ROLLBACK;');
+    throw e;
+  }
+
+  return { table: entry.table_name, rowId: entry.row_id, boxId };
+}
+
+/**
+ * Revert every pending change in one shot. Iterates the queue
+ * newest-first so an UPDATE chain on the same row unwinds in reverse
+ * order — each revert sees a still-consistent before-snapshot.
+ *
+ * Entries that can't be reverted (e.g., legacy entries from before
+ * before-snapshots were captured) are skipped and counted in the result.
+ *
+ * Returns the affected box IDs so the caller can recompute their caches.
+ */
+export function revertAllPendingEntries(): {
+  reverted: number;
+  skipped: number;
+  affectedBoxIds: string[];
+} {
+  const db = getDb();
+  const ids = db.getAllSync<{ id: number }>(
+    `SELECT id FROM _sync_queue WHERE pushed_at IS NULL ORDER BY id DESC`,
+  );
+
+  let reverted = 0;
+  let skipped = 0;
+  const affected = new Set<string>();
+
+  for (const { id } of ids) {
+    try {
+      const result = revertPendingEntry(id);
+      reverted++;
+      if (result.boxId) affected.add(result.boxId);
+    } catch {
+      skipped++;
+    }
+  }
+
+  return { reverted, skipped, affectedBoxIds: Array.from(affected) };
+}
+
+/**
  * Get count of unresolved sync conflicts.
  */
 export function getConflictCount(): number {
@@ -280,6 +853,69 @@ function findDiffFields(local: any, server: any, fields: string[]): string[] {
     const s = (f === 'opened' || f === 'damaged') ? !!server[f] : server[f];
     return String(l ?? '') !== String(s ?? '');
   });
+}
+
+// Compare two values for a given field, with the same boolean / null
+// normalisation we use everywhere else. Used by the conflict-detection
+// path to compare baseline values against server values.
+function valuesEqual(field: string, a: any, b: any): boolean {
+  if (field === 'opened' || field === 'damaged') return !!a === !!b;
+  return String(a ?? '') === String(b ?? '');
+}
+
+/**
+ * Reconstruct the row's "baseline" — its state on the server the last
+ * time the local user was in sync. We aggregate across every unpushed
+ * UPDATE queue entry for the row, oldest first; for each field, the
+ * earliest captured before-value wins (i.e. true pre-edit state). The
+ * baseline timestamp comes from the oldest entry's payload.before.updated_at,
+ * which captureBefore stamped at the moment of the user's first edit.
+ *
+ * Used by pullSync to resolve conflicts:
+ *  - server.updated_at == baseline.updated_at  → no concurrent server edit,
+ *                                                 our local edits are the only
+ *                                                 changes; nothing to do here,
+ *                                                 the next push will deliver
+ *                                                 them.
+ *  - server.value[f] == baseline.value[f]      → server didn't touch f even
+ *                                                 though something on the row
+ *                                                 changed; my local edit to f
+ *                                                 is unaffected.
+ *  - server.value[f] != baseline.value[f] AND
+ *    f in localChanges                          → real conflict.
+ */
+function getRowBaseline(
+  db: ReturnType<typeof getDb>,
+  table: string,
+  rowId: string,
+): { updated_at: string | null; values: Record<string, any> } | null {
+  const entries = db.getAllSync<{ payload: string | null }>(
+    `SELECT payload FROM _sync_queue
+     WHERE table_name = ? AND row_id = ? AND operation = 'UPDATE' AND pushed_at IS NULL
+     ORDER BY id ASC`,
+    [table, rowId],
+  );
+  if (entries.length === 0) return null;
+
+  const accumulated: Record<string, any> = {};
+  for (const e of entries) {
+    if (!e.payload) continue;
+    try {
+      const obj = JSON.parse(e.payload);
+      const before = obj?.before;
+      if (!before || typeof before !== 'object') continue;
+      // First write wins per field — earlier entries reflect older state.
+      for (const [k, v] of Object.entries(before)) {
+        if (!(k in accumulated)) accumulated[k] = v;
+      }
+    } catch {
+      /* skip malformed payload */
+    }
+  }
+
+  const updatedAt = (accumulated.updated_at as string | undefined) ?? null;
+  delete accumulated.updated_at;
+  return { updated_at: updatedAt, values: accumulated };
 }
 
 // ---- Conflict resolution --------------------------------------------------
@@ -639,26 +1275,54 @@ export async function pullSync(userId: string): Promise<{ pulled: number; confli
       'SELECT * FROM boxes WHERE id = ?', [sb.id],
     );
     if (local && local._synced === 0) {
-      // Local has unsynced changes — try auto-merge or flag conflict
-      const localFields = local._changed_fields ? JSON.parse(local._changed_fields) : [];
-      const serverDiff = findDiffFields(local, sb, ['name', 'location']);
-      const overlap = localFields.filter((f: string) => serverDiff.includes(f));
+      // Local has unsynced changes. Determine real conflicts vs auto-mergeable
+      // server changes using the baseline captured in the queue (timestamp +
+      // per-field) — this avoids false positives when the local user edited
+      // a row whose updated_at on the server was incidentally bumped by
+      // another field's change.
+      const localFields: string[] = local._changed_fields
+        ? JSON.parse(local._changed_fields)
+        : [];
+      const baseline = getRowBaseline(db, 'boxes', sb.id);
+      const boxFields = ['name', 'location'];
 
-      if (overlap.length === 0 && serverDiff.length > 0) {
-        // Auto-merge: no overlapping fields — apply server's non-conflicting changes
-        for (const f of serverDiff) {
+      // Fast path: server hasn't moved since our baseline. Our local edits
+      // are the only changes — nothing to merge or flag.
+      if (baseline?.updated_at && sb.updated_at === baseline.updated_at) {
+        continue;
+      }
+
+      // For each locally-changed field, conflict only if server actually
+      // changed it (i.e. server.value != baseline.value).
+      const realConflicts = localFields.filter((f) => {
+        if (!baseline || !(f in baseline.values)) {
+          // No baseline captured (legacy queue entries) — fall back to
+          // value-only diff to stay safe.
+          return findDiffFields(local, sb, [f]).length > 0;
+        }
+        return !valuesEqual(f, baseline.values[f], sb[f]);
+      });
+
+      // Server-changed fields the user didn't touch can be safely auto-merged
+      // into local.
+      const autoMergeFields = boxFields.filter((f) => {
+        if (localFields.includes(f)) return false;
+        return findDiffFields(local, sb, [f]).length > 0;
+      });
+
+      if (realConflicts.length > 0) {
+        db.runSync(
+          `INSERT INTO _conflicts (table_name, row_id, local_data, server_data, conflicting_fields)
+           VALUES (?, ?, ?, ?, ?)`,
+          ['boxes', sb.id, JSON.stringify(local), JSON.stringify(sb), JSON.stringify(realConflicts)],
+        );
+        conflicts++;
+      } else if (autoMergeFields.length > 0) {
+        for (const f of autoMergeFields) {
           db.runSync(`UPDATE boxes SET ${f} = ? WHERE id = ?`, [sb[f], sb.id]);
         }
         db.runSync('UPDATE boxes SET updated_at = ? WHERE id = ?', [sb.updated_at, sb.id]);
         pulled++;
-      } else if (overlap.length > 0) {
-        // Real conflict — store for user resolution
-        db.runSync(
-          `INSERT INTO _conflicts (table_name, row_id, local_data, server_data, conflicting_fields)
-           VALUES (?, ?, ?, ?, ?)`,
-          ['boxes', sb.id, JSON.stringify(local), JSON.stringify(sb), JSON.stringify(overlap)],
-        );
-        conflicts++;
       }
       continue;
     }
@@ -692,25 +1356,42 @@ export async function pullSync(userId: string): Promise<{ pulled: number; confli
         'SELECT * FROM items WHERE id = ?', [si.id],
       );
       if (local && local._synced === 0) {
-        const localFields = local._changed_fields ? JSON.parse(local._changed_fields) : [];
-        const serverDiff = findDiffFields(local, si, itemMergeFields);
-        const overlap = localFields.filter((f: string) => serverDiff.includes(f));
+        const localFields: string[] = local._changed_fields
+          ? JSON.parse(local._changed_fields)
+          : [];
+        const baseline = getRowBaseline(db, 'items', si.id);
 
-        if (overlap.length === 0 && serverDiff.length > 0) {
-          // Auto-merge
-          for (const f of serverDiff) {
+        // Fast path: server hasn't moved since our baseline.
+        if (baseline?.updated_at && si.updated_at === baseline.updated_at) {
+          continue;
+        }
+
+        const realConflicts = localFields.filter((f) => {
+          if (!baseline || !(f in baseline.values)) {
+            return findDiffFields(local, si, [f]).length > 0;
+          }
+          return !valuesEqual(f, baseline.values[f], si[f]);
+        });
+
+        const autoMergeFields = itemMergeFields.filter((f) => {
+          if (localFields.includes(f)) return false;
+          return findDiffFields(local, si, [f]).length > 0;
+        });
+
+        if (realConflicts.length > 0) {
+          db.runSync(
+            `INSERT INTO _conflicts (table_name, row_id, local_data, server_data, conflicting_fields)
+             VALUES (?, ?, ?, ?, ?)`,
+            ['items', si.id, JSON.stringify(local), JSON.stringify(si), JSON.stringify(realConflicts)],
+          );
+          conflicts++;
+        } else if (autoMergeFields.length > 0) {
+          for (const f of autoMergeFields) {
             const val = (f === 'opened' || f === 'damaged') ? (si[f] ? 1 : 0) : si[f];
             db.runSync(`UPDATE items SET ${f} = ? WHERE id = ?`, [val, si.id]);
           }
           db.runSync('UPDATE items SET updated_at = ? WHERE id = ?', [si.updated_at, si.id]);
           pulled++;
-        } else if (overlap.length > 0) {
-          db.runSync(
-            `INSERT INTO _conflicts (table_name, row_id, local_data, server_data, conflicting_fields)
-             VALUES (?, ?, ?, ?, ?)`,
-            ['items', si.id, JSON.stringify(local), JSON.stringify(si), JSON.stringify(overlap)],
-          );
-          conflicts++;
         }
         continue;
       }

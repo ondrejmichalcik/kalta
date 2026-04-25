@@ -26,6 +26,7 @@ import { colors, radius, spacing, typography } from '@/src/theme';
 import { Card } from '@/src/components/Card';
 import { FAB } from '@/src/components/FAB';
 import { Icon } from '@/src/components/Icon';
+import { ResourceIcon } from '@/src/components/ResourceIcon';
 import { ListHeader } from '@/src/components/ListHeader';
 import { StatusDot } from '@/src/components/StatusDot';
 import {
@@ -315,6 +316,7 @@ function BoxRow({ box, onPress }: { box: Box; onPress: () => void }) {
   return (
     <Card onPress={onPress} style={styles.card}>
       <StatusDot status={status} />
+      <ResourceIcon table="boxes" size={32} />
       <View style={styles.cardBody}>
         <Text style={styles.cardTitle} numberOfLines={1}>
           {box.name}

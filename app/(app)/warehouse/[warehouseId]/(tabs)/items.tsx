@@ -33,6 +33,7 @@ import {
 import { colors, radius, spacing, typography } from '@/src/theme';
 import { Card } from '@/src/components/Card';
 import { Icon } from '@/src/components/Icon';
+import { ResourceIcon } from '@/src/components/ResourceIcon';
 import { ListHeader } from '@/src/components/ListHeader';
 import { StatusDot } from '@/src/components/StatusDot';
 import { ItemEditSheet } from '@/src/components/ItemEditSheet';
@@ -392,6 +393,7 @@ function ItemRow({
   const rowContent = (
     <Card onPress={onPress} style={styles.card}>
       <StatusDot status={status} />
+      <ResourceIcon table="items" category={item.category} size={28} background="transparent" />
       <View style={styles.cardBody}>
         <View style={styles.titleRow}>
           <Text style={styles.cardTitle} numberOfLines={1}>

@@ -30,9 +30,9 @@ import { getCachedUri } from '@/src/lib/imageCache';
 import { ItemEditSheet } from '@/src/components/ItemEditSheet';
 import { BoxEditSheet } from '@/src/components/BoxEditSheet';
 import { Icon } from '@/src/components/Icon';
+import { ResourceIcon } from '@/src/components/ResourceIcon';
 import { Card } from '@/src/components/Card';
 import { FAB } from '@/src/components/FAB';
-import { StatusDot } from '@/src/components/StatusDot';
 import {
   deleteBox,
   deleteItem,
@@ -92,7 +92,11 @@ const CATEGORY_SF: Record<Category, SFSymbolName> = {
 
 export default function BoxDetailScreen() {
   const router = useRouter();
-  const { warehouseId, boxId: id } = useLocalSearchParams<{ warehouseId: string; boxId: string }>();
+  const { warehouseId, boxId: id, itemId: openItemId } = useLocalSearchParams<{
+    warehouseId: string;
+    boxId: string;
+    itemId?: string;
+  }>();
   const [box, setBox] = useState<Box | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [myRole, setMyRole] = useState<Role | null>(null);
@@ -127,6 +131,23 @@ export default function BoxDetailScreen() {
       if (v === 'list' || v === 'grid') setViewMode(v);
     });
   }, []);
+
+  // Auto-open the item edit sheet if the deep-link includes ?itemId=...
+  // Used by the pending-changes screen so tapping a queued item edit jumps
+  // straight into the row that was modified. We clear the param after the
+  // sheet opens so re-entering the box (e.g., via back) doesn't re-open it.
+  const autoOpenedItemRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!openItemId || items.length === 0) return;
+    if (autoOpenedItemRef.current === openItemId) return;
+    const target = items.find((i) => i.id === openItemId);
+    if (target) {
+      autoOpenedItemRef.current = openItemId;
+      setEditingItem(target);
+      // Drop the query param so back-nav from the sheet doesn't reopen it.
+      router.setParams({ itemId: undefined });
+    }
+  }, [openItemId, items, router]);
 
   const setMode = (mode: ViewMode) => {
     setViewMode(mode);
@@ -1153,7 +1174,13 @@ function SwipeableRow({
         onSwipeableWillOpen={() => registerOpen(swipeRef.current)}
       >
         <Card onPress={onPress} style={styles.row}>
-          <StatusDot status={status} />
+          <ResourceIcon
+            table="items"
+            category={item.category}
+            size={36}
+            background={colors.primaryTint}
+            statusDotColor={palette.fg}
+          />
           <View style={styles.rowBody}>
             <View style={styles.rowTitleLine}>
               <Text style={styles.rowName} numberOfLines={1}>
@@ -1188,10 +1215,8 @@ function SwipeableRow({
               </Text>
             </View>
           ) : null}
-          {item.image_url ? (
+          {item.image_url && (
             <Image source={{ uri: getCachedUri(item.image_url)! }} style={styles.rowThumb} />
-          ) : (
-            <Icon sf={sfIcon} size={20} color={colors.textMuted} />
           )}
         </Card>
       </Swipeable>
@@ -1225,7 +1250,13 @@ function GridCard({ item, onPress }: { item: Item; onPress: () => void }) {
         {item.image_url ? (
           <Image source={{ uri: getCachedUri(item.image_url)! }} style={styles.gridImage} />
         ) : (
-          <Icon sf={sfIcon} size={36} color={colors.textMuted} />
+          <ResourceIcon
+            table="items"
+            category={item.category}
+            size={56}
+            background="transparent"
+            statusDotColor={palette.fg}
+          />
         )}
         {item.opened && (
           <View style={styles.gridOpenedBadge}>

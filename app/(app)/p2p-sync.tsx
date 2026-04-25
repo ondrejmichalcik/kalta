@@ -46,7 +46,7 @@ export default function P2PSyncScreen() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [peers, setPeers] = useState<Peer[]>([]);
   const [connectedPeer, setConnectedPeer] = useState<string | null>(null);
-  const [syncResult, setSyncResult] = useState<{ inserted: number; updated: number } | null>(null);
+  const [syncResult, setSyncResult] = useState<{ inserted: number; updated: number; conflicts: number } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const userIdRef = useRef<string | null>(null);
 
@@ -112,9 +112,17 @@ export default function P2PSyncScreen() {
         mp.onDataReceived((e) => {
           try {
             const result = importSyncBundle(e.data);
-            setSyncResult({ inserted: result.inserted, updated: result.updated });
+            setSyncResult({
+              inserted: result.inserted,
+              updated: result.updated,
+              conflicts: result.conflicts,
+            });
             setPhase('done');
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+            Haptics.notificationAsync(
+              result.conflicts > 0
+                ? Haptics.NotificationFeedbackType.Warning
+                : Haptics.NotificationFeedbackType.Success,
+            ).catch(() => {});
           } catch (err: any) {
             setErrorMsg(err?.message ?? 'Import failed');
             setPhase('error');
@@ -271,18 +279,46 @@ export default function P2PSyncScreen() {
 
         {phase === 'done' && (
           <View style={styles.center}>
-            <Icon sf="checkmark.circle.fill" size={64} color={colors.success} />
+            <Icon
+              sf={syncResult && syncResult.conflicts > 0 ? 'exclamationmark.triangle.fill' : 'checkmark.circle.fill'}
+              size={64}
+              color={syncResult && syncResult.conflicts > 0 ? colors.warningText : colors.success}
+            />
             <Text style={styles.headline}>Sync complete</Text>
             {syncResult && (
               <Text style={styles.description}>
-                {syncResult.inserted} new items added, {syncResult.updated} items updated.
+                {syncResult.inserted} new, {syncResult.updated} updated
+                {syncResult.conflicts > 0 ? `, ${syncResult.conflicts} need your attention` : '.'}
               </Text>
             )}
+            {syncResult && syncResult.conflicts > 0 && (
+              <Pressable
+                style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.8 }]}
+                onPress={() => {
+                  resolveMultipeer().then((mp) => mp.stopSession()).catch(() => {});
+                  router.push('/conflicts' as any);
+                }}
+              >
+                <Icon sf="arrow.up.right.square" size={18} color={colors.textOnPrimary} />
+                <Text style={styles.primaryBtnText}>Resolve conflicts</Text>
+              </Pressable>
+            )}
             <Pressable
-              style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.8 }]}
+              style={({ pressed }) => [
+                syncResult && syncResult.conflicts > 0 ? styles.secondaryBtn : styles.primaryBtn,
+                pressed && { opacity: 0.8 },
+              ]}
               onPress={handleDone}
             >
-              <Text style={styles.primaryBtnText}>Done</Text>
+              <Text
+                style={
+                  syncResult && syncResult.conflicts > 0
+                    ? styles.secondaryBtnText
+                    : styles.primaryBtnText
+                }
+              >
+                Done
+              </Text>
             </Pressable>
           </View>
         )}
@@ -329,6 +365,18 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   primaryBtnText: { ...typography.bodyStrong, color: colors.textOnPrimary },
+
+  secondaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: 'transparent',
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md + 2,
+    borderRadius: radius.full,
+    marginTop: spacing.xs,
+  },
+  secondaryBtnText: { ...typography.bodyStrong, color: colors.textMuted },
 
   searchSection: { flex: 1, paddingTop: spacing.xl },
   searchingHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
