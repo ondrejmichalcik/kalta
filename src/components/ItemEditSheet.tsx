@@ -36,9 +36,11 @@ import { deleteProductImage, uploadProductImage } from '@/src/lib/storage';
 import { BoxPicker } from './BoxPicker';
 import {
   CATEGORIES,
+  NEVER_EXPIRES_DATE,
   UNITS,
   formatDate,
   fromIsoDate,
+  isNeverExpires,
   toIsoDate,
 } from '@/src/types/database';
 import type { Category, Item, Unit } from '@/src/types/database';
@@ -479,34 +481,79 @@ export function ItemEditSheet({
             style={styles.input}
           />
 
-          <Text style={styles.label}>Expiry date</Text>
-          <View style={styles.dateRow}>
+          <Text style={styles.label}>Expiry</Text>
+          <View style={styles.expirySegmented}>
             <Pressable
-              style={[styles.input, styles.dateField, { flex: 1 }]}
-              onPress={() => setShowDatePicker((s) => !s)}
-            >
-              <Text style={[styles.dateText, !draft.expiry_date && styles.datePlaceholder]}>
-                {draft.expiry_date ? formatDate(draft.expiry_date) : 'No date'}
-              </Text>
-              <Icon
-                sf={showDatePicker ? 'chevron.up' : 'chevron.down'}
-                size={14}
-                color={colors.textMuted}
-              />
-            </Pressable>
-            {draft.expiry_date && (
-              <Pressable
-                style={styles.dateClearBtn}
-                onPress={() => {
+              style={[
+                styles.expirySegment,
+                !isNeverExpires(draft.expiry_date) && styles.expirySegmentActive,
+              ]}
+              onPress={() => {
+                if (isNeverExpires(draft.expiry_date)) {
                   setDraft({ ...draft, expiry_date: null });
                   setShowDatePicker(false);
-                }}
+                }
+              }}
+            >
+              <Text
+                style={[
+                  styles.expirySegmentText,
+                  !isNeverExpires(draft.expiry_date) && styles.expirySegmentTextActive,
+                ]}
               >
-                <Text style={styles.dateClearText}>Clear</Text>
-              </Pressable>
-            )}
+                Has expiry
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.expirySegment,
+                isNeverExpires(draft.expiry_date) && styles.expirySegmentActive,
+              ]}
+              onPress={() => {
+                setDraft({ ...draft, expiry_date: NEVER_EXPIRES_DATE });
+                setShowDatePicker(false);
+              }}
+            >
+              <Text
+                style={[
+                  styles.expirySegmentText,
+                  isNeverExpires(draft.expiry_date) && styles.expirySegmentTextActive,
+                ]}
+              >
+                Never expires
+              </Text>
+            </Pressable>
           </View>
-          {showDatePicker && (
+
+          {!isNeverExpires(draft.expiry_date) && (
+            <View style={styles.dateRow}>
+              <Pressable
+                style={[styles.input, styles.dateField, { flex: 1 }]}
+                onPress={() => setShowDatePicker((s) => !s)}
+              >
+                <Text style={[styles.dateText, !draft.expiry_date && styles.datePlaceholder]}>
+                  {draft.expiry_date ? formatDate(draft.expiry_date) : 'No date'}
+                </Text>
+                <Icon
+                  sf={showDatePicker ? 'chevron.up' : 'chevron.down'}
+                  size={14}
+                  color={colors.textMuted}
+                />
+              </Pressable>
+              {draft.expiry_date && (
+                <Pressable
+                  style={styles.dateClearBtn}
+                  onPress={() => {
+                    setDraft({ ...draft, expiry_date: null });
+                    setShowDatePicker(false);
+                  }}
+                >
+                  <Text style={styles.dateClearText}>Clear</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+          {!isNeverExpires(draft.expiry_date) && showDatePicker && (
             <View style={styles.datePickerWrap}>
               <DateTimePicker
                 value={fromIsoDate(draft.expiry_date ?? '') ?? new Date()}
@@ -797,6 +844,31 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   row: { flexDirection: 'row', gap: spacing.md },
+  expirySegmented: {
+    flexDirection: 'row',
+    backgroundColor: colors.palette.neutral[100],
+    borderRadius: radius.md,
+    padding: 3,
+    marginBottom: spacing.sm,
+  },
+  expirySegment: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: spacing.sm + 1,
+    borderRadius: radius.md - 3,
+  },
+  expirySegmentActive: {
+    backgroundColor: colors.surface,
+    ...shadows.sm,
+  },
+  expirySegmentText: {
+    ...typography.footnote,
+    color: colors.textMuted,
+    fontWeight: '600',
+  },
+  expirySegmentTextActive: {
+    color: colors.text,
+  },
   dateRow: { flexDirection: 'row', gap: spacing.sm },
   dateField: {
     flexDirection: 'row',

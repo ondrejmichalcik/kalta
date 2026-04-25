@@ -1,7 +1,8 @@
 // ============================================================================
 // Kalta – P2P Sync screen
-// Uses MultipeerConnectivity to discover a nearby iPhone and exchange
-// all warehouse/box/item data. Works without internet via Bluetooth/WiFi.
+// Two-phase commit: both peers exchange bundles, each previews what would
+// change locally, both must explicitly Accept before either side writes
+// anything to its local DB. Either side can Reject to cancel the exchange.
 //
 // Hermes has a known HBC codegen bug where a static `module.member`
 // reference inside a useCallback body can crash the screen on mount in
@@ -12,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Pressable,
   StyleSheet,
   Text,
@@ -21,9 +23,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { getActiveUser, getActiveUserId } from '@/src/lib/supabase';
-import { exportSyncBundle, importSyncBundle } from '@/src/lib/p2pSync';
+import {
+  decodeMessage,
+  encodeMessage,
+  exportSyncBundle,
+  importSyncBundle,
+  previewSyncBundle,
+  type P2PMessage,
+  type P2PPreviewEntry,
+} from '@/src/lib/p2pSync';
 import { colors, radius, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
+import { ResourceIconWithOp, type ResourceTable } from '@/src/components/ResourceIcon';
+import type { Category } from '@/src/types/database';
 
 type Multipeer = typeof import('@/modules/kalta-multipeer/src');
 
@@ -35,43 +47,110 @@ async function resolveMultipeer(): Promise<Multipeer> {
   return cachedMultipeer;
 }
 
-type Phase = 'idle' | 'searching' | 'connecting' | 'connected' | 'syncing' | 'done' | 'error';
+type Phase =
+  | 'idle'
+  | 'searching'
+  | 'connecting'
+  | 'connected'
+  | 'exchanging'    // sent my bundle, waiting for peer's
+  | 'reviewing'    // both bundles exchanged, user must accept/reject
+  | 'waiting_peer' // I accepted, waiting for peer's decision
+  | 'applying'     // both accepted, writing to local DB
+  | 'done'
+  | 'rejected'
+  | 'error';
 
 interface Peer {
   displayName: string;
 }
+
+type Decision = 'pending' | 'accept' | 'reject';
 
 export default function P2PSyncScreen() {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>('idle');
   const [peers, setPeers] = useState<Peer[]>([]);
   const [connectedPeer, setConnectedPeer] = useState<string | null>(null);
+
+  const [peerBundle, setPeerBundle] = useState<string | null>(null);
+  const [peerSenderName, setPeerSenderName] = useState<string | null>(null);
+  const [preview, setPreview] = useState<P2PPreviewEntry[]>([]);
+  const [myDecision, setMyDecision] = useState<Decision>('pending');
+  const [peerDecision, setPeerDecision] = useState<Decision>('pending');
+
   const [syncResult, setSyncResult] = useState<{ inserted: number; updated: number; conflicts: number } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [rejectedBy, setRejectedBy] = useState<'me' | 'peer' | null>(null);
   const userIdRef = useRef<string | null>(null);
+  const userNameRef = useRef<string | null>(null);
+  // Refs let event listeners read the latest values without rebinding the
+  // listener every render — the multipeer event subscription is set up
+  // once on mount and stays until the screen unmounts.
+  const myDecisionRef = useRef<Decision>('pending');
+  const peerDecisionRef = useRef<Decision>('pending');
+  const peerBundleRef = useRef<string | null>(null);
+
+  useEffect(() => { myDecisionRef.current = myDecision; }, [myDecision]);
+  useEffect(() => { peerDecisionRef.current = peerDecision; }, [peerDecision]);
+  useEffect(() => { peerBundleRef.current = peerBundle; }, [peerBundle]);
 
   useEffect(() => {
     getActiveUserId().then((uid) => { userIdRef.current = uid; });
+    getActiveUser().then((u) => { userNameRef.current = u?.email ?? null; });
+  }, []);
+
+  // Reset all sync-state when starting a fresh exchange.
+  const resetExchangeState = useCallback(() => {
+    setPeerBundle(null);
+    setPeerSenderName(null);
+    setPreview([]);
+    setMyDecision('pending');
+    setPeerDecision('pending');
+    setSyncResult(null);
+    setRejectedBy(null);
   }, []);
 
   const handleStart = useCallback(async () => {
     try {
       const user = await getActiveUser();
-      // MCPeerID has a hard 63-byte UTF-8 cap and must be non-empty. Prefer
-      // display_name (shorter, human) over email, and truncate defensively.
-      const rawName = (user?.email && user.email.trim()) || 'Kalta User';
+      const rawName = user?.email?.trim() || 'Kalta User';
       const displayName = rawName.length > 30 ? rawName.slice(0, 30) : rawName;
       userIdRef.current = user?.id ?? null;
+      userNameRef.current = user?.email ?? null;
 
       const mp = await resolveMultipeer();
       await mp.startSession(displayName);
       setPhase('searching');
       setPeers([]);
       setConnectedPeer(null);
-      setSyncResult(null);
+      resetExchangeState();
       setErrorMsg(null);
     } catch (e: any) {
       setErrorMsg(e?.message ?? String(e) ?? 'Failed to start');
+      setPhase('error');
+    }
+  }, [resetExchangeState]);
+
+  // Apply the peer's bundle locally and finish.
+  const applyPeerBundle = useCallback(() => {
+    const bundle = peerBundleRef.current;
+    if (!bundle) return;
+    setPhase('applying');
+    try {
+      const result = importSyncBundle(bundle);
+      setSyncResult({
+        inserted: result.inserted,
+        updated: result.updated,
+        conflicts: result.conflicts,
+      });
+      setPhase('done');
+      Haptics.notificationAsync(
+        result.conflicts > 0
+          ? Haptics.NotificationFeedbackType.Warning
+          : Haptics.NotificationFeedbackType.Success,
+      ).catch(() => {});
+    } catch (err: any) {
+      setErrorMsg(err?.message ?? 'Apply failed');
       setPhase('error');
     }
   }, []);
@@ -104,29 +183,24 @@ export default function P2PSyncScreen() {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         }),
         mp.onDisconnected(() => {
-          if (phase !== 'done') {
+          // If we're mid-exchange and peer drops, treat as reject.
+          if (phaseAllowsCancel()) {
+            setRejectedBy('peer');
+            setPhase('rejected');
+          } else {
             setPhase('searching');
             setConnectedPeer(null);
+            resetExchangeState();
           }
         }),
         mp.onDataReceived((e) => {
-          try {
-            const result = importSyncBundle(e.data);
-            setSyncResult({
-              inserted: result.inserted,
-              updated: result.updated,
-              conflicts: result.conflicts,
-            });
-            setPhase('done');
-            Haptics.notificationAsync(
-              result.conflicts > 0
-                ? Haptics.NotificationFeedbackType.Warning
-                : Haptics.NotificationFeedbackType.Success,
-            ).catch(() => {});
-          } catch (err: any) {
-            setErrorMsg(err?.message ?? 'Import failed');
+          const msg = decodeMessage(e.data);
+          if (!msg) {
+            setErrorMsg('Received malformed P2P message');
             setPhase('error');
+            return;
           }
+          handleIncomingMessage(msg);
         }),
         mp.onError((e) => {
           setErrorMsg(e.message);
@@ -139,7 +213,45 @@ export default function P2PSyncScreen() {
       cancelled = true;
       subs.forEach((s) => s.remove());
     };
-  }, [phase]);
+    // We intentionally bind once on mount — the listeners read latest state
+    // via refs and setState calls.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Handle a P2P message that just arrived from the peer.
+  const handleIncomingMessage = useCallback((msg: P2PMessage) => {
+    if (msg.type === 'BUNDLE') {
+      // Peer sent their bundle. Compute preview and move to review.
+      const bundle = msg.bundle;
+      try {
+        const computed = previewSyncBundle(bundle);
+        setPeerBundle(bundle);
+        setPeerSenderName(msg.senderName ?? null);
+        setPreview(computed);
+        setPhase('reviewing');
+      } catch (err: any) {
+        setErrorMsg(err?.message ?? 'Could not parse peer bundle');
+        setPhase('error');
+      }
+      return;
+    }
+
+    if (msg.type === 'ACCEPT') {
+      setPeerDecision('accept');
+      // If I'm already accepted, both sides agree → apply.
+      if (myDecisionRef.current === 'accept') {
+        applyPeerBundle();
+      }
+      return;
+    }
+
+    if (msg.type === 'REJECT') {
+      setPeerDecision('reject');
+      setRejectedBy('peer');
+      setPhase('rejected');
+      return;
+    }
+  }, [applyPeerBundle]);
 
   const handleConnect = useCallback(async (peer: Peer) => {
     try {
@@ -152,19 +264,67 @@ export default function P2PSyncScreen() {
     }
   }, []);
 
-  const handleSync = useCallback(async () => {
+  // User taps "Sync now" — we send our bundle. Either side can initiate.
+  const handleStartSync = useCallback(async () => {
     if (!userIdRef.current) return;
     try {
-      setPhase('syncing');
+      resetExchangeState();
       const bundle = exportSyncBundle(userIdRef.current);
       const mp = await resolveMultipeer();
-      await mp.sendData(bundle);
+      const message: P2PMessage = {
+        type: 'BUNDLE',
+        bundle,
+        senderName: userNameRef.current ?? undefined,
+      };
+      await mp.sendData(encodeMessage(message));
+      // If we already have peer's bundle (peer was first to tap), we can
+      // jump straight to reviewing. Otherwise wait for theirs.
+      if (peerBundleRef.current) {
+        setPhase('reviewing');
+      } else {
+        setPhase('exchanging');
+      }
     } catch (e: any) {
       setErrorMsg(e?.message ?? 'Send failed');
       setPhase('error');
     }
+  }, [resetExchangeState]);
+
+  const handleAccept = useCallback(async () => {
+    setMyDecision('accept');
+    try {
+      const mp = await resolveMultipeer();
+      await mp.sendData(encodeMessage({ type: 'ACCEPT' }));
+    } catch {
+      /* peer may have disconnected; we'll detect via onDisconnected */
+    }
+    Haptics.selectionAsync().catch(() => {});
+    if (peerDecisionRef.current === 'accept') {
+      applyPeerBundle();
+    } else {
+      setPhase('waiting_peer');
+    }
+  }, [applyPeerBundle]);
+
+  const handleReject = useCallback(async () => {
+    setMyDecision('reject');
+    setRejectedBy('me');
+    try {
+      const mp = await resolveMultipeer();
+      await mp.sendData(encodeMessage({ type: 'REJECT' }));
+    } catch {
+      /* ignore */
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    setPhase('rejected');
   }, []);
 
+  const handleRetry = useCallback(() => {
+    resetExchangeState();
+    setPhase('connected');
+  }, [resetExchangeState]);
+
+  // Clean up the session on unmount.
   useEffect(() => {
     return () => {
       resolveMultipeer().then((mp) => mp.stopSession()).catch(() => {});
@@ -181,6 +341,8 @@ export default function P2PSyncScreen() {
     router.back();
   }, [router]);
 
+  const peerLabel = peerSenderName ?? connectedPeer ?? 'peer';
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.topBar}>
@@ -195,149 +357,401 @@ export default function P2PSyncScreen() {
         <View style={styles.topBarBtn} />
       </View>
 
-      <View style={styles.content}>
-        {phase === 'idle' && (
-          <View style={styles.center}>
-            <Icon sf="antenna.radiowaves.left.and.right" size={64} color={colors.primary} />
-            <Text style={styles.headline}>Sync with nearby iPhone</Text>
-            <Text style={styles.description}>
-              Uses Bluetooth and WiFi to exchange data directly with another Kalta device. No
-              internet needed.
-            </Text>
-            <Pressable
-              style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.8 }]}
-              onPress={handleStart}
-            >
-              <Icon sf="magnifyingglass" size={18} color={colors.textOnPrimary} />
-              <Text style={styles.primaryBtnText}>Start searching</Text>
-            </Pressable>
-          </View>
-        )}
+      {phase === 'idle' && (
+        <View style={styles.center}>
+          <Icon sf="antenna.radiowaves.left.and.right" size={64} color={colors.primary} />
+          <Text style={styles.headline}>Sync with nearby iPhone</Text>
+          <Text style={styles.description}>
+            Uses Bluetooth and WiFi to exchange data directly with another Kalta device. No
+            internet needed.
+          </Text>
+          <Pressable
+            style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.8 }]}
+            onPress={handleStart}
+          >
+            <Icon sf="magnifyingglass" size={18} color={colors.textOnPrimary} />
+            <Text style={styles.primaryBtnText}>Start searching</Text>
+          </Pressable>
+        </View>
+      )}
 
-        {phase === 'searching' && (
-          <View style={styles.searchSection}>
-            <View style={styles.searchingHeader}>
-              <ActivityIndicator color={colors.primary} />
-              <Text style={styles.searchingText}>Searching for nearby devices...</Text>
+      {phase === 'searching' && (
+        <View style={styles.searchSection}>
+          <View style={styles.searchingHeader}>
+            <ActivityIndicator color={colors.primary} />
+            <Text style={styles.searchingText}>Searching for nearby devices...</Text>
+          </View>
+          <Text style={styles.hint}>
+            Make sure the other device also has Kalta open on this screen.
+          </Text>
+          {peers.length > 0 && (
+            <View style={styles.peerList}>
+              <Text style={styles.sectionLabel}>DEVICES FOUND</Text>
+              {peers.map((peer) => (
+                <Pressable
+                  key={peer.displayName}
+                  style={({ pressed }) => [styles.peerRow, pressed && { opacity: 0.7 }]}
+                  onPress={() => handleConnect(peer)}
+                >
+                  <Icon sf="iphone" size={24} color={colors.primary} />
+                  <View style={styles.peerInfo}>
+                    <Text style={styles.peerName}>{peer.displayName}</Text>
+                    <Text style={styles.peerHint}>Tap to connect</Text>
+                  </View>
+                  <Icon sf="arrow.right.circle.fill" size={24} color={colors.primary} />
+                </Pressable>
+              ))}
             </View>
-            <Text style={styles.hint}>
-              Make sure the other device also has Kalta open on this screen.
+          )}
+        </View>
+      )}
+
+      {phase === 'connecting' && (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.headline}>Connecting...</Text>
+          <Text style={styles.description}>Establishing secure connection with {peerLabel}</Text>
+        </View>
+      )}
+
+      {phase === 'connected' && (
+        <View style={styles.center}>
+          <Icon sf="checkmark.circle.fill" size={64} color={colors.success} />
+          <Text style={styles.headline}>Connected</Text>
+          <Text style={styles.description}>
+            Connected to {peerLabel}. Tap sync to exchange data — both of you will be able to
+            review the proposed changes before anything is saved.
+          </Text>
+          <Pressable
+            style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.8 }]}
+            onPress={handleStartSync}
+          >
+            <Icon sf="arrow.triangle.2.circlepath" size={18} color={colors.textOnPrimary} />
+            <Text style={styles.primaryBtnText}>Sync now</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {phase === 'exchanging' && (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.headline}>Exchanging data...</Text>
+          <Text style={styles.description}>
+            Waiting for {peerLabel} to send their changes.
+          </Text>
+        </View>
+      )}
+
+      {phase === 'reviewing' && (
+        <ReviewList
+          peerLabel={peerLabel}
+          preview={preview}
+          onAccept={handleAccept}
+          onReject={handleReject}
+          peerDecision={peerDecision}
+        />
+      )}
+
+      {phase === 'waiting_peer' && (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.headline}>Waiting for {peerLabel}…</Text>
+          <Text style={styles.description}>
+            You accepted. {peerLabel} still needs to confirm before changes apply on either
+            device.
+          </Text>
+          <Pressable
+            style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.6 }]}
+            onPress={handleReject}
+          >
+            <Text style={styles.secondaryBtnText}>Cancel</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {phase === 'applying' && (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.headline}>Applying changes…</Text>
+        </View>
+      )}
+
+      {phase === 'done' && (
+        <View style={styles.center}>
+          <Icon
+            sf={syncResult && syncResult.conflicts > 0 ? 'exclamationmark.triangle.fill' : 'checkmark.circle.fill'}
+            size={64}
+            color={syncResult && syncResult.conflicts > 0 ? colors.warningText : colors.success}
+          />
+          <Text style={styles.headline}>Sync complete</Text>
+          {syncResult && (
+            <Text style={styles.description}>
+              {syncResult.inserted} new, {syncResult.updated} updated
+              {syncResult.conflicts > 0 ? `, ${syncResult.conflicts} need your attention` : '.'}
             </Text>
+          )}
+          {syncResult && syncResult.conflicts > 0 && (
+            <Pressable
+              style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.8 }]}
+              onPress={() => {
+                resolveMultipeer().then((mp) => mp.stopSession()).catch(() => {});
+                router.push('/conflicts' as any);
+              }}
+            >
+              <Icon sf="arrow.up.right.square" size={18} color={colors.textOnPrimary} />
+              <Text style={styles.primaryBtnText}>Resolve conflicts</Text>
+            </Pressable>
+          )}
+          <Pressable
+            style={({ pressed }) => [
+              syncResult && syncResult.conflicts > 0 ? styles.secondaryBtn : styles.primaryBtn,
+              pressed && { opacity: 0.8 },
+            ]}
+            onPress={handleDone}
+          >
+            <Text
+              style={
+                syncResult && syncResult.conflicts > 0
+                  ? styles.secondaryBtnText
+                  : styles.primaryBtnText
+              }
+            >
+              Done
+            </Text>
+          </Pressable>
+        </View>
+      )}
 
-            {peers.length > 0 && (
-              <View style={styles.peerList}>
-                <Text style={styles.sectionLabel}>DEVICES FOUND</Text>
-                {peers.map((peer) => (
-                  <Pressable
-                    key={peer.displayName}
-                    style={({ pressed }) => [styles.peerRow, pressed && { opacity: 0.7 }]}
-                    onPress={() => handleConnect(peer)}
-                  >
-                    <Icon sf="iphone" size={24} color={colors.primary} />
-                    <View style={styles.peerInfo}>
-                      <Text style={styles.peerName}>{peer.displayName}</Text>
-                      <Text style={styles.peerHint}>Tap to connect</Text>
+      {phase === 'rejected' && (
+        <View style={styles.center}>
+          <Icon sf="xmark.circle.fill" size={64} color={colors.warningText} />
+          <Text style={styles.headline}>Sync canceled</Text>
+          <Text style={styles.description}>
+            {rejectedBy === 'me'
+              ? `You rejected the changes from ${peerLabel}. Nothing was saved.`
+              : `${peerLabel} canceled the sync. Nothing was saved.`}
+          </Text>
+          <Pressable
+            style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.8 }]}
+            onPress={handleRetry}
+          >
+            <Icon sf="arrow.triangle.2.circlepath" size={18} color={colors.textOnPrimary} />
+            <Text style={styles.primaryBtnText}>Try again</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.6 }]}
+            onPress={handleDone}
+          >
+            <Text style={styles.secondaryBtnText}>Done</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {phase === 'error' && (
+        <View style={styles.center}>
+          <Icon sf="exclamationmark.triangle.fill" size={64} color={colors.warningText} />
+          <Text style={styles.headline}>Something went wrong</Text>
+          <Text style={styles.description}>{errorMsg}</Text>
+          <Pressable
+            style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.8 }]}
+            onPress={handleStart}
+          >
+            <Text style={styles.primaryBtnText}>Try again</Text>
+          </Pressable>
+        </View>
+      )}
+    </SafeAreaView>
+  );
+
+  // Phases during which a disconnect should cancel the in-flight exchange
+  // rather than just bouncing back to the searching screen.
+  function phaseAllowsCancel() {
+    return ['exchanging', 'reviewing', 'waiting_peer'].includes(phase);
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Review list — renders the proposed changes from the peer's bundle.
+// ----------------------------------------------------------------------------
+
+function ReviewList({
+  peerLabel,
+  preview,
+  onAccept,
+  onReject,
+  peerDecision,
+}: {
+  peerLabel: string;
+  preview: P2PPreviewEntry[];
+  onAccept: () => void;
+  onReject: () => void;
+  peerDecision: Decision;
+}) {
+  const conflictCount = preview.reduce((n, e) => n + e.conflict_fields.length, 0);
+  const insertCount = preview.filter((e) => e.operation === 'INSERT').length;
+  const updateCount = preview.filter((e) => e.operation === 'UPDATE').length;
+
+  return (
+    <View style={styles.reviewContainer}>
+      <View style={styles.reviewBanner}>
+        <Icon sf="person.2.fill" size={18} color={colors.warningText} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.reviewBannerTitle}>Changes from {peerLabel}</Text>
+          <Text style={styles.reviewBannerSubtitle}>
+            {preview.length === 0
+              ? 'No incoming changes — nothing to apply on this device.'
+              : `${insertCount} new, ${updateCount} updates${conflictCount > 0 ? `, ${conflictCount} conflicts` : ''}`}
+          </Text>
+        </View>
+      </View>
+
+      {peerDecision === 'accept' && (
+        <View style={styles.peerStatusBar}>
+          <Icon sf="checkmark.circle.fill" size={14} color={colors.success} />
+          <Text style={styles.peerStatusText}>{peerLabel} already accepted</Text>
+        </View>
+      )}
+
+      {preview.length === 0 ? (
+        <View style={styles.center}>
+          <Text style={styles.description}>
+            Tap Accept to confirm — once {peerLabel} accepts as well, both devices stay in sync.
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={preview}
+          keyExtractor={(p) => `${p.table_name}:${p.row_id}`}
+          contentContainerStyle={styles.reviewList}
+          renderItem={({ item }) => <ReviewCard entry={item} />}
+        />
+      )}
+
+      <View style={styles.actionBar}>
+        <Pressable
+          style={({ pressed }) => [styles.rejectBtn, pressed && { opacity: 0.8 }]}
+          onPress={onReject}
+        >
+          <Icon sf="xmark" size={16} color={colors.warningText} />
+          <Text style={styles.rejectBtnText}>Reject</Text>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.acceptBtn, pressed && { opacity: 0.85 }]}
+          onPress={onAccept}
+        >
+          <Icon sf="checkmark" size={16} color={colors.textOnPrimary} />
+          <Text style={styles.acceptBtnText}>Accept</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  name: 'Name',
+  quantity: 'Quantity',
+  unit: 'Unit',
+  expiry_date: 'Expiry',
+  barcode: 'Barcode',
+  image_url: 'Photo',
+  category: 'Category',
+  notes: 'Notes',
+  opened: 'Opened',
+  damaged: 'Damaged',
+  pack_count: 'Pack count',
+  last_verified: 'Last verified',
+  box_id: 'Box',
+  location: 'Location',
+  typical_expiry_days: 'Typical shelf life',
+  completed_at: 'Completed',
+  found_count: 'Found',
+  missing_count: 'Missing',
+};
+
+function prettyField(field: string): string {
+  return FIELD_LABELS[field] ?? field;
+}
+
+function formatValue(field: string, value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (field === 'image_url') return 'updated';
+  if (field === 'expiry_date' || field === 'last_verified' || field === 'completed_at') {
+    const ts = String(value);
+    if (ts === '9999-12-31') return 'Never';
+    return ts.split('T')[0]?.split(' ')[0] ?? ts;
+  }
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, '');
+  }
+  return String(value);
+}
+
+function ReviewCard({ entry }: { entry: P2PPreviewEntry }) {
+  const fields = entry.changed_fields ?? [];
+  const visible = fields.filter((f) => {
+    if (!entry.before_values || !entry.after_values) return true;
+    return formatValue(f, entry.before_values[f]) !== formatValue(f, entry.after_values[f]);
+  });
+
+  return (
+    <View style={styles.reviewCard}>
+      <ResourceIconWithOp
+        table={entry.table_name as ResourceTable}
+        category={(entry.category ?? null) as Category | null}
+        operation={entry.operation}
+        size={36}
+      />
+      <View style={styles.reviewCardBody}>
+        <Text style={styles.reviewCardTitle} numberOfLines={1}>
+          {entry.display_name}
+        </Text>
+        {entry.context && (
+          <Text style={styles.reviewCardContext} numberOfLines={1}>
+            {entry.context}
+          </Text>
+        )}
+        {entry.conflict_fields.length > 0 && (
+          <View style={styles.conflictBadge}>
+            <Icon sf="exclamationmark.triangle.fill" size={10} color={colors.warningText} />
+            <Text style={styles.conflictBadgeText}>
+              {entry.conflict_fields.length} conflict{entry.conflict_fields.length > 1 ? 's' : ''}
+            </Text>
+          </View>
+        )}
+
+        {visible.length > 0 && (
+          <View style={styles.diff}>
+            {visible.map((f) => {
+              const before = entry.before_values?.[f];
+              const after = entry.after_values?.[f];
+              const isConflict = entry.conflict_fields.includes(f);
+              return (
+                <View key={f} style={styles.diffField}>
+                  <Text style={[styles.diffFieldLabel, isConflict && { color: colors.warningText }]}>
+                    {prettyField(f)} {isConflict ? '⚠︎' : ''}
+                  </Text>
+                  {entry.before_values && (
+                    <View style={styles.diffMinus}>
+                      <Text style={styles.diffMinusSign}>−</Text>
+                      <Text style={styles.diffMinusText} numberOfLines={2}>
+                        {formatValue(f, before)}
+                      </Text>
                     </View>
-                    <Icon sf="arrow.right.circle.fill" size={24} color={colors.primary} />
-                  </Pressable>
-                ))}
-              </View>
-            )}
-          </View>
-        )}
-
-        {phase === 'connecting' && (
-          <View style={styles.center}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.headline}>Connecting...</Text>
-            <Text style={styles.description}>Establishing secure connection with {connectedPeer}</Text>
-          </View>
-        )}
-
-        {phase === 'connected' && (
-          <View style={styles.center}>
-            <Icon sf="checkmark.circle.fill" size={64} color={colors.success} />
-            <Text style={styles.headline}>Connected</Text>
-            <Text style={styles.description}>Connected to {connectedPeer}. Tap sync to exchange data.</Text>
-            <Pressable
-              style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.8 }]}
-              onPress={handleSync}
-            >
-              <Icon sf="arrow.triangle.2.circlepath" size={18} color={colors.textOnPrimary} />
-              <Text style={styles.primaryBtnText}>Sync now</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {phase === 'syncing' && (
-          <View style={styles.center}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.headline}>Syncing...</Text>
-            <Text style={styles.description}>Exchanging data with {connectedPeer}. Keep both devices nearby.</Text>
-          </View>
-        )}
-
-        {phase === 'done' && (
-          <View style={styles.center}>
-            <Icon
-              sf={syncResult && syncResult.conflicts > 0 ? 'exclamationmark.triangle.fill' : 'checkmark.circle.fill'}
-              size={64}
-              color={syncResult && syncResult.conflicts > 0 ? colors.warningText : colors.success}
-            />
-            <Text style={styles.headline}>Sync complete</Text>
-            {syncResult && (
-              <Text style={styles.description}>
-                {syncResult.inserted} new, {syncResult.updated} updated
-                {syncResult.conflicts > 0 ? `, ${syncResult.conflicts} need your attention` : '.'}
-              </Text>
-            )}
-            {syncResult && syncResult.conflicts > 0 && (
-              <Pressable
-                style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.8 }]}
-                onPress={() => {
-                  resolveMultipeer().then((mp) => mp.stopSession()).catch(() => {});
-                  router.push('/conflicts' as any);
-                }}
-              >
-                <Icon sf="arrow.up.right.square" size={18} color={colors.textOnPrimary} />
-                <Text style={styles.primaryBtnText}>Resolve conflicts</Text>
-              </Pressable>
-            )}
-            <Pressable
-              style={({ pressed }) => [
-                syncResult && syncResult.conflicts > 0 ? styles.secondaryBtn : styles.primaryBtn,
-                pressed && { opacity: 0.8 },
-              ]}
-              onPress={handleDone}
-            >
-              <Text
-                style={
-                  syncResult && syncResult.conflicts > 0
-                    ? styles.secondaryBtnText
-                    : styles.primaryBtnText
-                }
-              >
-                Done
-              </Text>
-            </Pressable>
-          </View>
-        )}
-
-        {phase === 'error' && (
-          <View style={styles.center}>
-            <Icon sf="exclamationmark.triangle.fill" size={64} color={colors.warningText} />
-            <Text style={styles.headline}>Something went wrong</Text>
-            <Text style={styles.description}>{errorMsg}</Text>
-            <Pressable
-              style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.8 }]}
-              onPress={handleStart}
-            >
-              <Text style={styles.primaryBtnText}>Try again</Text>
-            </Pressable>
+                  )}
+                  <View style={styles.diffPlus}>
+                    <Text style={styles.diffPlusSign}>+</Text>
+                    <Text style={styles.diffPlusText} numberOfLines={2}>
+                      {formatValue(f, after)}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
           </View>
         )}
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -347,8 +761,7 @@ const styles = StyleSheet.create({
   topBarBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   topBarTitle: { ...typography.headline, color: colors.text, flex: 1, textAlign: 'center' },
 
-  content: { flex: 1, paddingHorizontal: spacing.lg },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: spacing.md, paddingBottom: 80 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: 80 },
 
   headline: { ...typography.title2, color: colors.text, textAlign: 'center' },
   description: { ...typography.subhead, color: colors.textMuted, textAlign: 'center', maxWidth: 300 },
@@ -378,7 +791,7 @@ const styles = StyleSheet.create({
   },
   secondaryBtnText: { ...typography.bodyStrong, color: colors.textMuted },
 
-  searchSection: { flex: 1, paddingTop: spacing.xl },
+  searchSection: { flex: 1, paddingTop: spacing.xl, paddingHorizontal: spacing.lg },
   searchingHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
   searchingText: { ...typography.body, color: colors.text },
 
@@ -397,4 +810,144 @@ const styles = StyleSheet.create({
   peerInfo: { flex: 1, gap: 2 },
   peerName: { ...typography.headline, color: colors.text },
   peerHint: { ...typography.footnote, color: colors.textMuted },
+
+  // Review screen
+  reviewContainer: { flex: 1, backgroundColor: colors.background },
+  reviewBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.warningBg,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  reviewBannerTitle: { ...typography.headline, color: colors.text },
+  reviewBannerSubtitle: { ...typography.footnote, color: colors.textMuted, marginTop: 1 },
+
+  peerStatusBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xs + 2,
+    backgroundColor: colors.successBg,
+  },
+  peerStatusText: { ...typography.footnote, color: colors.successText, fontWeight: '600' },
+
+  reviewList: { padding: spacing.lg, gap: spacing.sm, paddingBottom: 100 },
+
+  reviewCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+    paddingTop: spacing.md + 4,
+    paddingBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  reviewCardBody: { flex: 1, gap: 2 },
+  reviewCardTitle: { ...typography.headline, color: colors.text },
+  reviewCardContext: { ...typography.footnote, color: colors.textMuted },
+
+  conflictBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.warningBg,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    alignSelf: 'flex-start',
+    marginTop: 4,
+  },
+  conflictBadgeText: {
+    ...typography.caption,
+    color: colors.warningText,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+
+  diff: { marginTop: 10, gap: 8 },
+  diffField: { gap: 3 },
+  diffFieldLabel: {
+    ...typography.caption,
+    color: colors.textMuted,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+  },
+  diffMinus: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: colors.dangerBg,
+    borderRadius: radius.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  diffMinusSign: {
+    ...typography.footnote,
+    color: colors.dangerText,
+    fontFamily: 'Menlo',
+    fontWeight: '700',
+    width: 12,
+    textAlign: 'center',
+  },
+  diffMinusText: { ...typography.footnote, color: colors.dangerText, flex: 1, fontWeight: '500' },
+  diffPlus: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: colors.successBg,
+    borderRadius: radius.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  diffPlusSign: {
+    ...typography.footnote,
+    color: colors.successText,
+    fontFamily: 'Menlo',
+    fontWeight: '700',
+    width: 12,
+    textAlign: 'center',
+  },
+  diffPlusText: { ...typography.footnote, color: colors.successText, flex: 1, fontWeight: '500' },
+
+  actionBar: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  rejectBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.warningBg,
+  },
+  rejectBtnText: { ...typography.bodyStrong, color: colors.warningText },
+  acceptBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.primary,
+  },
+  acceptBtnText: { ...typography.bodyStrong, color: colors.textOnPrimary },
 });

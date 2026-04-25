@@ -68,6 +68,31 @@ const MERGE_FIELDS: Record<string, string[]> = {
 // both sides before comparison to avoid spurious "string '1' != true" diffs.
 const BOOL_FIELDS = new Set(['opened', 'damaged']);
 
+// ----------------------------------------------------------------------------
+// Message envelope — wraps the raw bundle so we can multiplex other
+// signalling messages (ACCEPT / REJECT) on the same MCSession channel.
+// All P2P messages over the wire go through encodeMessage / decodeMessage.
+// ----------------------------------------------------------------------------
+
+export type P2PMessage =
+  | { type: 'BUNDLE'; bundle: string; senderName?: string }
+  | { type: 'ACCEPT' }
+  | { type: 'REJECT' };
+
+export function encodeMessage(msg: P2PMessage): string {
+  return JSON.stringify(msg);
+}
+
+export function decodeMessage(raw: string): P2PMessage | null {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && typeof parsed.type === 'string') {
+      return parsed as P2PMessage;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
 /**
  * Export all local data as a JSON sync bundle.
  */
@@ -88,6 +113,210 @@ export function exportSyncBundle(userId: string): string {
   };
 
   return JSON.stringify(bundle);
+}
+
+// ----------------------------------------------------------------------------
+// Preview — dry-run the bundle, returning what would change locally without
+// touching SQLite. Used by the P2P review screen so each peer can inspect
+// the proposed changes and explicitly accept (or reject) before anything
+// is written.
+// ----------------------------------------------------------------------------
+
+export interface P2PPreviewEntry {
+  table_name: string;
+  row_id: string;
+  operation: 'INSERT' | 'UPDATE';
+  /** Fields that would change for an UPDATE; null for INSERT. */
+  changed_fields: string[] | null;
+  /** Current local values for the changed fields (red side of the diff). */
+  before_values: Record<string, any> | null;
+  /** Peer's proposed values for the changed fields (green side). */
+  after_values: Record<string, any> | null;
+  /**
+   * Subset of changed_fields that are real conflicts: I edited locally
+   * AND the peer's value differs from my baseline (= true concurrent edit).
+   * These will land in `_conflicts` if the user accepts the sync, exactly
+   * like cloud sync conflicts.
+   */
+  conflict_fields: string[];
+  display_name: string;
+  context: string | null;
+  category: string | null;
+  nav: { href: string } | null;
+}
+
+/**
+ * Compute, but do not apply, what `importSyncBundle(jsonString)` would do.
+ * Returns one entry per resource that would change. Skips no-op rows.
+ */
+export function previewSyncBundle(jsonString: string): P2PPreviewEntry[] {
+  const bundle: SyncBundle = JSON.parse(jsonString);
+  if (bundle.version !== 1) throw new Error(`Unknown bundle version: ${bundle.version}`);
+
+  const db = getDb();
+  const out: P2PPreviewEntry[] = [];
+
+  const tables: { table: string; rows: any[]; mergeFields: string[] }[] = [
+    { table: 'warehouses', rows: bundle.warehouses, mergeFields: MERGE_FIELDS.warehouses },
+    { table: 'boxes', rows: bundle.boxes, mergeFields: MERGE_FIELDS.boxes },
+    { table: 'items', rows: bundle.items, mergeFields: MERGE_FIELDS.items },
+    { table: 'custom_products', rows: bundle.custom_products, mergeFields: MERGE_FIELDS.custom_products },
+    { table: 'inventory_sessions', rows: bundle.inventory_sessions, mergeFields: MERGE_FIELDS.inventory_sessions },
+  ];
+
+  for (const { table, rows, mergeFields } of tables) {
+    for (const remote of rows) {
+      const local = db.getFirstSync<any>(
+        `SELECT * FROM ${table} WHERE id = ?`,
+        [remote.id],
+      );
+
+      if (!local) {
+        // Would be inserted as a brand-new resource.
+        out.push(buildPreviewEntry(db, table, remote, null, null, [], 'INSERT'));
+        continue;
+      }
+
+      // Existing row — figure out what would change.
+      const diffFields = mergeFields.filter((f) =>
+        !valuesEqualPreview(f, local[f], remote[f]),
+      );
+      if (diffFields.length === 0) continue;
+
+      // Detect real conflicts: fields I edited where peer's value differs
+      // from what I had as my baseline (matches cloud sync logic).
+      const localChanged: string[] = local._changed_fields
+        ? JSON.parse(local._changed_fields)
+        : [];
+      const baseline = getRowBaseline(db, table, remote.id);
+      const conflictFields: string[] = [];
+      if (local._synced === 0) {
+        for (const f of localChanged) {
+          if (!diffFields.includes(f)) continue;
+          if (!baseline || !(f in baseline.values)) {
+            conflictFields.push(f);
+          } else if (!valuesEqualPreview(f, baseline.values[f], remote[f])) {
+            conflictFields.push(f);
+          }
+        }
+      }
+
+      out.push(buildPreviewEntry(db, table, remote, local, diffFields, conflictFields, 'UPDATE'));
+    }
+  }
+
+  return out;
+}
+
+function buildPreviewEntry(
+  db: ReturnType<typeof getDb>,
+  table: string,
+  remote: any,
+  local: any | null,
+  diffFields: string[] | null,
+  conflictFields: string[],
+  operation: 'INSERT' | 'UPDATE',
+): P2PPreviewEntry {
+  const changedFields = diffFields;
+  const beforeValues =
+    changedFields && local
+      ? Object.fromEntries(changedFields.map((f) => [f, normalizeValue(f, local[f])]))
+      : null;
+  const afterValues = changedFields
+    ? Object.fromEntries(changedFields.map((f) => [f, normalizeValue(f, remote[f])]))
+    : null;
+  const display = lookupPreviewDisplay(db, table, remote, local);
+  return {
+    table_name: table,
+    row_id: remote.id,
+    operation,
+    changed_fields: changedFields,
+    before_values: beforeValues,
+    after_values: afterValues,
+    conflict_fields: conflictFields,
+    display_name: display.display_name,
+    context: display.context,
+    category: display.category,
+    nav: display.nav,
+  };
+}
+
+function normalizeValue(field: string, raw: any): any {
+  if (BOOL_FIELDS.has(field)) return !!raw;
+  return raw ?? null;
+}
+
+function valuesEqualPreview(field: string, a: any, b: any): boolean {
+  if (BOOL_FIELDS.has(field)) return !!a === !!b;
+  return String(a ?? '') === String(b ?? '');
+}
+
+// Mirrors lookupDisplayInfo from sync.ts but works against either the
+// remote bundle row or the local row, and resolves human-readable
+// references (box_id → "Box · Warehouse").
+function lookupPreviewDisplay(
+  db: ReturnType<typeof getDb>,
+  table: string,
+  remote: any,
+  local: any | null,
+): { display_name: string; context: string | null; category: string | null; nav: { href: string } | null } {
+  const name: string = (local?.name ?? remote?.name ?? remote?.id?.slice(0, 8)) as string;
+
+  if (table === 'items') {
+    const boxId = remote.box_id ?? local?.box_id;
+    let boxName: string | null = null;
+    let warehouseId: string | null = null;
+    let warehouseName: string | null = null;
+    if (boxId) {
+      const box = db.getFirstSync<{
+        name: string;
+        warehouse_id: string;
+        warehouse_name: string | null;
+      }>(
+        `SELECT b.name, b.warehouse_id, w.name as warehouse_name
+         FROM boxes b LEFT JOIN warehouses w ON b.warehouse_id = w.id
+         WHERE b.id = ?`,
+        [boxId],
+      );
+      boxName = box?.name ?? null;
+      warehouseId = box?.warehouse_id ?? null;
+      warehouseName = box?.warehouse_name ?? null;
+    }
+    const ctx = [boxName, warehouseName].filter(Boolean).join(' · ') || null;
+    const nav =
+      boxId && warehouseId
+        ? { href: `/warehouse/${warehouseId}/box/${boxId}?itemId=${remote.id}` }
+        : null;
+    const category = (remote.category ?? local?.category) as string | null;
+    return { display_name: name, context: ctx, category, nav };
+  }
+
+  if (table === 'boxes') {
+    const warehouseId = remote.warehouse_id ?? local?.warehouse_id;
+    let warehouseName: string | null = null;
+    if (warehouseId) {
+      const w = db.getFirstSync<{ name: string }>(
+        `SELECT name FROM warehouses WHERE id = ?`,
+        [warehouseId],
+      );
+      warehouseName = w?.name ?? null;
+    }
+    const nav = warehouseId
+      ? { href: `/warehouse/${warehouseId}/box/${remote.id}` }
+      : null;
+    return { display_name: name, context: warehouseName, category: null, nav };
+  }
+
+  if (table === 'warehouses') {
+    return {
+      display_name: name,
+      context: null,
+      category: null,
+      nav: { href: `/warehouse/${remote.id}` },
+    };
+  }
+
+  return { display_name: name, context: null, category: null, nav: null };
 }
 
 /**

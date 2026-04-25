@@ -69,6 +69,7 @@ function formatValue(field: string, value: unknown): string {
   if (field === 'image_url') return 'updated';
   if (field === 'expiry_date' || field === 'last_verified' || field === 'completed_at') {
     const ts = String(value);
+    if (ts === '9999-12-31') return 'Never';
     return ts.split('T')[0]?.split(' ')[0] ?? ts;
   }
   if (typeof value === 'number') {

@@ -171,7 +171,19 @@ export interface InventoryLine {
 // Expiry status
 // ----------------------------------------------------------------------------
 
-export type ExpiryStatus = 'ok' | 'soon' | 'critical' | 'expired' | 'none';
+export type ExpiryStatus = 'ok' | 'soon' | 'critical' | 'expired' | 'none' | 'never';
+
+/**
+ * Sentinel ISO date stored in `expiry_date` for items the user has marked
+ * as never-expiring. Real-world dates can't reach this — using a date
+ * keeps the column schema simple and lets every code path that already
+ * handles `string | null` accept it without a separate column.
+ */
+export const NEVER_EXPIRES_DATE = '9999-12-31';
+
+export function isNeverExpires(dateStr: string | null | undefined): boolean {
+  return dateStr === NEVER_EXPIRES_DATE;
+}
 
 export interface ExpiryPalette {
   bg: string;
@@ -186,6 +198,9 @@ export const EXPIRY_COLORS: Record<Exclude<ExpiryStatus, 'none'>, ExpiryPalette>
   soon: { bg: colors.expirySoonBg, fg: colors.expirySoonText },
   critical: { bg: colors.expirySoonBg, fg: colors.expirySoonText },
   expired: { bg: colors.expiryExpiredBg, fg: colors.expiryExpiredText },
+  // "never" reuses the neutral grey treatment so it visually distinguishes
+  // itself from the actual expiry colors (ok / soon / critical / expired).
+  never: { bg: colors.expiryNoneBg, fg: colors.expiryNoneText },
 };
 
 /**
@@ -203,6 +218,7 @@ export function daysUntil(dateStr: string): number {
 
 export function getExpiryStatus(dateStr: string | null): ExpiryStatus {
   if (!dateStr) return 'none';
+  if (isNeverExpires(dateStr)) return 'never';
   const days = daysUntil(dateStr);
   if (days < 0) return 'expired';
   if (days <= 30) return 'critical';
@@ -261,6 +277,7 @@ export function fromIsoDate(dateStr: string): Date | null {
 
 export function formatExpiry(dateStr: string | null): string {
   if (!dateStr) return 'No date';
+  if (isNeverExpires(dateStr)) return 'Never';
   const days = daysUntil(dateStr);
   if (days < 0) return 'Expired';
   if (days === 0) return 'Today';
@@ -279,7 +296,10 @@ const STATUS_ORDER: Record<ExpiryStatus, number> = {
   critical: 1,
   soon: 2,
   ok: 3,
-  none: 4,
+  // Items marked "never expires" sort after dated items but before the
+  // ones with no date set — they're a deliberate decision, not pending input.
+  never: 4,
+  none: 5,
 };
 
 export function compareBoxesByExpiry(a: Box, b: Box): number {
