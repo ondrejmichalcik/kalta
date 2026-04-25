@@ -559,33 +559,66 @@ Po zjištění že iOS system print dialog Bluetooth tiskárnu nevidí a Brother
 
 ---
 
-## Sprint 5 – App Store Release ⏳
+## Sprint 5 – App Store Release 🚧 (in progress)
 
-### EAS Build
-- ✅ `eas.json` konfigurace (preview profile pro TestFlight)
-- ✅ **Build 16** (2026-04-18) — TestFlight, reálný multi-device test
-  - Odhalilo řadu edge-case bugů (invite RLS, sync, offline auth, P2P crash, filter UX) — viz "Session 2026-04-18 — post-TestFlight bug-fix pass" níže
-  - Všechny fixed; velká část jde jako OTA update, native changes (Info.plist Bonjour services, Swift MPC validace) čekají na build 17
-- 🚧 **Build 17 pending** — `eas build --profile preview --platform ios` po commitnutí fixes
-  - Info.plist správný `NSBonjourServices` (jinak P2P instant crash)
-  - Swift displayName validace v P2P module
-- ⏳ Re-test 2 devices po build 17: invite accept, sign-out + continue offline, P2P sync
+### Rebrand
+- ✅ **Stockr → Kalta** (2026-04-23)
+  - Bundle ID `com.ondrejmichalcik.kalta`, EAS project recreated
+  - Native module `kalta-multipeer` (Swift class, podspec, JS, Bonjour service type), info.plist services renamed
+  - All docs, web copy, schema.org JSON-LD updated
+  - Domain `kalta.app` purchased on Cloudflare
 
-### App Store submission
-- ⏳ Privacy policy — jednoduchá stránka (GitHub Pages), vyžadováno pro Apple Sign In
-- ⏳ App Store metadata — screenshots, popis, klíčová slova, kategorie
-- ⏳ App Privacy questionnaire — jaká data se sbírají (email via Apple Sign In, usage data)
+### Public website ✅ (live na https://kalta.app)
+- Astro static site (5 + 6 docs pages = 11 stránek), self-hosted Inter font, OG image generator, sitemap, schema.org SoftwareApplication
+- Hostováno na Cloudflare Pages, custom doména `kalta.app`
+- `/privacy`, `/terms`, `/support`, `/docs/*` — markdown imports z `docs/legal/`, `docs/support/`, `docs/guide/`
+- `/docs/*` má sidebar nav, prev/next pagination, breadcrumb (Stripe-like)
+- Favicon přes resized app icon (16/32/48/96/180/192/512 + ICO + SVG wrapper)
+- Apple-touch-icon, web manifest pro PWA
+
+### Legal & metadata docs ✅
+- `docs/legal/privacy-policy.md` — GDPR-compliant, 392 řádků, EU hosting (Supabase Ireland), Anthropic BYOK opt-in disclosure
+- `docs/legal/terms-of-service.md` — paid app, Apple Standard EULA reference, Czech governing law, IČO/DIČ vyplněné
+- `docs/support/faq.md` — troubleshooting-only po refaktoru (how-to obsah je v `docs/guide/`)
+- `docs/app-store/listing.md` — name, subtitle, description, keywords, what's new, age rating
+- `docs/app-store/app-privacy.md` — Apple privacy nutrition labels (vychází ze data audit: žádné tracking, žádné analytics)
+- `docs/app-store/review-notes.md` — pro Apple reviewera, "use your own Apple ID"
+- `docs/setup/paid-app-setup.md` — step-by-step App Store Connect (Paid Apps Agreement, W-8BEN s Article 12, banking, contacts, SBP, Family Sharing, promo codes)
+- `docs/app-store/screenshots.md` — capture plán pro 6.9" iPhone simulator
+
+### Pricing rozhodnutí (2026-04-25)
+- **Tier 10 ($9.99)** — pokrývá ~2-3 roky Supabase hostingu per user; eliminuje impulse-buy, přitahuje serious users
+- **Apple Small Business Program** — schvaluje se po enrollment, sníží Apple cut z 30% na 15% (od dalšího kvartálu)
+- **Family Sharing** enabled — manželka stáhne zdarma přes iCloud Family group
+- Dříve plánovaný free + tip jar zamítnut (nepokryje hosting at scale)
+
+### App Store Connect setup 🚧
+- ✅ Apple Developer Program ($99/rok, expire 12 Apr 2027)
+- ✅ Free Apps Agreement: Active
+- 🚧 **Paid Apps Agreement** (status `New` — 2026-04-25)
+  - Name Identification Document uploaded (Výpis z živnostenského rejstříku, IČO 04801792)
+  - Apple processuje 1-3 business days; Tax / Bank / Contacts sekce zatím gated
+- ⏳ Tax W-8BEN — Czech, Article 12 royalties, 0% withholding (po Apple verifikaci ID)
+- ⏳ Bank info — IBAN + SWIFT + holder name match (po Apple verifikaci ID)
+- ⏳ Contacts — všechny 4 role = Ondřej Michalčík
+- ⏳ Apple Small Business Program request
+- ⏳ App record creation + metadata (icon-appstore.png alpha-stripped, listing copy)
+- ⏳ Family Sharing toggle (gated na Active Paid Apps Agreement)
+- ⏳ Screenshots na 6.9" simulator (iPhone 16 Pro Max)
 - ⏳ `eas submit --platform ios` → Apple review
 
-### Assety
-- ✅ `assets/icon.png` — 1024×1024, zelená paleta
-- ✅ `assets/splash.png` — 1286×2778, login hero
-- ⏳ Případné zmenšení splash (z ~5.4 MB na <1 MB)
+### EAS Build pipeline
+- ✅ EAS account migrated to Production plan (po hit free tier limit)
+- ✅ `appVersionSource: "remote"` + `autoIncrement: true` — buildNumber server-side, žádné app.json modifikace
+- ✅ Env vars push do preview environment (Supabase URL + publishable key)
+- ✅ **Build 22** (2026-04-25) — fixes Bonjour services + KaltaMultipeer autolinking (modul nebyl součástí Pods kvůli iOS 16 platform requirement vs target 15.1)
+- 🚧 **Build 23 pending** — P2P merge + pending screen + before→after diff + sync engine improvements + resource icons + never-expires + P2P review-and-accept
 
-### Polish (nice-to-have, ne blokující)
-- ⏳ Accessibility labels pro screen reader
-- ⏳ Dark mode
-- ⏳ Performance audit
+### Assety
+- ✅ `assets/icon.png` — 1024×1024, sage green 3D wooden box s QR kódem (RGBA)
+- ✅ `assets/icon-appstore.png` — 1024×1024 RGB (alpha stripped) pro App Store upload (Apple odmítá alpha)
+- ✅ `assets/splash.png` — splash + login hero
+- ⏳ Screenshots z simulátoru (6 screens × 6.9")
 
 ---
 
@@ -749,9 +782,114 @@ eas submit --platform ios
 
 Po otevření nové session:
 
-1. **EAS Build doběhl?** — zkontrolovat `eas build:list`, pokud ready → `eas submit --platform ios --latest` → TestFlight
-2. **Test na 2 iPhonech** — offline flow, P2P sync, invite deep link, notifications, image cache, session persistence
-3. **App Store prep** — privacy policy, screenshots, metadata, submit
+1. **Apple Paid Apps Agreement Active?** — pokud ano (1-3 dny od 2026-04-25):
+   - Doplnit Tax (W-8BEN, Article 12, 0%), Banking (IBAN+SWIFT), Contacts (4× Ondřej)
+   - Request Apple Small Business Program (sníží 30%→15% commission)
+   - Vytvořit App record v ASC, vyplnit metadata podle `docs/app-store/listing.md`
+   - Vyplnit App Privacy questionnaire podle `docs/app-store/app-privacy.md`
+   - Enable Family Sharing flag (až bude dostupné)
+2. **Build 23 deploy** — `eas build --platform ios --profile preview` (P2P review flow + pending + diff + never-expires)
+3. **Test na 2 iPhonech** — P2P review-and-accept flow s manželkou, pending changes screen, conflicts UI, never-expires toggle
+4. **Screenshots** — iPhone 16 Pro Max simulator, 6 screens podle `docs/app-store/screenshots.md`
+5. **Submit pro Apple review** — `eas submit --platform ios --latest`, paste review notes z `docs/app-store/review-notes.md`
+
+### Session 2026-04-23 → 2026-04-25 — Sprint 5 launch prep + sync engine v2
+
+Týden zaměřený na **App Store launch readiness** a **major sync engine improvements**. Ze stockr se stala kalta, web je live, právní dokumenty hotové, P2P prošel kompletním redesignem.
+
+**Rebrand Stockr → Kalta:**
+- Bundle ID `com.ondrejmichalcik.kalta`, EAS projekt znovu vytvořený (starý "stockr" smazaný přes web dashboard)
+- Native modul `modules/kalta-multipeer/` (Swift `KaltaMultipeerModule`, podspec, `Name("KaltaMultipeer")`, JS API)
+- Bonjour service type `kalta-sync` (was `stockr-sync`) — runtime-critical match
+- Brother SDK plugin přepisoval `NSBonjourServices` v Info.plist; fix přes plugin parametry (`bonjourServices`, `bluetoothAlwaysUsageDescription`, `localNetworkUsageDescription`)
+- Doména `kalta.app` koupená na Cloudflare
+
+**P2P sync — kompletní redesign:**
+- **Native module konečně linkovaný** — chyběl `package.json` v module folderu + iOS platform target byl `16.0` (proti app target `15.1`); CocoaPods proto modul odmítal
+- **Per-field merge + conflict detection** — replaced row-level last-write-wins. Stejná logika jako cloud sync engine. `_changed_fields` z payloadu, `findDiffFields` + overlap, automerge or `_conflicts` insert
+- **Baseline-aware conflict detection** (oba sync engines, cloud i P2P) — eliminuje false-positive konflikty kdy lokální user edited a server nemá ještě my push (`server.updated_at == baseline.updated_at` → skip; jinak per-field comparison vs baseline values)
+- **Two-phase commit P2P review** — exchange bundles → both peers preview proposed changes → both must independently Accept před actual apply. Reject from either cancels both. Disconnect during exchange = cancellation. `previewSyncBundle()` dry-run helper. Message envelope `{type: BUNDLE|ACCEPT|REJECT}` na MCSession channel.
+- **Restored `app/(app)/p2p-sync.tsx`** z placeholder stavu na funkční flow (Hermes HBC bug obejit dynamic import workaroundem)
+
+**Pending changes screen** (nový `app/(app)/pending.tsx`):
+- Tap na sync status bar v offline/pending stavu → screen s grouped pending sync queue
+- Resource icon (kategorie items / shippingbox boxes / house warehouses) + operation badge (zelený `+` insert / modrá tužka update / oranžový `−` delete)
+- Per-field before → after diff (git-style red `−` / green `+` blocks)
+- Multiple changes na 1 resource = 1 aggregated entry s "X edits combined" badge
+- Tap na resource name → navigate na detail (router.replace, ne push, kvůli loop avoidance)
+- Items získali `?itemId=` query param na box detail → ItemEditSheet auto-opens
+- Per-entry **Revert** + global **Revert all** s before-snapshot z queue payload
+- Box_id field zobrazuje "Box · Warehouse" místo UUIDs
+
+**Conflicts screen redesign:**
+- Stejný visual language jako pending (resource icon, git-diff style)
+- Per-field tappable selection (Mine / Server) s `−` red / `+` green styling
+- Selected option má thicker border + checkmark icon, unselected fade na 50% opacity
+- Quick actions zachovány ("Keep all mine", "Take all server")
+
+**Resource icons across the app:**
+- Nový `<ResourceIcon>` komponent (`src/components/ResourceIcon.tsx`)
+- Items: PNG kategorie ikony z `assets/icons/` (food-can, water-drop, medicine-pill, …) + `tag.png` fallback
+- Boxes: SF Symbol `shippingbox.fill` v sage green
+- Warehouses: SF Symbol `house.fill` v sage green
+- Optional `statusDotColor` prop pro corner badge (např. expiry status)
+- Optional operation badge (`ResourceOpBadge` / `ResourceIconWithOp`) — INSERT zelený, UPDATE modrý (palette.blue), DELETE oranžový
+- Aplikováno: pending, conflicts, p2p preview, items list (box detail + cross-box items tab), boxes list (warehouse home), warehouses list (root)
+- StatusDot v box detailu nahrazen ResourceIcon + corner status dot (expiry color)
+
+**Never-expires items:**
+- Sentinel ISO date `9999-12-31` (`NEVER_EXPIRES_DATE` v `types/database.ts`)
+- `ExpiryStatus` rozšířen o `'never'`, neutrální grey color
+- ItemEditSheet: segmented control "Has expiry / Never expires" — tap "Never" sets sentinel, tap "Has expiry" sets null
+- `formatExpiry` rozpoznává sentinel → "Never"
+- Pending/conflicts/P2P review formatValue → "Never" pro sentinel
+- Sync engine passes through normálně (sentinel je jen date string), žádné schema změny
+
+**Public website na kalta.app:**
+- Astro 5 static site v `web/` subdirectory
+- Inter font self-hosted přes fontsource (žádné Google Fonts tracking)
+- Hero s box icon, 6 feature cards s Lucide SVG ikonama (MIT licence, ne SF Symbols kvůli Apple licensing pro web)
+- 6 docs pages s sidebar nav + prev/next pagination + breadcrumb (`/docs/getting-started`, `/organizing`, `/scanning-and-ai`, `/expiry-and-reminders`, `/collaboration`, `/printing`)
+- `/privacy`, `/terms`, `/support` — markdown imports z `docs/legal/` a `docs/support/`, single source of truth
+- OG image generator (`scripts/generate-og.mjs` přes sharp), favicon generator (`scripts/generate-favicons.mjs` z app icon přes sharp + png-to-ico)
+- Cloudflare Pages hosting přes wrangler CLI (po komplikacích s GitHub integrace UI změnou)
+- Custom doména `kalta.app` aktivovaná, https + cert auto-vydaný
+- realfavicongenerator checker: clean, žádné errors
+
+**Legal & metadata docs (single source of truth markdown v `docs/`):**
+- Privacy Policy 392 řádků GDPR-compliant — Data Controller (Ondřej Michalčík OSVČ Praha, IČO 04801792, DIČ CZ8801235993), kompletní processors list (Apple, Supabase Ireland, Open Food Facts France, Anthropic USA opt-in BYOK), legal basis Art. 6(1)(b)/(f)/(a), DSR rights, ÚOOÚ kontakt
+- Terms of Service — paid app, Apple Standard EULA reference, P2P/sharing disclaimers, Czech governing law, IČO/DIČ
+- Support FAQ refaktorován na troubleshooting-only (how-to obsah přesunut do `/docs/`)
+- App Store listing copy — name "Kalta", subtitle "Home emergency stock tracker", description s key features, keywords (inventory, pantry, prepper, …), what's new, kategorie Utilities + Lifestyle
+- App Privacy nutrition labels — "Data Linked to You" only, no tracking, no ATT prompt needed
+- Apple review notes — "use your own Apple ID" (po failed plus-tag Apple ID create attempt)
+- Paid app setup walkthrough — kompletní step-by-step pro App Store Connect (Paid Apps Agreement, W-8BEN s Article 12 royalties claim 0% rate, banking, contacts, SBP, Family Sharing, promo codes)
+
+**App Store Connect progres:**
+- Free Apps Agreement Active (od 12 Apr 2026)
+- Paid Apps Agreement requested 2026-04-25 (status `New`), Name Identification Document uploaded (Výpis z živnostenského rejstříku z rzp.cz)
+- Apple processuje identity verification 1-3 business days; Tax / Bank / Contacts sekce gated zatím
+- App record ještě nevytvořený (čeká na Active Paid Apps Agreement)
+
+**EAS Build pipeline:**
+- Hit free tier limit (30 buildů/měsíc) po vícenásobných iteracích kolem rename + P2P fixes — upgrade na Production plan
+- `eas.json` přepnut zpět na `appVersionSource: "remote"` + `autoIncrement: true` (eliminuje app.json modifikace, server-side counter)
+- Env vars pushnuté do `preview` environment přes `eas env:push preview --path .env`
+- Build 22 v TestFlight stable; Build 23 (s P2P review + pending + diff + sync v2) pending
+
+**Klíčová rozhodnutí:**
+- **Tier 10 ($9.99)** místo dřívějšího plánu free/Tier 3. Důvod: Supabase hosting cost per active user. Tier 10 pokrývá ~2-3 roky hostingu z jednorázové platby.
+- **App Store cesta místo TestFlight-only** definitively confirmed (TestFlight expiruje buildy po 90 dnech, prepper use case potřebuje persistent install)
+- **Two-phase commit P2P** > immediate apply. User explicitně chtěl review-then-accept flow, ne fire-and-forget.
+- **Sentinel date pro never-expires** > schema column. Žádná migrace, sync engine neutrální, UI rozezná lokálně.
+- **Cloudflare Pages over GitHub Pages** kvůli kalta.app DNS already on CF (one-click custom domain).
+- **Lucide SVG icons na webu** místo SF Symbols (Apple licensing forbids SF Symbols mimo Apple platforms marketing).
+- **PNG kategorie ikony pro items** v listech vs SF Symbols pro chrome — odpovídá designu z assets/icons/ Sprintu 2.5.
+
+**Otevřené drobnosti:**
+- `inventory_lines` revert v pending screen je no-op (append-only data, nedá se "undo")
+- Multiple stacked UPDATEs pro 1 row + revert nejstaršího UPDATE → newer entries' before-snapshots zůstávají, ale visual-only zmatení (data integrity OK)
+- Image storage cap per user — připraven concept (image compression 800px@70% → 400px@60% sníží 3×) ale nepotvrzeno/neimplementováno
 
 ### Session 2026-04-19 — P2P crash deep-dive, attention banner, Hermes bisect
 
