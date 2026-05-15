@@ -14,6 +14,7 @@
 // ============================================================================
 import type { Category } from '@/src/types/database';
 import { getAnthropicKey } from './secureStore';
+import { CloudFeatureDisabledError, isCloudEnabledNow } from './subscription';
 
 const ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-haiku-4-5';
@@ -56,6 +57,14 @@ export async function hasAnthropicKey(): Promise<boolean> {
  * network / HTTP / malformed-response failures.
  */
 export async function identifyProduct(imageUrl: string): Promise<IdentifiedProduct> {
+  // Gated as a subscription perk. NOTE: vision is BYOK (user provides own
+  // Anthropic key), so the marginal cost to us is zero — the gate exists
+  // purely to honour the paywall copy that lists AI recognition as a
+  // subscription feature. If we decide BYOK should be free, drop this
+  // check; the gate is the only thing separating the two interpretations.
+  if (!isCloudEnabledNow()) {
+    throw new CloudFeatureDisabledError('AI item recognition');
+  }
   const key = await getAnthropicKey();
   if (!key) throw new MissingApiKeyError();
 

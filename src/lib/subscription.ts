@@ -92,6 +92,51 @@ async function saveCachedState(state: SubscriptionState): Promise<void> {
 // surfacing extra warnings on duplicate calls is annoying. Track once.
 let connectionPromise: Promise<boolean> | null = null;
 
+// In-memory mirror of the latest known SubscriptionState. The hook keeps
+// this fresh; non-React callers (sync engine, image upload, vision API)
+// read it via `getSubscriptionStateNow()` without waiting on AsyncStorage.
+let memoState: SubscriptionState | null = null;
+
+// Kick off an eager hydrate so that the first sync cycle at app boot
+// already has a real answer (rather than defaulting to "loading" and
+// either over- or under-gating cloud calls).
+loadCachedState().then((cached) => {
+  if (cached) memoState = cached;
+});
+
+/**
+ * Synchronous read of the latest known subscription state. Returns
+ * OPEN_ACCESS_STATE when enforcement is off; falls back to a loading
+ * placeholder until the first hydrate completes (rare race window).
+ */
+export function getSubscriptionStateNow(): SubscriptionState {
+  if (!SUBSCRIPTION_ENFORCEMENT_ENABLED) return OPEN_ACCESS_STATE;
+  return memoState ?? { status: 'loading', expiresAt: null, productId: null };
+}
+
+/**
+ * True when cloud-touching operations (Supabase sync push, image upload,
+ * AI vision) should be allowed. Use this from sync engine / storage /
+ * vision modules; React components should read `useSubscription()`.
+ */
+export function isCloudEnabledNow(): boolean {
+  return isCloudEnabled(getSubscriptionStateNow());
+}
+
+/**
+ * Thrown by cloud-only library functions (image upload, AI vision) when
+ * the user has no active subscription. UI catches this and shows a
+ * "Subscribe to unlock" prompt instead of a generic failure.
+ */
+export class CloudFeatureDisabledError extends Error {
+  feature: string;
+  constructor(feature: string) {
+    super(`Cloud feature unavailable: ${feature}. Active subscription required.`);
+    this.name = 'CloudFeatureDisabledError';
+    this.feature = feature;
+  }
+}
+
 function ensureConnection(): Promise<boolean> {
   if (!connectionPromise) {
     connectionPromise = initConnection().catch((err) => {
@@ -184,11 +229,13 @@ export function useSubscription(): UseSubscriptionResult {
 
   const refresh = useCallback(async () => {
     if (!SUBSCRIPTION_ENFORCEMENT_ENABLED) {
+      memoState = OPEN_ACCESS_STATE;
       if (mountedRef.current) setState(OPEN_ACCESS_STATE);
       return;
     }
     try {
       const next = await queryStoreKitState();
+      memoState = next;
       if (!mountedRef.current) return;
       setState(next);
       await saveCachedState(next);
@@ -224,7 +271,10 @@ export function useSubscription(): UseSubscriptionResult {
     // Hydrate from cache first for instant offline first-paint, then
     // refresh from StoreKit in the background.
     loadCachedState().then((cached) => {
-      if (cached && mountedRef.current) setState(cached);
+      if (cached) {
+        memoState = cached;
+        if (mountedRef.current) setState(cached);
+      }
       refresh();
     });
 

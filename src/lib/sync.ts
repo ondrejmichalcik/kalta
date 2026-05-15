@@ -12,6 +12,7 @@ import { supabase } from './supabase';
 import { prefetchImages } from './imageCache';
 import { markRecentLocalWrite } from './realtimeEcho';
 import { promoteCoupledConflicts } from './syncFieldGroups';
+import { isCloudEnabledNow } from './subscription';
 
 // ---- Sync status tracking --------------------------------------------------
 
@@ -1080,6 +1081,13 @@ export function resolveConflictTakeServer(conflictId: number): void {
  * and retried on the next cycle.
  */
 export async function pushSync(): Promise<{ pushed: number; failed: number }> {
+  // Cloud sync push is gated on an active subscription. Pull is still
+  // allowed (free for us, prevents ghost-row drift). Pending queue stays
+  // intact for future renew — when the user resubscribes, the next cycle
+  // pushes everything that built up while they were lapsed.
+  if (!isCloudEnabledNow()) {
+    return { pushed: 0, failed: 0 };
+  }
   const db = getDb();
   const pending = db.getAllSync<{
     id: number;

@@ -6,6 +6,7 @@ import { File } from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { supabase } from './supabase';
 import { cacheImageFromLocal, removeCachedImage } from './imageCache';
+import { CloudFeatureDisabledError, isCloudEnabledNow } from './subscription';
 
 const BUCKET = 'product-images';
 
@@ -30,6 +31,9 @@ export async function uploadProductImage(
   warehouseId: string,
   localUri: string,
 ): Promise<string> {
+  if (!isCloudEnabledNow()) {
+    throw new CloudFeatureDisabledError('photo upload');
+  }
   // Manipulate: resize + re-encode as JPEG. Output uri is a temp file.
   const manipulated = await ImageManipulator.manipulateAsync(
     localUri,
@@ -70,6 +74,12 @@ export async function uploadProductImage(
  * silently no-op. Used when the user replaces or clears a photo.
  */
 export async function deleteProductImage(publicUrl: string): Promise<void> {
+  // Silent no-op when cloud disabled. Orphaned images get cleaned up by
+  // the 30-day TTL job once the user's subscription_expires_at lapses.
+  if (!isCloudEnabledNow()) {
+    await removeCachedImage(publicUrl).catch(() => {});
+    return;
+  }
   // Public URLs look like: https://<project>.supabase.co/storage/v1/object/public/product-images/<warehouseId>/<file>.jpg
   const marker = `/${BUCKET}/`;
   const idx = publicUrl.indexOf(marker);
