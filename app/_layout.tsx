@@ -289,6 +289,10 @@ export default function RootLayout() {
       >
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(app)" />
+        <Stack.Screen
+          name="paywall"
+          options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+        />
         <Stack.Screen name="invite/[token]" options={{ animation: 'none' }} />
         <Stack.Screen name="+not-found" />
       </Stack>
