@@ -18,6 +18,10 @@ import { initLocalDb } from '@/src/lib/localDb';
 import { hasInitialSync, initialFullSync, runSyncCycle, getPendingSyncCount } from '@/src/lib/sync';
 import { initImageCache, cleanupOrphanedCache } from '@/src/lib/imageCache';
 import { onCachedUserChanged } from '@/src/lib/authBridge';
+import {
+  SUBSCRIPTION_ENFORCEMENT_ENABLED,
+  useSubscription,
+} from '@/src/lib/subscription';
 import { colors } from '@/src/theme';
 
 // Show notifications even when app is in foreground.
@@ -180,20 +184,43 @@ export default function RootLayout() {
     })();
   }, [activeUserId]);
 
-  // --- Auth guard (routing podle session) ---
-  // Allow app access when we have a valid session OR a cached user identity
-  // (offline with expired token — user is still "logged in" for local ops).
+  // --- Auth + subscription guard ---
+  // Auth: allow app access when we have a valid session OR a cached user
+  // identity (offline with expired token — user is still "logged in" for
+  // local ops). Subscription: when enforcement is enabled, a `never`
+  // status forces the paywall before the app is reachable. Active and
+  // lapsed states both enter the app — lapsed gets a cloud-disabled banner
+  // via the gate logic in sync.ts / storage.ts / vision.ts.
   const isAuthenticated = !!(session || cachedUser);
+  const { status: subStatus } = useSubscription();
 
   useEffect(() => {
     if (loading) return;
     const inAuthGroup = segments[0] === '(auth)';
-    if (!isAuthenticated && !inAuthGroup) {
-      router.replace('/(auth)/login');
-    } else if (isAuthenticated && inAuthGroup) {
+    // Cast to string — `paywall` is a new top-level route that the
+    // expo-router typed-routes generator hasn't picked up yet (regenerated
+    // on `expo start` / prebuild).
+    const isPaywall = (segments[0] as string) === 'paywall';
+
+    if (!isAuthenticated) {
+      if (!inAuthGroup) router.replace('/(auth)/login');
+      return;
+    }
+
+    // Wait for the subscription module to settle before deciding paywall
+    // vs app. With enforcement disabled the status is `active` synchronously,
+    // so this branch never blocks anything in TestFlight today.
+    if (SUBSCRIPTION_ENFORCEMENT_ENABLED && subStatus === 'loading') return;
+
+    if (SUBSCRIPTION_ENFORCEMENT_ENABLED && subStatus === 'never') {
+      if (!isPaywall) router.replace('/paywall' as any);
+      return;
+    }
+
+    if (inAuthGroup) {
       router.replace('/' as any);
     }
-  }, [isAuthenticated, loading, segments]);
+  }, [isAuthenticated, loading, segments, subStatus]);
 
   // --- Deep link handler: invite URLs ---
   // Accepts both the legacy custom-scheme form (kalta://invite/TOKEN) used

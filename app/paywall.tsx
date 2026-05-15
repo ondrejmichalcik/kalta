@@ -24,6 +24,7 @@ import {
   fetchSubscriptionProduct,
   purchaseSubscription,
   restoreSubscription,
+  useSubscription,
 } from '@/src/lib/subscription';
 import { colors, radius, spacing, typography } from '@/src/theme';
 
@@ -61,6 +62,19 @@ export default function PaywallScreen() {
   const [purchasing, setPurchasing] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [displayPrice, setDisplayPrice] = useState<string | null>(null);
+  const { status } = useSubscription();
+
+  // Watch for subscription state to flip out of `never` — that means the
+  // purchase completed (or a Restore surfaced historical entitlements).
+  // Dismiss the paywall back to the app. With enforcement off the status
+  // is always `active`, so we'd bounce off the screen immediately —
+  // skip the redirect in that case to keep the screen previewable.
+  useEffect(() => {
+    if (!SUBSCRIPTION_ENFORCEMENT_ENABLED) return;
+    if (status === 'active' || status === 'lapsed') {
+      router.replace('/' as any);
+    }
+  }, [status, router]);
 
   // Try to pull the localized price from StoreKit. Falls back to the
   // hardcoded "$14.99" when enforcement is off or the store can't be
