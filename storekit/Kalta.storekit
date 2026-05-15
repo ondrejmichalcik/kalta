@@ -1,0 +1,74 @@
+{
+  "identifier" : "F4B12C90-1A2E-4D8B-9F31-7C5E2A8B3D6F",
+  "nonRenewingSubscriptions" : [],
+  "products" : [],
+  "settings" : {
+    "_applicationInternalID" : "",
+    "_developerTeamID" : "P59Z5SBM7N",
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 0,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+      { "current" : null, "enabled" : false, "name" : "Load Products" },
+      { "current" : null, "enabled" : false, "name" : "Purchase" },
+      { "current" : null, "enabled" : false, "name" : "Verification" },
+      { "current" : null, "enabled" : false, "name" : "App Store Sync" },
+      { "current" : null, "enabled" : false, "name" : "Subscription Status" },
+      { "current" : null, "enabled" : false, "name" : "App Transaction" },
+      { "current" : null, "enabled" : false, "name" : "Manage Subscriptions Sheet" },
+      { "current" : null, "enabled" : false, "name" : "Refund Request Sheet" },
+      { "current" : null, "enabled" : false, "name" : "Offer Code Redeem Sheet" }
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21500001",
+      "localizations" : [
+        {
+          "description" : "Kalta Cloud — sync, share, and AI features.",
+          "displayName" : "Kalta Cloud",
+          "locale" : "en_US"
+        },
+        {
+          "description" : "Kalta Cloud — synchronizace, sdílení a AI funkce.",
+          "displayName" : "Kalta Cloud",
+          "locale" : "cs_CZ"
+        }
+      ],
+      "name" : "Kalta Cloud",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "14.99",
+          "familyShareable" : true,
+          "groupNumber" : 1,
+          "internalID" : "21500002",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Cloud sync across devices, multi-device shared warehouses, AI item recognition, and unlimited cloud image storage. Auto-renews yearly. Cancel anytime in App Store settings.",
+              "displayName" : "Kalta Cloud — Yearly",
+              "locale" : "en_US"
+            },
+            {
+              "description" : "Cloud synchronizace mezi zařízeními, sdílené sklady, AI rozpoznávání položek a neomezené úložiště fotek. Obnovuje se ročně. Lze kdykoli zrušit v nastavení App Store.",
+              "displayName" : "Kalta Cloud — Roční",
+              "locale" : "cs_CZ"
+            }
+          ],
+          "productID" : "com.ondrejmichalcik.kalta.cloud_yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Kalta Cloud Yearly",
+          "subscriptionGroupID" : "21500001",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}
