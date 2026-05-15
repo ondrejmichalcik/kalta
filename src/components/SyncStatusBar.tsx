@@ -24,12 +24,14 @@ import {
   subscribeSyncStatus,
   type SyncStatus,
 } from '@/src/lib/sync';
+import { useSubscription } from '@/src/lib/subscription';
 import { useNetworkStatus } from '@/src/lib/useNetworkStatus';
 import { colors, radius, spacing, typography } from '@/src/theme';
 import { Icon, type SFSymbolName } from './Icon';
 
 type BarState =
   | { kind: 'hidden' }
+  | { kind: 'lapsed' }
   | { kind: 'offline'; pending: number }
   | { kind: 'syncing' }
   | { kind: 'conflicts'; count: number }
@@ -43,6 +45,7 @@ export function SyncStatusBar({ onReconnect }: { onReconnect?: () => void }) {
   const [conflictCount, setConflictCount] = useState(0);
 
   const isOnline = useNetworkStatus(onReconnect);
+  const { status: subStatus } = useSubscription();
 
   // Subscribe to sync status changes
   useEffect(() => {
@@ -63,8 +66,11 @@ export function SyncStatusBar({ onReconnect }: { onReconnect?: () => void }) {
     return () => clearInterval(interval);
   }, [refreshCounts, syncStatus]);
 
-  // Determine what to show
+  // Determine what to show. Lapsed subscription takes the highest
+  // priority — every local edit accumulates as "pending forever" until
+  // the user renews, so it's the most actionable signal.
   const state: BarState = (() => {
+    if (subStatus === 'lapsed') return { kind: 'lapsed' };
     if (syncStatus === 'syncing') return { kind: 'syncing' };
     if (!isOnline) return { kind: 'offline', pending: pendingCount };
     if (conflictCount > 0) return { kind: 'conflicts', count: conflictCount };
@@ -78,12 +84,15 @@ export function SyncStatusBar({ onReconnect }: { onReconnect?: () => void }) {
   // Offline with pending counts also navigates so the user can review what
   // hasn't synced yet — same destination as the online "pending" state.
   const tappable =
+    state.kind === 'lapsed' ||
     state.kind === 'conflicts' ||
     state.kind === 'pending' ||
     (state.kind === 'offline' && state.pending > 0);
 
   const onBarPress = () => {
-    if (state.kind === 'conflicts') {
+    if (state.kind === 'lapsed') {
+      router.push('/paywall?canDismiss=1' as any);
+    } else if (state.kind === 'conflicts') {
       router.push('/conflicts' as any);
     } else if (state.kind === 'pending' || state.kind === 'offline') {
       router.push('/pending' as any);
@@ -92,6 +101,8 @@ export function SyncStatusBar({ onReconnect }: { onReconnect?: () => void }) {
 
   const label = (() => {
     switch (state.kind) {
+      case 'lapsed':
+        return 'Cloud sync off \u00B7 Renew to resume';
       case 'offline':
         return state.pending > 0
           ? `Offline \u00B7 ${state.pending} pending change${state.pending > 1 ? 's' : ''}`
@@ -127,6 +138,11 @@ export function SyncStatusBar({ onReconnect }: { onReconnect?: () => void }) {
 }
 
 const BAR_CONFIG: Record<Exclude<BarState['kind'], 'hidden'>, { bg: string; fg: string; icon: SFSymbolName }> = {
+  lapsed: {
+    bg: colors.warningBg,
+    fg: colors.warningText,
+    icon: 'arrow.clockwise.circle.fill',
+  },
   offline: {
     bg: colors.palette.neutral[200],
     fg: colors.textMuted,
