@@ -26,6 +26,12 @@ import {
 } from '@/src/lib/secureStore';
 import { testAnthropicKey } from '@/src/lib/vision';
 import {
+  openManageSubscriptions,
+  restoreSubscription,
+  SUBSCRIPTION_ENFORCEMENT_ENABLED,
+  useSubscription,
+} from '@/src/lib/subscription';
+import {
   ALL_WINDOWS,
   getReminderWindows,
   isNotificationsEnabled,
@@ -44,6 +50,8 @@ export default function ProfileScreen() {
   const [testing, setTesting] = useState(false);
   const [notifEnabled, setNotifEnabled] = useState(true);
   const [activeWindows, setActiveWindows] = useState<ReminderWindow[]>([...ALL_WINDOWS]);
+  const [restoringSub, setRestoringSub] = useState(false);
+  const subscription = useSubscription();
 
   const loadProfile = useCallback(async () => {
     const user = await getActiveUser();
@@ -193,6 +201,60 @@ export default function ProfileScreen() {
     }
   };
 
+  // ---- Subscription -------------------------------------------------------
+
+  const handleRestoreSubscription = async () => {
+    if (restoringSub) return;
+    try {
+      setRestoringSub(true);
+      await restoreSubscription();
+      await subscription.refresh();
+      Alert.alert(
+        'Restore complete',
+        'If you have an active or past subscription, it has been restored.',
+      );
+    } catch (e: any) {
+      Alert.alert('Restore failed', e?.message ?? 'Unknown error');
+    } finally {
+      setRestoringSub(false);
+    }
+  };
+
+  const subLabel = (() => {
+    switch (subscription.status) {
+      case 'loading':
+        return 'Checking…';
+      case 'active':
+        return 'Active';
+      case 'lapsed':
+        return 'Inactive — local-only mode';
+      case 'never':
+      default:
+        return 'Not subscribed';
+    }
+  })();
+
+  const subDotColor = (() => {
+    switch (subscription.status) {
+      case 'active':
+        return colors.success;
+      case 'lapsed':
+        return colors.warning;
+      default:
+        return colors.textSubtle;
+    }
+  })();
+
+  const subDateLabel = (() => {
+    if (!subscription.expiresAt) return null;
+    const d = subscription.expiresAt.toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+    return subscription.status === 'active' ? `Renews ${d}` : `Expired ${d}`;
+  })();
+
   const handleRemoveKey = () => {
     Alert.alert(
       'Remove API key',
@@ -289,6 +351,58 @@ export default function ProfileScreen() {
           </View>
           <Icon sf="pencil" size={16} color={colors.textSubtle} />
         </Pressable>
+
+        {/* Subscription section */}
+        <Text style={styles.sectionHeader}>SUBSCRIPTION</Text>
+        <View style={styles.card}>
+          <View style={styles.subStatusRow}>
+            <View style={[styles.statusDot, { backgroundColor: subDotColor }]} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.subStatusLabel}>{subLabel}</Text>
+              {subDateLabel ? (
+                <Text style={styles.subStatusSubLabel}>{subDateLabel}</Text>
+              ) : null}
+            </View>
+          </View>
+
+          <View style={styles.actionRow}>
+            {subscription.status === 'active' ? (
+              <Pressable
+                style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.7 }]}
+                onPress={() => openManageSubscriptions().catch(() => {})}
+              >
+                <Text style={styles.actionBtnText}>Manage</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.8 }]}
+                onPress={() => router.push('/paywall?canDismiss=1' as any)}
+              >
+                <Icon sf="arrow.clockwise" size={16} color={colors.textOnPrimary} />
+                <Text style={styles.primaryBtnText}>
+                  {subscription.status === 'lapsed' ? 'Renew' : 'Subscribe'}
+                </Text>
+              </Pressable>
+            )}
+            <Pressable
+              style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.7 }]}
+              onPress={handleRestoreSubscription}
+              disabled={restoringSub}
+            >
+              {restoringSub ? (
+                <ActivityIndicator color={colors.text} />
+              ) : (
+                <Text style={styles.actionBtnText}>Restore</Text>
+              )}
+            </Pressable>
+          </View>
+
+          {!SUBSCRIPTION_ENFORCEMENT_ENABLED ? (
+            <Text style={styles.subDevNote}>
+              Subscriptions not yet enabled in this build.
+            </Text>
+          ) : null}
+        </View>
 
         {/* Claude Vision section */}
         <Text style={styles.sectionHeader}>CLAUDE VISION</Text>
@@ -540,6 +654,30 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
+  },
+  subStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+    marginBottom: spacing.md,
+  },
+  subStatusLabel: {
+    ...typography.body,
+    color: colors.text,
+    fontWeight: '600',
+  },
+  subStatusSubLabel: {
+    ...typography.footnote,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  subDevNote: {
+    ...typography.caption,
+    color: colors.textSubtle,
+    textAlign: 'center',
+    marginTop: spacing.sm,
+    fontStyle: 'italic',
   },
   statusText: {
     ...typography.footnote,
