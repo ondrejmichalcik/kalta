@@ -14,6 +14,7 @@ import {
   restorePurchases as iapRestorePurchases,
   type ProductSubscription,
 } from 'expo-iap';
+import { supabase } from './supabase';
 
 // Master gate for the entire subscription feature. While false, the app
 // behaves as it did before subscriptions existed: `useSubscription` returns
@@ -204,6 +205,26 @@ export async function openManageSubscriptions(): Promise<void> {
   await deepLinkToSubscriptions({} as any);
 }
 
+/**
+ * Mirror the current StoreKit-derived subscription expiry to the
+ * `public.users` row in Supabase. The server-side `cleanup_lapsed_cloud_data`
+ * cron reads this column to decide which warehouses to GC after 30 days
+ * of lapse. We skip 'never' (nothing useful to record) and 'loading'.
+ */
+async function pushSubscriptionToSupabase(state: SubscriptionState): Promise<void> {
+  if (state.status === 'never' || state.status === 'loading') return;
+  const { data } = await supabase.auth.getUser();
+  const userId = data?.user?.id;
+  if (!userId) return; // not signed in — nothing to update yet
+  await supabase
+    .from('users')
+    .update({
+      subscription_expires_at: state.expiresAt?.toISOString() ?? null,
+      subscription_product_id: state.productId,
+    })
+    .eq('id', userId);
+}
+
 export async function fetchSubscriptionProduct(): Promise<ProductSubscription | null> {
   if (!SUBSCRIPTION_ENFORCEMENT_ENABLED) return null;
   await ensureConnection();
@@ -239,6 +260,10 @@ export function useSubscription(): UseSubscriptionResult {
       if (!mountedRef.current) return;
       setState(next);
       await saveCachedState(next);
+      // Fire-and-forget push to Supabase so the server-side 30-day TTL
+      // cleanup can see when this user's sub lapses. Failure is non-fatal
+      // (will retry on next refresh).
+      pushSubscriptionToSupabase(next).catch(() => {});
     } catch (err) {
       console.warn('[subscription] refresh failed', err);
     }

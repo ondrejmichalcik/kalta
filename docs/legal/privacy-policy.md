@@ -1,7 +1,7 @@
 # Privacy Policy
 
 **Effective date:** 2026-04-24
-**Last updated:** 2026-04-24
+**Last updated:** 2026-05-16
 
 This Privacy Policy describes how the Kalta iOS app ("Kalta", "the app", "we", "our") collects, uses, and shares information when you use the app.
 
@@ -28,6 +28,7 @@ If you are in the European Economic Area (EEA), you can contact us at the email 
 
 - **Apple ID info** you allow at sign-in (email and name).
 - **Your inventory content** — warehouses, boxes, item names, expiration dates, optional photos, optional notes.
+- **Subscription status** — your Kalta Cloud subscription expiration date, linked to your account ID. Used to enforce active access to cloud features and to delete cloud copies 30 days after lapse. The actual payment is processed by Apple — we never see your card details, billing address, or transaction history.
 - **Device permissions** you grant (camera, photo library, Bluetooth, local network, notifications).
 - **Optional**: if you choose to enter an Anthropic API key for AI-assisted product recognition, product photos you scan are sent to Anthropic with your key.
 
@@ -39,6 +40,7 @@ We do **not** collect:
 - Microphone audio.
 - Crash reports or analytics.
 - Any third-party tracking data.
+- Payment card details, billing addresses, or transaction history (Apple processes all payments).
 
 ---
 
@@ -189,8 +191,10 @@ You can share any warehouse with another Kalta user by generating an invitation 
 ## 10. Data retention
 
 - **Account data** is retained as long as your account exists.
-- **Inventory data** is retained as long as the warehouse owner keeps it. When the owner deletes a warehouse, its contents are permanently removed (soft-deleted first, then permanently purged).
-- **Product images** uploaded to Supabase Storage are retained alongside their item. Deleting the item triggers removal of the image on the next cleanup cycle.
+- **Inventory data** is retained as long as your Kalta Cloud subscription is active or within **30 days after the subscription lapses**. After that, server-side cleanup permanently deletes cloud copies of warehouses, items, and images for which all members' subscriptions have been expired for at least 30 days. **Local data on your device is never affected by this cleanup** — you keep using the app locally as long as you have ever subscribed in the past.
+- **Shared warehouse rule:** A warehouse stays in the cloud as long as at least one of its members holds an active subscription. The 30-day TTL only kicks in when every member has been lapsed for that long.
+- **Product images** uploaded to Supabase Storage follow the same rule: bound to the warehouse they belong to. Deleting an item triggers image removal on the next cleanup cycle.
+- **Subscription status** (your expiration date) is retained until you delete your account. After deletion, it is purged with the rest of your account data.
 - **Local device data** is retained until you delete the app or sign out of a device. Signing out clears cached user data from that device.
 
 If you ask us to delete your account (see Section 11), we delete your user record and its associated warehouses (where you are the owner) within 30 days.

@@ -29,8 +29,16 @@ const softwareAppSchema = {
   operatingSystem: 'iOS',
   offers: {
     '@type': 'Offer',
-    price: '9.99',
+    price: '14.99',
     priceCurrency: 'USD',
+    priceSpecification: {
+      '@type': 'UnitPriceSpecification',
+      price: '14.99',
+      priceCurrency: 'USD',
+      billingDuration: 'P1Y',
+      billingIncrement: 1,
+      unitText: 'YEAR',
+    },
   },
   author: {
     '@type': 'Person',

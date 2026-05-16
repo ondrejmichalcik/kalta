@@ -1,7 +1,7 @@
 # Terms of Service
 
 **Effective date:** 2026-04-24
-**Last updated:** 2026-04-24
+**Last updated:** 2026-05-16
 
 These Terms of Service ("Terms") govern your use of the Kalta iOS app ("Kalta", "the app") and the sync service that powers it ("the service"). By downloading, installing, or using Kalta, you agree to these Terms.
 
@@ -47,11 +47,23 @@ Kalta is **not** a substitute for professional advice about emergency preparedne
 
 ---
 
-## 4. Price and refunds
+## 4. Subscription, price, and refunds
 
-Kalta is a **paid app**. The price is set per App Store region and displayed in the App Store before purchase. Your purchase is a one-time payment for a perpetual license to use the app on devices associated with your Apple ID.
+Kalta is **free to download**. Using the app requires an active **Kalta Cloud subscription**, an auto-renewing in-app purchase.
+
+**Price.** The current price is approximately $14.99 USD per year (regional equivalents apply). The exact price for your region is displayed in the App Store before purchase and on the in-app subscription screen.
+
+**Billing.** Subscriptions are billed to your Apple ID. Payment is charged at confirmation of purchase. The subscription renews automatically at the end of each yearly term unless **auto-renewal is turned off at least 24 hours before the end of the current period**.
+
+**Cancellation.** You can manage and cancel your subscription at any time in **iOS Settings → your name → Subscriptions**, or via the **Manage Subscription** button in Kalta's Profile screen. Cancellation takes effect at the end of the current paid period; you retain access to cloud features until then.
 
 **Refunds** are handled by Apple under Apple's refund policy. To request a refund, go to https://reportaproblem.apple.com and select the purchase. We cannot process refunds directly — only Apple can.
+
+**Family Sharing.** The Kalta Cloud subscription is shareable with members of your Apple Family Sharing group (up to 6 family members). Only one subscription is needed per family.
+
+**After cancellation or lapse — local mode continues.** If your subscription lapses (you cancel, fail to pay, or the renewal is interrupted), Kalta keeps working **locally** on your device. You can continue to add, edit, and delete inventory; only cloud-touching features (sync to our servers, multi-device sharing through the cloud, image upload, AI item recognition) are disabled. Peer-to-peer sync between nearby devices remains available.
+
+**Cloud data retention after lapse.** Cloud copies of your warehouses, items, and uploaded images are kept on our servers for **30 days after your subscription expires**. After that, server-side cleanup deletes them. **Local data on your device is never affected.** If you resubscribe within the 30-day window your cloud copy stays available; if you resubscribe later your device re-uploads everything it still has locally.
 
 Nothing in these Terms limits mandatory consumer protection rights you have under the law of your country of residence (including the EU Consumer Rights Directive, where applicable).
 
@@ -165,7 +177,7 @@ Nothing in this section limits any statutory consumer rights you may have that c
 To the maximum extent permitted by law:
 
 - We are not liable for indirect, incidental, special, consequential, or punitive damages arising out of your use of the app or service.
-- Our total liability arising out of or related to these Terms is limited to the amount you paid for the app in the twelve (12) months preceding the event giving rise to the claim.
+- Our total liability arising out of or related to these Terms is limited to the amount you paid us for the Kalta Cloud subscription in the twelve (12) months preceding the event giving rise to the claim.
 
 These limitations do not apply to liability that cannot be excluded by law, including gross negligence, willful misconduct, or liability to consumers under mandatory consumer protection law.
 

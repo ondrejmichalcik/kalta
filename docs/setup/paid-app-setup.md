@@ -204,21 +204,21 @@ This is a **separate agreement** from Paid Applications. Enrolling drops Apple's
 - Sales between today and the activation date use the default 30% rate.
 - **Plan**: enroll ASAP so the rate drop starts at the earliest quarter.
 
-### Commission math at Tier 10 ($9.99)
+### Commission math at Tier 15 ($14.99 / year subscription)
 
-- **Default 30%**: you get $6.99 per sale (gross revenue minus Apple's 30%).
-- **SBP 15%**: you get $8.49 per sale.
-- Difference: **$1.50 per sale**. At 100 sales/month, that's **$150/month** extra.
+- **Default 30%**: you get $10.49 per subscription/year (gross minus Apple's 30%).
+- **SBP 15%**: you get $12.74 per subscription/year.
+- Difference: **$2.25 per sub/year**. At 100 active subs, that's **$225/year** extra revenue.
 
-Why Tier 10: Kalta is a niche app with per-user backend cost (Supabase hosting). Tier 10 comfortably pre-pays ~2-3 years of hosting for each customer, which keeps the one-time purchase model sustainable at any scale.
+**Why subscription instead of a one-time price:** Kalta has recurring per-user backend cost (Supabase hosting + cloud storage of images). A one-time $9.99 Tier 10 covered only ~2-3 years of hosting per user — after that the customer was subsidized indefinitely. The yearly subscription matches recurring revenue to recurring cost, and keeps the app sustainable at any scale.
 
 ---
 
-## Part 6 — Create the app record in App Store Connect
+## Part 6 — Create the app record + subscription product in App Store Connect
 
-Before you can enable Family Sharing or generate promo codes, the app must exist as a record.
+Before you can enable Family Sharing or generate offer codes, the app must exist as a record. The Kalta Cloud subscription product is configured under it.
 
-### Steps
+### 6A — Create the app record
 
 1. App Store Connect → **Apps** (top navigation).
 2. Click **+** → **New App**.
@@ -231,7 +231,35 @@ Before you can enable Family Sharing or generate promo codes, the app must exist
    - **User Access:** Full Access
 4. Click **Create**.
 
-You're now on the app's App Store page config screen. Everything else below happens from here.
+### 6B — Set app price to Free
+
+1. In the app record → **App Information** → **Pricing and Availability**.
+2. **Price:** Free.
+3. Save.
+
+The app itself is free; revenue comes from the in-app subscription below.
+
+### 6C — Create the Kalta Cloud subscription product
+
+1. In the app record → **In-App Purchases** (left sidebar) → **Manage**.
+2. Click **+** under **Subscription Groups** → name: `Kalta Cloud` → Create.
+3. Open the group → click **+** under Subscriptions:
+   - **Reference Name:** `Kalta Cloud Yearly`
+   - **Product ID:** `com.ondrejmichalcik.kalta.cloud_yearly` (must match `SUBSCRIPTION_PRODUCT_ID` in `src/lib/subscription.ts`)
+   - **Subscription Duration:** 1 Year
+   - **Price Schedule:** Tier 15 (~$14.99 USD)
+   - **Family Sharing:** Enabled
+   - **Localizations:**
+     - **EN (en-US):** Display name `Kalta Cloud`. Description: *"Cloud sync across devices, multi-device shared warehouses, AI item recognition, and unlimited cloud image storage. Auto-renews yearly. Cancel anytime in App Store settings."*
+     - **CS (cs):** Display name `Kalta Cloud`. Description: *"Cloud synchronizace mezi zařízeními, sdílené sklady, AI rozpoznávání položek a neomezené úložiště fotek. Obnovuje se ročně. Lze kdykoli zrušit v nastavení App Store."*
+   - **Review Information:**
+     - **Screenshot:** Paywall screen showing Subscribe button and auto-renewal disclosure.
+     - **Review Notes:** "Mandatory paywall on first launch. Sandbox Apple ID makes subscribe free. Cancel any time via iOS Settings."
+4. Save → status will go to **Ready to Submit**. It does not need to be Approved separately — it ships with the next app version review.
+
+### 6D — Mirror the storekit config
+
+Make sure `storekit/Kalta.storekit` in the repo still matches the ASC product (product ID, period, price tier, Family Sharing). The .storekit file is only used for simulator testing, but keeping it in sync avoids surprises when switching between sandbox and ASC.
 
 ---
 
@@ -246,8 +274,8 @@ You're now on the app's App Store page config screen. Everything else below happ
 
 ### What this does
 
-- Your purchase of Kalta ($9.99) is shared with members of your Apple Family Sharing group.
-- Your wife, when added to your Family group, downloads Kalta for free after you've bought it.
+- Your **Kalta Cloud subscription** ($14.99/year) is shared with members of your Apple Family Sharing group.
+- Your wife, when added to your Family group, gets full app access for free as long as your subscription is active.
 - Works for up to **6 family members** per Family group.
 
 ### Requirements for you
@@ -266,24 +294,36 @@ If you haven't already:
 
 ---
 
-## Part 8 — Promo codes (after review approval)
+## Part 8 — Offer codes for the subscription (after review approval)
 
-Promo codes let you give Kalta for free to specific people (beta testers, press, friends). Each code is one-time use, valid 28 days.
+Because Kalta is a free download with a subscription, the relevant Apple mechanism is **Offer Codes**, not Promo Codes. Offer Codes can grant a free intro period (e.g. 1 year) for the subscription, bypassing the initial charge. After the intro period the subscription auto-renews at the normal price unless the recipient cancels.
 
-You can only generate codes **after your first submitted version is approved**. So this is a post-launch step.
+Offer codes become available **after the subscription product is in "Ready to Submit" state** (which happens once the Paid Applications Agreement is active and you've configured the product in Part 6C).
 
-### Steps
+### Setting up an offer code
 
-1. App Store Connect → Apps → Kalta.
-2. Top nav → **TestFlight** (if for beta) or **Distribution → Promo Codes** (for App Store).
-3. Wait — Promo Codes only appears as an option after Version 1.0 is Approved by Apple.
-4. Once available: click **Promo Codes** → enter quantity (up to 100 per version) → click **Create**.
-5. Download as `.csv` or view codes individually.
+1. App Store Connect → Apps → Kalta → **In-App Purchases** → open the `Kalta Cloud Yearly` subscription.
+2. Scroll to **Subscription Offers** → click **+** under **Offer Codes**.
+3. Configure:
+   - **Reference Name:** e.g. `Family-Free-Year`
+   - **Eligibility:** New subscribers, existing subscribers, or both
+   - **Offer Type:** **Free** (the recipient pays nothing during the intro period)
+   - **Duration:** 1 Year
+   - **Codes:** generate a batch (up to 1 000 000 per quarter). Use Custom Codes for memorable single codes, or unique codes for distribution.
+4. Optionally provide a distribution URL — Apple generates a one-tap redemption link.
 
 ### How recipient uses the code
 
-- On iPhone → open **App Store app** → tap profile icon (top right) → **Redeem Gift Card or Code** → enter the code.
-- Kalta downloads for free, bypassing payment.
+- On iPhone → open **Kalta** → Paywall → **Restore** doesn't surface this; offer codes are redeemed differently:
+  - Via the distribution URL Apple gave you, or
+  - In **Settings → your name → Subscriptions → Add Offer Code**.
+- After redemption the subscription becomes active for the intro period (1 year) at no charge.
+- **Reminder:** to avoid being billed after the year, the recipient must cancel auto-renewal before the period ends, or generate a fresh code for them.
+
+### For Ondřej + wife specifically
+
+- **Wife:** add to Apple Family Sharing (Part 7). She gets full access for free as long as your subscription is active. No offer code needed.
+- **You:** generate a `Free-1-Year` offer code for your real Apple ID and redeem it annually. Set a calendar reminder ~340 days out to cancel + redeem a fresh code, or just decide it's worth ~$2 net cost per year and let it bill normally (cleaner, no maintenance).
 
 ---
 

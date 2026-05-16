@@ -72,11 +72,16 @@ To test the AI feature, the reviewer can either:
 
 ---
 
-## Paid app notes
+## Subscription notes
 
-- Kalta is priced at Tier 10 (~$9.99 USD) with Apple Small Business Program enabled.
-- Apple Family Sharing is enabled — one purchase covers all Family Group members.
-- Refunds are handled by Apple via https://reportaproblem.apple.com.
+- **App price:** Free download.
+- **In-app purchase:** Auto-renewing yearly subscription **Kalta Cloud** at **Tier 15 (~$14.99 USD / year)** with Apple Small Business Program enabled.
+- **Mandatory paywall on first launch** for users with no prior purchase history. Reviewers signing in with a sandbox Apple ID will see the paywall after Apple Sign In — please tap **Subscribe** to proceed. The sandbox environment makes this free.
+- **Restore Purchases** is available on the paywall and in Profile → Subscription for users reinstalling the app.
+- **Family Sharing** is enabled — one subscription covers up to 6 family members.
+- **After cancellation / lapse**, the app continues to work locally; only cloud sync, image upload, and AI features are gated. The user can keep adding and editing inventory on-device indefinitely.
+- **Cloud data retention after lapse:** 30 days, then server-side cleanup. Disclosed in the Terms of Service and Privacy Policy.
+- **Refunds** are handled by Apple via https://reportaproblem.apple.com.
 
 ---
 

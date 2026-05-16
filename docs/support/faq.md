@@ -119,15 +119,34 @@ Both devices need to tap **Accept** on their review screen for the sync to commi
 
 Tap **Try again** on the rejection screen — this clears the state and goes back to "Connected". From there, either device can tap **Sync now** again to start a fresh exchange.
 
-## Refunds and purchases
+## Subscription
+
+### What does Kalta cost?
+
+Kalta is **free to download** but requires an active **Kalta Cloud subscription** (~$14.99 USD per year) for full functionality. The exact price for your region is shown in the App Store and on the in-app subscription screen.
+
+### How do I cancel?
+
+Go to **iOS Settings → your name → Subscriptions → Kalta Cloud → Cancel Subscription**, or use **Manage Subscription** in Kalta's Profile screen — it deep-links into the same iOS sheet. Cancellation takes effect at the end of the current paid period; you keep cloud access until then.
+
+### What happens to my data if I cancel?
+
+The app keeps working **locally on your device** indefinitely — you can keep adding, editing, and viewing inventory without an active subscription. Only the cloud-touching features go away (sync between devices, image upload to our servers, AI item recognition). Peer-to-peer sync between nearby devices still works.
+
+Your **cloud copy** is kept on our servers for **30 days after the subscription expires** in case you renew. After 30 days the server-side cleanup deletes the cloud copy. Local data on your device is never touched by this.
+
+### What if I resubscribe?
+
+Resubscribe within 30 days → cloud copy is still there, sync resumes where it left off.
+Resubscribe later → your device re-uploads everything it still has locally, and you start fresh in the cloud.
 
 ### How do I get a refund?
 
-Refunds are handled by Apple, not by us. Visit https://reportaproblem.apple.com, find the Kalta purchase, and request a refund. Apple decides based on their own policy.
+Refunds are handled by Apple, not by us. Visit https://reportaproblem.apple.com, find the Kalta Cloud subscription charge, and request a refund. Apple decides based on their own policy.
 
-### Bought Kalta — can my family member use it too?
+### Can my family member use my subscription?
 
-Yes, if you're set up for **Apple Family Sharing** and Kalta's Family Sharing flag is enabled. Your family members can install Kalta without paying again.
+Yes — **Family Sharing** is enabled. One Kalta Cloud subscription covers up to 6 members of your Apple Family Sharing group. On their device they download Kalta for free and tap **Get with Family Sharing** instead of Subscribe.
 
 ## Privacy and account
 

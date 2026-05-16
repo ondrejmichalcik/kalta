@@ -44,7 +44,7 @@ For each item below, mark as collected and note purpose + whether it's **linked 
 
 ### Financial Info — **None collected**
 
-*(Kalta is a paid app; Apple handles payment. We never see payment data.)*
+*(Kalta uses an auto-renewing subscription processed by Apple. We never see payment card details, billing address, or transaction history — Apple handles all of that and only reports aggregate sales numbers to us in App Store Connect.)*
 
 ---
 
@@ -109,7 +109,15 @@ For each item below, mark as collected and note purpose + whether it's **linked 
 
 ---
 
-### Purchases — **Not collected**
+### Purchases
+
+#### Purchase History
+- **Collected:** Yes
+- **Purpose:** App Functionality (gates cloud sync, image upload, and AI features on an active Kalta Cloud subscription; triggers 30-day cleanup of cloud data after lapse)
+- **Linked to user:** Yes
+- **Used for tracking:** **No**
+
+*(We store only the subscription's `expires_at` timestamp linked to the user record. We do not store SKU history, billing dates, refund history, or any payment instrument — Apple holds all of that.)*
 
 ---
 
@@ -184,10 +192,11 @@ Data Linked to You
 │  Contact Info        │ (email, name)
 │  User Content        │ (photos, other)
 │  Identifiers         │ (user ID)
+│  Purchases           │ (subscription expiration)
 └──────────────────────┘
 
 Data Not Linked to You: none
 Data Used to Track You: none
 ```
 
-This is one of the friendliest nutrition labels possible for an app that has any backend — use it in marketing copy ("Zero tracking. Data linked only for sharing, nothing else.").
+Still one of the friendliest nutrition labels possible for an app that has any backend — use it in marketing copy ("Zero tracking. Data linked only for sharing and subscription state, nothing else.").

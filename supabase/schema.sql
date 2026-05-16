@@ -184,6 +184,20 @@ alter table public.inventory_lines add column if not exists found_quantity numer
 alter table public.inventory_lines drop constraint if exists inventory_lines_status_check;
 alter table public.inventory_lines add constraint inventory_lines_status_check check (status in ('found', 'missing', 'partial'));
 
+-- users.subscription_expires_at — Sprint 5 subscription model.
+-- The app reports the current StoreKit `expirationDate` here on every
+-- sync. Used by cleanup_lapsed_cloud_data() to delete cloud copies
+-- 30 days after lapse. NULL = unknown (legacy / fresh row) — cleanup
+-- treats NULL as "still active" so legacy data isn't blown away.
+-- Users can only update their own row via `users_update_self` policy.
+alter table public.users
+  add column if not exists subscription_expires_at timestamptz;
+alter table public.users
+  add column if not exists subscription_product_id text;
+create index if not exists idx_users_sub_expires
+  on public.users(subscription_expires_at)
+  where subscription_expires_at is not null;
+
 -- ============================================================================
 -- FUNCTIONS + TRIGGERS
 -- ============================================================================
@@ -718,6 +732,84 @@ end $$;
 do $$ begin
   alter publication supabase_realtime add table public.warehouse_members;
 exception when duplicate_object then null;
+end $$;
+
+-- ============================================================================
+-- SUBSCRIPTION CLEANUP (30-day TTL after lapse) — Sprint 5
+-- ============================================================================
+-- Cron-driven cleanup of cloud copies belonging to users whose Kalta
+-- Cloud subscription has been expired for at least 30 days.
+--
+-- Rules:
+--   * A warehouse is cleaned up only if EVERY member's
+--     subscription_expires_at is older than (now - 30 days).
+--   * NULL subscription_expires_at is treated as "still active" so
+--     legacy rows (created before subscription rollout, or during the
+--     enforcement-disabled rollout window) are never deleted by mistake.
+--   * Local SQLite on the user's device is never touched — this is
+--     server-side cleanup only. On resubscribe within 30 days the cloud
+--     copy is still there; resubscribing later, the device re-uploads
+--     everything it still has.
+--
+-- Storage cleanup: this function deletes warehouses (cascade → boxes →
+-- items), but images in storage.objects belong to a separate subsystem
+-- that PG triggers can't easily reach. Orphaned images under
+-- {warehouseId}/* are swept by a separate Edge Function (TODO before
+-- enforcement flag flip).
+
+create or replace function public.cleanup_lapsed_cloud_data()
+returns table (warehouses_deleted int, cutoff timestamptz)
+language plpgsql security definer
+as $$
+declare
+  v_cutoff timestamptz := now() - interval '30 days';
+  v_deleted int;
+begin
+  with lapsed_warehouses as (
+    select w.id
+    from public.warehouses w
+    where not exists (
+      select 1
+      from public.warehouse_members wm
+      join public.users u on u.id = wm.user_id
+      where wm.warehouse_id = w.id
+        and (
+          u.subscription_expires_at is null
+          or u.subscription_expires_at >= v_cutoff
+        )
+    )
+  ), del as (
+    delete from public.warehouses
+    where id in (select id from lapsed_warehouses)
+    returning id
+  )
+  select count(*)::int into v_deleted from del;
+  warehouses_deleted := v_deleted;
+  cutoff := v_cutoff;
+  return next;
+end;
+$$;
+
+-- pg_cron schedule. Requires the `pg_cron` extension to be enabled in
+-- Supabase (Dashboard → Database → Extensions → pg_cron). Running this
+-- on a fresh project without the extension is a no-op — the cron schedule
+-- call is wrapped in a DO block so the rest of the schema still applies.
+do $$ begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    -- Unschedule the old job if it already exists, then reschedule.
+    perform cron.unschedule('kalta-cleanup-lapsed-cloud-data')
+      where exists (select 1 from cron.job where jobname = 'kalta-cleanup-lapsed-cloud-data');
+    perform cron.schedule(
+      'kalta-cleanup-lapsed-cloud-data',
+      '0 3 * * *',                -- daily at 03:00 UTC
+      $cron$ select public.cleanup_lapsed_cloud_data(); $cron$
+    );
+  end if;
+exception when undefined_function then
+  -- cron.schedule / cron.unschedule not available — extension is enabled
+  -- but the cron schema isn't accessible. Leaves the function defined so
+  -- it can be invoked manually until pg_cron is provisioned.
+  null;
 end $$;
 
 do $$ begin

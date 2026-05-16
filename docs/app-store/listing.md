@@ -211,10 +211,40 @@ https://kalta.app/privacy
 
 ## Pricing
 
-- **Tier 10** ($9.99 USD, ~249 CZK, ~9,99 EUR)
+- **App price:** Free
+- **In-app purchase:** Auto-renewing yearly subscription "Kalta Cloud"
+  - Product ID: `com.ondrejmichalcik.kalta.cloud_yearly`
+  - Subscription Group: `Kalta Cloud`
+  - **Tier 15** (~$14.99 USD / ~369 CZK / ~14,99 EUR per year)
+  - Period: 1 year, auto-renews
+  - No free trial (immediate paid subscription on first launch)
 - **Small Business Program** enabled — Apple cut reduced from 30% to 15%.
-- **Family Sharing** enabled — one purchase shared with Apple Family Group members.
+- **Family Sharing** enabled — one subscription shared with Apple Family Group members (up to 6).
 - **Availability:** All countries (default) unless you want to restrict.
+
+### Subscription details for App Store Connect
+
+- **Display name (EN):** Kalta Cloud
+- **Display name (CS):** Kalta Cloud
+- **Description (EN):** Cloud sync across devices, multi-device shared warehouses, AI item recognition, and unlimited cloud image storage. Auto-renews yearly. Cancel anytime in App Store settings.
+- **Description (CS):** Cloud synchronizace mezi zařízeními, sdílené sklady, AI rozpoznávání položek a neomezené úložiště fotek. Obnovuje se ročně. Lze kdykoli zrušit v nastavení App Store.
+- **Review screenshot:** Show paywall + Subscribe button + auto-renewal disclosure.
+
+### What the subscription unlocks vs free tier
+
+| Feature | Free (lapsed / never subscribed) | Active subscription |
+|---|---|---|
+| Browse data, expiry notifications, EAN scan | ✅ | ✅ |
+| Add / edit / delete items locally | ✅ (lapsed) · ❌ (never subscribed — hard paywall on first launch) | ✅ |
+| Peer-to-peer sync (Bluetooth / WiFi direct) | ✅ | ✅ |
+| Cloud sync to Supabase | ❌ | ✅ |
+| Multi-device shared warehouses | ❌ | ✅ |
+| AI item recognition (Claude Vision) | ❌ | ✅ |
+| Image upload to cloud storage | ❌ | ✅ |
+
+**First-launch behavior:** Free download, but the app requires a Kalta Cloud subscription to start. Users who have ever subscribed (currently or in the past) can continue to use the app locally even after the subscription lapses; only cloud-touching features are gated.
+
+**Lapsed cloud data retention:** Cloud copies of warehouses, items, and images are kept on our servers for **30 days after the subscription expires**. After that, server-side cleanup removes them — local data on the device is never affected.
 
 ---
 
