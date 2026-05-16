@@ -454,3 +454,100 @@ Optimistic update + realtime event občas blikne (200ms). Úmyslné, řešit jen
 
 ### 11.6 Date picker locale
 `locale="cs-CZ"` funguje jen když iOS má český lokál v Settings. Jinak fallback na en-US.
+
+---
+
+## 12. Subscription (Sprint 5)
+
+**Preconditions:**
+- `SUBSCRIPTION_ENFORCEMENT_ENABLED` v `src/lib/subscription.ts` flipnuté na `true` (pro real testing). Při `false` se kompletně přeskakují všechny gates a paywall není reachable přes auth guard.
+- **Lokální testování (simulátor):** Xcode scheme má attach `storekit/Kalta.storekit` (Edit Scheme → Run → Options → StoreKit Configuration).
+- **TestFlight testování:** Active Paid Apps Agreement + product `com.ondrejmichalcik.kalta.cloud_yearly` v ASC (Ready to Submit stačí) + Sandbox Apple ID přihlášený v iOS Settings → App Store → Sandbox Account.
+
+### Časová zrychlení v sandboxu
+
+| Real period | Sandbox time | StoreKit Config time |
+|---|---|---|
+| 1 týden | 3 min | nastavitelné v Xcode |
+| 1 měsíc | 5 min | |
+| 1 rok | 1 hodina | |
+
+Sandbox subscription se auto-renewuje max 6× pak expire. Pro StoreKit Config v Xcode: Debug → StoreKit → Manage Transactions → můžeš ručně forcovat renew / expire / refund event.
+
+### 🟢 12.1 Fresh install → mandatory paywall
+1. Smaž app data (Settings → General → iPhone Storage → Kalta → Delete App + reinstall, nebo Erase Content v simulátoru).
+2. Otevři app → Apple Sign In → po úspěšném loginu by se měl objevit `/paywall` (slide_from_bottom animace).
+3. Paywall ukazuje: hero + 4 value props + "Subscribe — $14.99 / year" + auto-renew disclosure + Restore / Terms / Privacy linky.
+4. Žádný X tlačítko k dismissu (mandatory).
+5. Swipe-down nesmí dismissovat (zatím modal sheet — pokud to půjde, je to bug).
+
+### 🟢 12.2 Subscribe flow
+1. Z paywallu tap Subscribe.
+2. iOS payment sheet (sandbox: zelená "Sandbox" hlavička).
+3. Confirm → krátké loading → příští render: auth guard detekuje `status === 'active'` → router.replace na `/`.
+4. App vstoupí normálně. Profile → SUBSCRIPTION sekce ukazuje "Active · Renews YYYY-MM-DD".
+
+### 🟢 12.3 Restore flow (reinstall scenario)
+1. Pre-cond: Apple ID už má historický nákup (testováno přes 12.2 dřív).
+2. Smaž a reinstaluj app.
+3. Login → paywall (status='loading' krátce, pak 'never' protože cache empty).
+4. Tap **Restore** dole na paywallu.
+5. StoreKit by měl vrátit historický transaction → status flipne na 'active' nebo 'lapsed' → auto-redirect do app.
+
+### 🟡 12.4 Lapsed mode (sub expired)
+1. V StoreKit Config (Xcode) → Manage Transactions → vyber active subscription → "Expire Subscription".
+2. App refresh (background fetch nebo restart) → status='lapsed'.
+3. Profile → SUBSCRIPTION ukazuje "Inactive — local-only mode" + Renew button.
+4. SyncStatusBar nahoře v app: **warning banner** "Cloud sync off · Renew to resume".
+5. Add item — funguje normálně.
+6. Add item s photo — uploadProductImage hodí `CloudFeatureDisabledError`, item se vytvoří bez fotky.
+7. Try AI vision — `CloudFeatureDisabledError`.
+8. P2P sync — funguje.
+9. EAN scan — funguje (OFF lookup).
+10. Tap banner v statusbaru → navigate to `/paywall?canDismiss=1` (slide-up with X close).
+
+### 🟡 12.5 Renew z lapsed stavu
+1. V lapsed mode → tap Renew banner nebo Profile → Renew.
+2. Paywall (canDismiss=1) → Subscribe.
+3. Po purchase: status → 'active', banner zmizí.
+4. Pending changes v `_sync_queue` (které se nepushed během lapse) by se měly pushnout při next syncCycle.
+5. Photos v image cache (které byly bez upload during lapse) — **TODO:** deferred upload není implementován; tyhle items zůstanou bez image_url, user by musel re-attach.
+
+### 🔴 12.6 Subscribe cancelled mid-flow
+1. Tap Subscribe → iOS sheet.
+2. Cancel sheet.
+3. App zůstane na paywallu, žádný error alert (cancel je tichý).
+
+### 🔴 12.7 Network failure během refresh
+1. Vypni internet.
+2. Restart app → cached state se načte z AsyncStorage → user pokračuje s posledním známým stavem.
+3. Žádný crash, žádný hang.
+
+### 🟡 12.8 Family Sharing
+1. iPhone A: Sign in jako Family Organizer Apple ID. Subscribe normálně.
+2. iPhone B: Sign in jako jiný Family member Apple ID.
+3. App B login → paywall → tap Subscribe → iOS sheet **měl by ukázat "Get with Family Sharing"** místo "Subscribe".
+4. Tap → entitlement se aktivuje zdarma → app vstoupí.
+5. `useSubscription` na iPhone B vrátí status='active' s `ownershipType: 'familyShared'` (pokud expo-iap to expose).
+
+### 🟢 12.9 Manage Subscription deep link
+1. Profile → Manage → otevře se iOS Settings → Subscriptions sheet.
+2. Vrať se do app → app pokračuje normálně.
+
+### Backend (Supabase)
+
+### 🟢 12.10 subscription_expires_at push
+1. Po každém refresh v useSubscription se hodnota mirror-uje do `public.users.subscription_expires_at`.
+2. Ověř v Supabase Dashboard → Table Editor → users → tvůj řádek má `subscription_expires_at` nastavené.
+
+### 🟢 12.11 30-day TTL cleanup
+1. V Supabase SQL Editoru ručně nastav `subscription_expires_at = now() - interval '31 days'` pro testovacího usera, který má warehouse.
+2. Run: `select * from public.cleanup_lapsed_cloud_data();` — měl by vrátit `warehouses_deleted >= 1`.
+3. Ověř, že warehouse + child boxes + items jsou pryč v DB.
+4. Image files v storage.objects zůstanou (orphans) — TODO: Edge Function sweep.
+5. App na tom userově zařízení **neztrácí local data** — jen na cloud-side cleanup.
+
+### 🔴 12.12 Shared warehouse cleanup
+1. Setup: warehouse má 2 členy: A (lapsed >30d) + B (active).
+2. Run cleanup → warehouse **NESMÍ** být smazán (protože B je active).
+3. Pak nastav B taky lapsed >30d → run cleanup → warehouse pryč.

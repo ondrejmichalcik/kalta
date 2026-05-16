@@ -623,6 +623,39 @@ Po zjištění že iOS system print dialog Bluetooth tiskárnu nevidí a Brother
 
 ---
 
+## Sprint 5.5 – Subscription pivot 🚧 (2026-05-15 → 2026-05-16)
+
+Mid-launch pivot z **Tier 10 one-time ($9.99)** na **Tier 15 yearly subscription ($14.99/year)**. Motivace: one-time cena pokryje ~2–3 roky Supabase hostingu per user, dál ztrátový. Subscription matchuje recurring cost s recurring revenue.
+
+**Model:**
+- Free download, hard paywall na first launch pro never-subscribed users
+- $14.99/year, **NO trial** (immediate paid subscription)
+- Lapse → **local-only mode** (data + edity pokračují lokálně, cloud features off)
+- 30-day TTL: cloud data se mažou 30 dní po lapse (local data nikdy)
+- StoreKit 2 + `expo-iap` + local verification (žádný backend, plně offline-first)
+- Family Sharing enabled (manželka pokrytá automaticky)
+
+**Code-complete (vše transparentně OFF přes `SUBSCRIPTION_ENFORCEMENT_ENABLED=false`):**
+- ✅ Phase 1 — `expo-iap@4.2.8` + StoreKit Config (`storekit/Kalta.storekit`)
+- ✅ Phase 2 — `src/lib/subscription.ts`: useSubscription hook, AsyncStorage cache, transaction listener, sync helpers
+- ✅ Phase 3 — `app/paywall.tsx`: hero + 4 value props + Subscribe + Restore/Terms/Privacy + canDismiss param
+- ✅ Phase 4 — cloud gates: pushSync, uploadProductImage, deleteProductImage, identifyProduct (CloudFeatureDisabledError)
+- ✅ Phase 5 — `app/_layout.tsx` auth guard: status `never` → /paywall mandatory, `active`/`lapsed` → app
+- ✅ Phase 6 — Profile screen SUBSCRIPTION sekce: status badge + Manage/Subscribe/Restore actions
+- ✅ Phase 7 — SyncStatusBar lapsed banner (warning color, tap → renew)
+- ✅ Phase 8 — docs/legal/{terms,privacy} + docs/app-store/{listing,review-notes,app-privacy} + docs/setup/paid-app-setup + docs/support/faq + web/* + supabase/schema.sql (`users.subscription_expires_at` + `cleanup_lapsed_cloud_data()` + pg_cron daily)
+- ⏳ Phase 9 — testing (mostly gate-blocked na Apple Paid Apps Agreement + ASC product definition)
+
+**Test scénáře:** [.claude/test-scenarios.md sekce 12](.claude/test-scenarios.md#L460+)
+
+**Otevřené body:**
+- Receipt validation pro `expires_at` push (anti-falsify) — trust client je currently OK pro household scale, later layer in pokud bude potřeba
+- Deferred image upload pro lapsed users (so re-subscribe push fotky zpátky cloud) — Phase 7 to nevyřešil; items vytvořené v lapsed mode jsou bez image_url
+- Storage object cleanup (Edge Function pro mazání orphan images v {warehouseId}/*) — pg cleanup_lapsed_cloud_data jen DB rows
+- Apple gate: čeká na resolution bank account ticketu (case 19765769)
+
+---
+
 ## Technical debt
 
 > **Pozn.:** patch-package a Expo SDK upgrade byly přesunuty do **Sprint 2.5** (Fáze 1 — Tech debt). Tahle sekce obsahuje jen zbývající položky.
