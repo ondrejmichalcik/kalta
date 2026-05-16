@@ -37,6 +37,16 @@ export function stopSession(): Promise<void> {
   return KaltaMultipeer.stopSession();
 }
 
+/**
+ * Recycle just the MCSession instance while keeping advertiser, browser,
+ * and MCPeerID alive. Use after a silently-dropped `invitePeer` to retry
+ * the connect without forcing the peer to rediscover us — saves the
+ * 5–15s Bonjour cycle that `stopSession` + `startSession` would cost.
+ */
+export function refreshSession(): Promise<void> {
+  return KaltaMultipeer.refreshSession();
+}
+
 // ---- Events -----------------------------------------------------------------
 
 export interface PeerEvent {

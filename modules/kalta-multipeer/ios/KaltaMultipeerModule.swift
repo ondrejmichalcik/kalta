@@ -123,6 +123,16 @@ public class KaltaMultipeerModule: Module {
       return session.connectedPeers.map { ["displayName": $0.displayName] }
     }
 
+    // Recreate the MCSession instance while keeping the existing
+    // MCPeerID, advertiser, and browser alive. Used when an invite
+    // appears to have been silently dropped by Apple's stack — recycling
+    // just the session lets us retry the invite without forcing the
+    // peer to rediscover us under a fresh MCPeerID (which is the slow
+    // path that wastes 5–15s of Bonjour time).
+    AsyncFunction("refreshSession") {
+      self.refreshSessionAfterDisconnect()
+    }
+
     // Stop everything and clean up.
     AsyncFunction("stopSession") {
       self.cleanup()

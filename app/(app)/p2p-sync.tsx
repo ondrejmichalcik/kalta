@@ -107,6 +107,21 @@ export default function P2PSyncScreen() {
   // .notConnected delegate. After ~15s we give up so the user can try
   // again instead of seeing an indefinite spinner.
   const connectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Invite-phase watchdog. `invitePeer` is fire-and-forget — Apple's
+  // stack can silently drop it (stale MCPeerID, AWDL not ready, internal
+  // race). If `.connecting` doesn't fire within INVITE_WATCHDOG_MS we
+  // retry; after MAX_INVITE_ATTEMPTS, escalate to a session refresh
+  // (recycles MCSession but keeps MCPeerID + advertiser + browser, so
+  // the peer doesn't have to rediscover us).
+  const inviteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Self-reference for the recursive watchdog setTimeout callback.
+  // Populated via useEffect below.
+  const inviteWatchdogFnRef = useRef<
+    ((peerName: string, attempt: number) => Promise<void>) | null
+  >(null);
+  // Peers we've already auto-invited in the current `searching` session,
+  // so a peer that flickers in and out doesn't get bombarded with invites.
+  const autoInvitedPeersRef = useRef<Set<string>>(new Set());
   const userIdRef = useRef<string | null>(null);
   const userNameRef = useRef<string | null>(null);
   // Refs let event listeners read the latest values without rebinding the
@@ -137,8 +152,78 @@ export default function P2PSyncScreen() {
     return () => {
       if (ackTimerRef.current) clearTimeout(ackTimerRef.current);
       if (connectTimerRef.current) clearTimeout(connectTimerRef.current);
+      if (inviteTimerRef.current) clearTimeout(inviteTimerRef.current);
     };
   }, []);
+
+  // Disarm the invite watchdog. Called when `.connecting` fires (the
+  // invite landed and we're now waiting on connect), when the user
+  // navigates away, or when escalation finishes.
+  const clearInviteWatchdog = useCallback(() => {
+    if (inviteTimerRef.current) {
+      clearTimeout(inviteTimerRef.current);
+      inviteTimerRef.current = null;
+    }
+  }, []);
+
+  // Tunables for invite-watchdog behavior. 4s gives Apple's stack time
+  // to handshake on a healthy invite (typically 1–2s) while keeping
+  // retry cadence tight enough that the user doesn't notice the failure
+  // path. 3 attempts × 4s = 12s before escalating to refreshSession,
+  // which then does up to 3 more attempts on a fresh MCSession. Total
+  // worst-case is ~25s before giving up — about the same as the old
+  // single 15s wait, but with multiple chances to succeed.
+  const INVITE_WATCHDOG_MS = 4_000;
+  const MAX_INVITE_ATTEMPTS = 3;
+  const AUTO_INVITE_DEBOUNCE_MS = 500;
+
+  const inviteWithWatchdog = useCallback(
+    async (peerName: string, attempt: number = 1): Promise<void> => {
+      const mp = await resolveMultipeer();
+
+      if (attempt > MAX_INVITE_ATTEMPTS) {
+        console.warn(
+          `[p2p] invite watchdog exhausted for ${peerName}, refreshing session`,
+        );
+        try {
+          await mp.refreshSession();
+        } catch (e) {
+          console.warn('[p2p] refreshSession failed', e);
+        }
+        // One more series of attempts on the fresh session.
+        inviteWatchdogFnRef.current?.(peerName, 1).catch(() => {});
+        return;
+      }
+
+      if (attempt > 1) {
+        console.warn(
+          `[p2p] invite watchdog retry ${attempt}/${MAX_INVITE_ATTEMPTS} for ${peerName}`,
+        );
+      }
+
+      if (inviteTimerRef.current) clearTimeout(inviteTimerRef.current);
+      inviteTimerRef.current = setTimeout(() => {
+        inviteWatchdogFnRef.current?.(peerName, attempt + 1).catch(() => {});
+      }, INVITE_WATCHDOG_MS);
+
+      try {
+        await mp.invitePeer(peerName);
+      } catch (e) {
+        // Synchronous throw (e.g. peerNotFound). Watchdog still fires; if
+        // it's a real "not started" issue the retry will throw the same
+        // thing and we'll harmlessly hit the escalation path.
+        console.warn('[p2p] invitePeer threw', e);
+      }
+    },
+    [],
+  );
+
+  // Keep the ref in sync so the recursive setTimeout callback can call
+  // back into the latest version without including the function in its
+  // own useCallback deps (which would be circular).
+  useEffect(() => {
+    inviteWatchdogFnRef.current = inviteWithWatchdog;
+  }, [inviteWithWatchdog]);
 
   // Reset the delivery indicator after a delivered status so the pill
   // doesn't linger on screen forever.
@@ -214,6 +299,9 @@ export default function P2PSyncScreen() {
       setPhase('searching');
       setPeers([]);
       setConnectedPeer(null);
+      // Fresh session = fresh auto-invite slate. A peer that we tried to
+      // reach in a previous session is eligible again.
+      autoInvitedPeersRef.current.clear();
       resetExchangeState();
       setErrorMsg(null);
     } catch (e: any) {
@@ -267,6 +355,10 @@ export default function P2PSyncScreen() {
           setPeers((prev) => prev.filter((p) => p.displayName !== e.peerDisplayName));
         }),
         mp.onConnecting((e) => {
+          // Invite landed and is in the connecting handshake — stop the
+          // post-invite watchdog so we don't keep retrying a healthy
+          // connection.
+          clearInviteWatchdog();
           setPhase('connecting');
           setConnectedPeer(e.peerDisplayName);
           // Arm the watchdog — if we're still connecting after the
@@ -284,6 +376,11 @@ export default function P2PSyncScreen() {
             }, 500);
             setPeers([]);
             setConnectedPeer(null);
+            // Allow auto-invite again after a full session restart —
+            // peerIDs are about to rotate, so the previous "tried this
+            // peer" entries are no longer meaningful.
+            autoInvitedPeersRef.current.clear();
+            clearInviteWatchdog();
             resetExchangeState();
             setPhase('searching');
           }, 15_000);
@@ -442,16 +539,43 @@ export default function P2PSyncScreen() {
     }
   }, [applyPeerBundle]);
 
-  const handleConnect = useCallback(async (peer: Peer) => {
-    try {
-      const mp = await resolveMultipeer();
-      await mp.invitePeer(peer.displayName);
-      setPhase('connecting');
-      setConnectedPeer(peer.displayName);
-    } catch (e: any) {
-      Alert.alert('Connection failed', e?.message ?? 'Unknown error');
-    }
-  }, []);
+  const handleConnect = useCallback(
+    async (peer: Peer) => {
+      try {
+        setPhase('connecting');
+        setConnectedPeer(peer.displayName);
+        // Watchdog handles invitePeer plus the retry / refreshSession
+        // escalation if Apple silently drops the invite. No need to await
+        // — failure is surfaced via the watchdog, not this call site.
+        inviteWithWatchdog(peer.displayName, 1).catch(() => {});
+      } catch (e: any) {
+        Alert.alert('Connection failed', e?.message ?? 'Unknown error');
+      }
+    },
+    [inviteWithWatchdog],
+  );
+
+  // Auto-invite the sole discovered peer in the household single-peer case.
+  // Tiny debounce so a quick double-discovery race doesn't fire the invite
+  // before both peers are stable. Once invited (or once the user moves out
+  // of `searching`), the peer is added to autoInvitedPeersRef so a flickery
+  // re-discovery doesn't bombard them with duplicate invites.
+  useEffect(() => {
+    if (phase !== 'searching') return;
+    if (peers.length !== 1) return;
+    const peer = peers[0];
+    if (autoInvitedPeersRef.current.has(peer.displayName)) return;
+
+    const t = setTimeout(() => {
+      // Phase may have changed during the debounce window.
+      if (phase !== 'searching') return;
+      autoInvitedPeersRef.current.add(peer.displayName);
+      console.log('[p2p] auto-inviting sole peer', peer.displayName);
+      handleConnect(peer);
+    }, AUTO_INVITE_DEBOUNCE_MS);
+
+    return () => clearTimeout(t);
+  }, [peers, phase, handleConnect]);
 
   // User taps "Sync now" — we send our bundle. Either side can initiate;
   // the other side auto-responds when the BUNDLE arrives, so the user
