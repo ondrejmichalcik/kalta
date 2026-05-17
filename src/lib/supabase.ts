@@ -128,16 +128,22 @@ export async function getSession() {
  * every list look empty.
  */
 export async function getActiveUserId(): Promise<string | null> {
-  const { data } = await supabase.auth.getSession();
-  if (data.session?.user.id) return data.session.user.id;
+  // Prefer the cached identity. `supabase.auth.getSession()` can hang for
+  // minutes when its internal token-refresh state machine wedges (e.g.
+  // expired refresh token + a slow auth server, or a stuck retry loop).
+  // The cache is written/cleared by the auth state listener in
+  // _layout.tsx, so it's always in sync with the live session when one
+  // exists — and works as the only source of truth when the user is
+  // in "Continue offline" mode.
   try {
     const raw = await AsyncStorage.getItem('kalta:cachedUser');
     if (raw) {
       const parsed = JSON.parse(raw) as { id?: string };
       if (parsed?.id) return parsed.id;
     }
-  } catch { /* fall through */ }
-  return null;
+  } catch { /* fall through to live session */ }
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user?.id ?? null;
 }
 
 /**
@@ -146,17 +152,17 @@ export async function getActiveUserId(): Promise<string | null> {
  * identity rendering.
  */
 export async function getActiveUser(): Promise<{ id: string; email: string | null } | null> {
-  const { data } = await supabase.auth.getSession();
-  if (data.session?.user) {
-    return { id: data.session.user.id, email: data.session.user.email ?? null };
-  }
   try {
     const raw = await AsyncStorage.getItem('kalta:cachedUser');
     if (raw) {
       const parsed = JSON.parse(raw) as { id?: string; email?: string | null };
       if (parsed?.id) return { id: parsed.id, email: parsed.email ?? null };
     }
-  } catch { /* fall through */ }
+  } catch { /* fall through to live session */ }
+  const { data } = await supabase.auth.getSession();
+  if (data.session?.user) {
+    return { id: data.session.user.id, email: data.session.user.email ?? null };
+  }
   return null;
 }
 

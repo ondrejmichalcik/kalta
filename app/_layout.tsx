@@ -81,26 +81,36 @@ export default function RootLayout() {
   // --- Session boot ---
   useEffect(() => {
     (async () => {
-      // Load cached user identity first (sync, from AsyncStorage)
+      // Load cached identity (synchronous AsyncStorage read, fast) and
+      // proceed with it. We do NOT await supabase.auth.getSession() before
+      // hiding the boot spinner — that call can hang for minutes when its
+      // internal refresh-token state machine wedges (slow auth server,
+      // stuck retry loop, etc.). The auth state listener below picks up
+      // the live session whenever it eventually arrives and updates state
+      // then; until that happens the app runs against the cached identity,
+      // which is what the offline-first design assumes anyway.
       const raw = await AsyncStorage.getItem(CACHED_USER_KEY);
       const cached: CachedUser | null = raw ? JSON.parse(raw) : null;
       if (cached) setCachedUser(cached);
-
-      const { data } = await supabase.auth.getSession();
-      if (data.session) {
-        setSession(data.session);
-        // Persist identity for offline use
-        const user: CachedUser = {
-          id: data.session.user.id,
-          email: data.session.user.email ?? null,
-        };
-        setCachedUser(user);
-        AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(user));
-        AsyncStorage.setItem(LAST_USER_KEY, JSON.stringify(user));
-      }
-      // If getSession returned null but we have a cached user, we're offline
-      // with an expired token — don't clear session, let the app work locally.
       setLoading(false);
+
+      // Background session fetch — fire-and-forget. If it returns a
+      // session, hydrate state and re-cache identity; if it hangs or
+      // fails, the cached identity already let us boot.
+      supabase.auth
+        .getSession()
+        .then(({ data }) => {
+          if (!data.session) return;
+          setSession(data.session);
+          const user: CachedUser = {
+            id: data.session.user.id,
+            email: data.session.user.email ?? null,
+          };
+          setCachedUser(user);
+          AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(user));
+          AsyncStorage.setItem(LAST_USER_KEY, JSON.stringify(user));
+        })
+        .catch(() => { /* boot already completed via cached identity */ });
     })();
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (event, s) => {
