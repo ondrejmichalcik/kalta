@@ -14,7 +14,12 @@ import {
   restorePurchases as iapRestorePurchases,
   type ProductSubscription,
 } from 'expo-iap';
-import { supabase } from './supabase';
+// Note: `supabase` is intentionally NOT imported statically. Several
+// callers (sync.ts, storage.ts, vision.ts) pull `subscription.ts` in,
+// and one of those (sync.ts) is in turn imported by supabase.ts —
+// closing a cycle that left `supabase` as `undefined` here on cold
+// start and deadlocked auth.getSession() for minutes. The single push
+// path uses a lazy require instead.
 
 // Master gate for the entire subscription feature. While false, the app
 // behaves as it did before subscriptions existed: `useSubscription` returns
@@ -213,6 +218,8 @@ export async function openManageSubscriptions(): Promise<void> {
  */
 async function pushSubscriptionToSupabase(state: SubscriptionState): Promise<void> {
   if (state.status === 'never' || state.status === 'loading') return;
+  // Lazy require — see the comment near the file-top imports.
+  const { supabase } = require('./supabase') as typeof import('./supabase');
   const { data } = await supabase.auth.getUser();
   const userId = data?.user?.id;
   if (!userId) return; // not signed in — nothing to update yet

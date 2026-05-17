@@ -12,7 +12,12 @@ import { supabase } from './supabase';
 import { prefetchImages } from './imageCache';
 import { markRecentLocalWrite } from './realtimeEcho';
 import { promoteCoupledConflicts } from './syncFieldGroups';
-import { isCloudEnabledNow } from './subscription';
+// Lazy-required inside pushSync to break a circular import:
+//   supabase.ts → sync.ts → subscription.ts → supabase.ts
+// A static `import` here would resolve `subscription` mid-cycle and
+// could leave subscription's own `supabase` binding pointing at an
+// uninitialized supabase client, which had been deadlocking
+// auth.getSession() on cold start.
 
 // ---- Sync status tracking --------------------------------------------------
 
@@ -1085,6 +1090,8 @@ export async function pushSync(): Promise<{ pushed: number; failed: number }> {
   // allowed (free for us, prevents ghost-row drift). Pending queue stays
   // intact for future renew — when the user resubscribes, the next cycle
   // pushes everything that built up while they were lapsed.
+  // Lazy require breaks the circular import (see comment near imports).
+  const { isCloudEnabledNow } = require('./subscription') as typeof import('./subscription');
   if (!isCloudEnabledNow()) {
     return { pushed: 0, failed: 0 };
   }
