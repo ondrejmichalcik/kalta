@@ -105,13 +105,24 @@ export function consumeExplicitSignOut(): boolean {
 
 export async function signOut() {
   _explicitSignOut = true;
-  // scope: 'local' destroys the session locally without calling the
-  // server-side revoke endpoint, so sign-out works deterministically
-  // when the device is offline. The server session is effectively
-  // invalidated the next time the user logs in anyway.
-  // _layout's SIGNED_OUT handler clears the cached identity when the
-  // flag is set.
-  return supabase.auth.signOut({ scope: 'local' });
+  // Clear our own cached identity FIRST and notify the auth bridge so
+  // the auth guard in _layout.tsx flips to "not authenticated" and
+  // navigates to /login immediately. We don't want to rely on the
+  // supabase SIGNED_OUT event firing — its auth state machine can wedge
+  // (the same root cause that made auth.getSession() hang on cold start
+  // before commit c180dca), and if it never emits SIGNED_OUT the user
+  // would tap "Sign out" with nothing visible happening.
+  try {
+    await AsyncStorage.removeItem('kalta:cachedUser');
+  } catch { /* non-fatal — the auth bridge nudge below still flips state */ }
+  // Lazy require to avoid pulling authBridge into the import graph at
+  // module-load time (this file is imported very early).
+  const { emitCachedUserChanged } = require('./authBridge') as typeof import('./authBridge');
+  emitCachedUserChanged(null);
+  // Best-effort supabase cleanup — fire-and-forget so we don't await a
+  // potentially-stuck internal call. `scope: 'local'` skips the network
+  // revoke; supabase still clears its own AsyncStorage keys.
+  supabase.auth.signOut({ scope: 'local' }).catch(() => {});
 }
 
 export async function getSession() {
