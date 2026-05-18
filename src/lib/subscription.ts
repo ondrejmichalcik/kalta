@@ -24,9 +24,10 @@ import {
 // Master gate for the entire subscription feature. While false, the app
 // behaves as it did before subscriptions existed: `useSubscription` returns
 // `active` without ever touching StoreKit, every gate passes, and the
-// paywall flow is unreachable. Flip to true once the ASC product exists
-// and TestFlight sandbox testing is wired up.
-export const SUBSCRIPTION_ENFORCEMENT_ENABLED = false;
+// paywall flow is unreachable. Flipped on 2026-05-18 alongside ASC
+// subscription product setup (com.ondrejmichalcik.kalta.cloud_yearly,
+// Tier 15, Kalta Cloud group, Family Sharing enabled).
+export const SUBSCRIPTION_ENFORCEMENT_ENABLED = true;
 
 export const SUBSCRIPTION_PRODUCT_ID = 'com.ondrejmichalcik.kalta.cloud_yearly';
 
