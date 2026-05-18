@@ -623,7 +623,7 @@ Po zjištění že iOS system print dialog Bluetooth tiskárnu nevidí a Brother
 
 ---
 
-## Sprint 5.5 – Subscription pivot 🚧 (2026-05-15 → 2026-05-16)
+## Sprint 5.5 – Subscription pivot ✅ code, 🚧 launch (2026-05-15 → 2026-05-18)
 
 Mid-launch pivot z **Tier 10 one-time ($9.99)** na **Tier 15 yearly subscription ($14.99/year)**. Motivace: one-time cena pokryje ~2–3 roky Supabase hostingu per user, dál ztrátový. Subscription matchuje recurring cost s recurring revenue.
 
@@ -635,24 +635,60 @@ Mid-launch pivot z **Tier 10 one-time ($9.99)** na **Tier 15 yearly subscription
 - StoreKit 2 + `expo-iap` + local verification (žádný backend, plně offline-first)
 - Family Sharing enabled (manželka pokrytá automaticky)
 
-**Code-complete (vše transparentně OFF přes `SUBSCRIPTION_ENFORCEMENT_ENABLED=false`):**
-- ✅ Phase 1 — `expo-iap@4.2.8` + StoreKit Config (`storekit/Kalta.storekit`)
-- ✅ Phase 2 — `src/lib/subscription.ts`: useSubscription hook, AsyncStorage cache, transaction listener, sync helpers
-- ✅ Phase 3 — `app/paywall.tsx`: hero + 4 value props + Subscribe + Restore/Terms/Privacy + canDismiss param
-- ✅ Phase 4 — cloud gates: pushSync, uploadProductImage, deleteProductImage, identifyProduct (CloudFeatureDisabledError)
-- ✅ Phase 5 — `app/_layout.tsx` auth guard: status `never` → /paywall mandatory, `active`/`lapsed` → app
-- ✅ Phase 6 — Profile screen SUBSCRIPTION sekce: status badge + Manage/Subscribe/Restore actions
-- ✅ Phase 7 — SyncStatusBar lapsed banner (warning color, tap → renew)
-- ✅ Phase 8 — docs/legal/{terms,privacy} + docs/app-store/{listing,review-notes,app-privacy} + docs/setup/paid-app-setup + docs/support/faq + web/* + supabase/schema.sql (`users.subscription_expires_at` + `cleanup_lapsed_cloud_data()` + pg_cron daily)
-- ⏳ Phase 9 — testing (mostly gate-blocked na Apple Paid Apps Agreement + ASC product definition)
+**Phases 1–9 ✅ code-complete** (commits 4709226 → 853fe19). Flag `SUBSCRIPTION_ENFORCEMENT_ENABLED` flipped to `true` 2026-05-18 (commit 6d121a3).
 
-**Test scénáře:** [.claude/test-scenarios.md sekce 12](.claude/test-scenarios.md#L460+)
+Phase details (each is a single commit, all gated transparently while flag was false):
+- Phase 1 — `expo-iap@4.2.8` + `storekit/Kalta.storekit`
+- Phase 2 — `src/lib/subscription.ts`: useSubscription hook, AsyncStorage cache, transaction listener
+- Phase 3 — `app/paywall.tsx`: hero + 4 value props + Subscribe + Restore/Terms/Privacy + canDismiss
+- Phase 4 — cloud gates: pushSync / uploadProductImage / deleteProductImage / identifyProduct (CloudFeatureDisabledError)
+- Phase 5 — `app/_layout.tsx` auth guard: status `never` → /paywall mandatory, `active`/`lapsed` → app
+- Phase 6 — Profile SUBSCRIPTION sekce + Manage/Restore actions
+- Phase 7 — SyncStatusBar lapsed banner (warning, tap → renew)
+- Phase 8 — docs/legal/{terms,privacy} + docs/app-store/* + docs/setup/paid-app-setup + docs/support/faq + web/* + supabase/schema.sql (`users.subscription_expires_at` + `cleanup_lapsed_cloud_data()` + pg_cron)
+- Phase 9 — `.claude/test-scenarios.md` sekce 12 (12 scénářů)
 
-**Otevřené body:**
-- Receipt validation pro `expires_at` push (anti-falsify) — trust client je currently OK pro household scale, later layer in pokud bude potřeba
-- Deferred image upload pro lapsed users (so re-subscribe push fotky zpátky cloud) — Phase 7 to nevyřešil; items vytvořené v lapsed mode jsou bez image_url
-- Storage object cleanup (Edge Function pro mazání orphan images v {warehouseId}/*) — pg cleanup_lapsed_cloud_data jen DB rows
-- Apple gate: čeká na resolution bank account ticketu (case 19765769)
+**Reliability follow-ups (mezi flagem a launchem):**
+- `a184f90` — P2P invite watchdog + auto-invite (řeší "10 attempts to pair")
+- `2ac19cc` — circular import fix (supabase.ts ↔ sync.ts ↔ subscription.ts) co freezovalo getSession
+- `c180dca` — cached identity first, getSession na pozadí (5-min spinner fix)
+- `3af998f` — sign out resilient k wedged supabase auth state
+
+**Apple gates ✅ (2026-05-18):**
+- Paid Apps Agreement Active (bank ticket 19765769 vyřešen + DAC7 "No")
+- ASC sub product `com.ondrejmichalcik.kalta.cloud_yearly` (Tier 15, Kalta Cloud group, Family Sharing, EN+CS, paywall screenshot z `screen/IMG_6775.PNG`) → **"Ready to Submit"**
+
+**TestFlight sandbox ✅ ověřeno:**
+- Subscribe → "Sandbox" banner, no charge, app vstoupí
+- Profile → SUBSCRIPTION "Active · Renews 2026-05-19" (sandbox accelerated)
+- Restore: sign out + sign in → no re-paywall
+- Manage Subscription → iOS Settings sheet
+- Photo upload → Supabase Storage works
+- Lapse flow nezkoušen (acceptable pro v1.0, gates verified v review)
+
+**App Store v1.0 prep status:**
+| Section | Status |
+|---|---|
+| Version page 1–12 (Promo Text, Description, Keywords, URLs, What's New, Build, IAP attach, Review Info, Manual release) | ✅ |
+| App Privacy nutrition labels | ✅ |
+| Age Rating (4+) | ✅ |
+| Screenshots (6× 6.7" Display) | ❌ **jen tohle blokuje Submit** |
+| Submit for Review | blocked na screenshots |
+
+**Příští session — postup:**
+1. Setup demo data v iPhone Kalta (2 warehouses, items s color-varied expiry)
+2. Power + Volume Up = 6 screenshots dle `docs/app-store/screenshots.md` pořadí
+3. AirDrop do Mac → ASC version page → 6.7" Display → drag upload
+4. Screenshot #6 můžeš reuse `screen/IMG_6775.PNG` (paywall)
+5. **Submit for Review** vpravo nahoře → Apple 24–48h response
+6. Pokud Approved + Manual release → klikneš "Release this version" kdy chceš go-live
+
+**Otevřené body (post-launch):**
+- Receipt validation pro `expires_at` push (anti-falsify) — trust client currently OK
+- Deferred image upload pro lapsed users (items v lapsed jsou bez image_url)
+- Storage object cleanup (Edge Function pro orphan images)
+- Family Sharing setup pro manželku (jen Apple Settings krok, can wait)
+- Sync slowness (~1 min before 2026-05-17 sign-out/sign-in cycle, neotestováno po auth reset)
 
 ---
 
@@ -814,18 +850,39 @@ eas submit --platform ios
 
 ## Příště začít
 
-Po otevření nové session:
+Po otevření nové session (stav 2026-05-18 EOD):
 
-1. **Apple Paid Apps Agreement Active?** — pokud ano (1-3 dny od 2026-04-25):
-   - Doplnit Tax (W-8BEN, Article 12, 0%), Banking (IBAN+SWIFT), Contacts (4× Ondřej)
-   - Request Apple Small Business Program (sníží 30%→15% commission)
-   - Vytvořit App record v ASC, vyplnit metadata podle `docs/app-store/listing.md`
-   - Vyplnit App Privacy questionnaire podle `docs/app-store/app-privacy.md`
-   - Enable Family Sharing flag (až bude dostupné)
-2. **Build 24 deploy** — `eas build --platform ios --profile preview`. Native změny vyžadují rebuild (MCSession `encryptionPreference: .none` v `KaltaMultipeerModule.swift`, peer dedupe). Plus všechny JS fixes z 2026-04-26 session.
-3. **Test na 2 iPhonech** — P2P connect (mělo by jít na 1.–2. pokus, ne 6–10), ACK delivery pill, auto-bundle response, coupled quantity+unit picker, ghost cleanup po sync, "Add manually" bez camera permission.
-4. **Screenshots** — iPhone 16 Pro Max simulator, 6 screens podle `docs/app-store/screenshots.md`
-5. **Submit pro Apple review** — `eas submit --platform ios --latest`, paste review notes z `docs/app-store/review-notes.md`
+App Store submission je rozpracovaná. Apple Paid Apps Agreement = Active. Subscription product v ASC = Ready to Submit. TestFlight build s `SUBSCRIPTION_ENFORCEMENT_ENABLED=true` ověřený end-to-end (subscribe / restore / manage / photo upload OK).
+
+**Jediný blocker pro Submit = screenshots.**
+
+1. **Setup demo data v iPhone Kalta** (~5 min):
+   - 2 warehouses (např. "Home Pantry", "Garage Supplies")
+   - V každé bedna s items
+   - Items s color-varied expiry (red expired / amber soon / green ok)
+   - Aspoň 1 item s photo
+
+2. **Capture 6 screenshots** (Power + Volume Up):
+   1. Warehouses list (root)
+   2. Box detail s items color-coded
+   3. Scan tab (scanner active)
+   4. Box → Show QR label modal
+   5. Warehouse → Settings tab (members + invite)
+   6. Paywall — reuse `screen/IMG_6775.PNG`
+
+3. **AirDrop do Mac** → ASC → tvoje Kalta → App Store → version page → **6.7" Display** section → drag 6 souborů.
+
+4. **Submit for Review** button se aktivuje vpravo nahoře → klikni → Apple 24–48h.
+
+5. Po **Approved** (Manual release zvolen) → ASC ukáže "Release this version" button → klik kdy chceš go-live.
+
+**Post-launch follow-ups (až pak):**
+- Family Sharing setup manželky (iPhone Settings → Family Sharing → add)
+- Sync slowness investigation (pokud přetrvává)
+- Deferred image upload pro lapsed users
+- Edge Function pro storage orphan cleanup
+
+Detail: [.claude/implementation-plan.md Sprint 5.5 section](#sprint-55--subscription-pivot--code--launch-2026-05-15--2026-05-18).
 
 ### Session 2026-04-26 — Build 23 field-test + Build 24 reliability pass
 
