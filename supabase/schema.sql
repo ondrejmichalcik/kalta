@@ -831,32 +831,35 @@ end $$;
 -- ============================================================================
 -- COMPANION EDGE FUNCTION — supabase/functions/verify-receipt
 -- ============================================================================
--- Apple receipt validation. Replaces the previous "trust client" path
--- where subscription_expires_at was written directly from the device.
--- Client (src/lib/subscription.ts) POSTs the active subscription's
--- transactionId; the function signs a JWT for Apple's App Store Server
--- API, fetches the authoritative transaction info, and updates
--- public.users with the service-role client.
+-- Apple receipt validation (local JWS signature path). Replaces the
+-- previous "trust client" path where subscription_expires_at was
+-- written directly from the device.
+--
+-- Client (src/lib/subscription.ts) POSTs the Apple-signed JWS that
+-- StoreKit returns for the active subscription:
+--   { jws: <PurchaseIOS.purchaseToken> }
+--
+-- The function:
+--   • decodes the JWS header and extracts the x5c certificate chain;
+--   • pins the chain root to Apple Root CA G3 by SHA-256 fingerprint;
+--   • verifies every link in the chain (cert i signed by cert i+1);
+--   • verifies the JWS signature with the leaf certificate's public key;
+--   • validates bundleId and productId claims match the app;
+--   • writes the authoritative expiresDate to public.users via the
+--     service-role client (which bypasses the column-level RLS revoke
+--     blocking authenticated users from touching subscription columns).
+--
+-- No Apple API credentials are needed — the cryptographic chain of
+-- trust is all we rely on, and Apple's Root CA G3 isn't going anywhere.
 --
 -- One-time setup:
---   1. ASC → Users and Access → Integrations → App Store Server API →
---      Generate API Key. Download the .p8 file (only available once).
---      Note the Key ID (10-char) and Issuer ID (UUID).
---   2. Set Supabase function secrets (run from repo root):
---        supabase secrets set APP_STORE_API_KEY_P8="$(cat AuthKey_<KEY_ID>.p8)"
---        supabase secrets set APP_STORE_API_KEY_ID=<KEY_ID>
---        supabase secrets set APP_STORE_API_ISSUER_ID=<ISSUER_ID>
+--   1. Set the bundle ID secret (only needed if you ever multi-app this
+--      project; defaults to com.ondrejmichalcik.kalta otherwise):
 --        supabase secrets set APP_STORE_BUNDLE_ID=com.ondrejmichalcik.kalta
---      (SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY / SUPABASE_URL
---       are auto-injected by the Supabase Edge runtime.)
---   3. Deploy:
+--   2. Deploy:
 --        supabase functions deploy verify-receipt
---   4. Apply the column-level UPDATE grant above so the client can no
+--   3. Apply the column-level UPDATE grant above so the client can no
 --      longer bypass this function.
---
--- The function calls Apple's production endpoint first and falls back
--- to sandbox on 404, so the same deploy handles TestFlight sandbox
--- transactions and production transactions without further config.
 
 -- ============================================================================
 -- COMPANION EDGE FUNCTION — supabase/functions/sweep-storage

@@ -1,47 +1,47 @@
 // ============================================================================
-// Kalta — verify-receipt Edge Function
+// Kalta — verify-receipt Edge Function (JWS local verification)
 //
-// Server-side validation of a StoreKit transactionId against Apple's
-// App Store Server API. Replaces the previous "trust client" path where
-// the React Native client wrote `subscription_expires_at` directly to
-// public.users — a jailbroken device could have forged any value there.
+// Server-side validation of a StoreKit-signed JWS transaction. Replaces
+// the earlier App Store Server API path (Apple JWT auth kept returning
+// 401s during initial key propagation), with the same security
+// guarantee:
+//   • Apple-signed JWS — the only way to produce a valid one is to
+//     hold Apple's App Store signing private key, which obviously
+//     nobody but Apple has.
+//   • Cert chain rooted to Apple Root CA G3 — pinned by SHA-256
+//     fingerprint, so an attacker can't substitute their own chain.
+//   • Bundle ID + product ID claims verified against expected values
+//     so a JWS from a different app can't be replayed.
 //
-// Flow:
-//   1. Client (subscription.ts) gets the active subscription's
-//      transactionId from StoreKit and POSTs it here with its session JWT.
-//   2. This function authenticates the caller (Supabase user JWT), signs
-//      its own short-lived JWT for the App Store Server API using the
-//      Apple-issued .p8 private key, and queries Apple for the canonical
-//      transaction info.
-//   3. Apple returns a signed JWS containing the authoritative
-//      `expiresDate`, `bundleId`, `productId`, etc. We trust Apple's
-//      response (no further crypto needed) and update users.
-//   4. Production endpoint is tried first; on 404 we fall back to the
-//      sandbox endpoint so the same code works for TestFlight builds.
+// Client (src/lib/subscription.ts) posts:
+//   { jws: <PurchaseIOS.purchaseToken> }
 //
-// Required secrets (set via `supabase secrets set ...`):
-//   APP_STORE_API_KEY_P8       — full contents of the .p8 file, including
-//                                BEGIN/END PRIVATE KEY lines
-//   APP_STORE_API_KEY_ID       — the 10-char Key ID Apple shows next to
-//                                the key in ASC
-//   APP_STORE_API_ISSUER_ID    — the UUID Issuer ID from ASC →
-//                                Integrations → App Store Server API
-//   APP_STORE_BUNDLE_ID        — defaults to com.ondrejmichalcik.kalta if unset
+// On success we write Apple's authoritative `expiresDate` to
+// public.users via the service-role client (bypasses the column-level
+// RLS revoke that blocks authenticated users from touching the
+// subscription columns directly).
 // ============================================================================
 //
 // @ts-nocheck — Deno runtime; local TS would flag the imports.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SignJWT, importPKCS8 } from 'https://esm.sh/jose@5';
+import { compactVerify, decodeProtectedHeader } from 'https://esm.sh/jose@5';
+import { X509Certificate } from 'https://esm.sh/@peculiar/x509@1.12.3';
 
 const DEFAULT_BUNDLE_ID = 'com.ondrejmichalcik.kalta';
 const EXPECTED_PRODUCT_ID = 'com.ondrejmichalcik.kalta.cloud_yearly';
 
-const APPLE_PROD = 'https://api.storekit.itunes.apple.com';
-const APPLE_SANDBOX = 'https://api.storekit-sandbox.itunes.apple.com';
+// SHA-256 fingerprint of Apple Root CA G3 (the root signing the App
+// Store Server certificate chain). Published by Apple at
+// https://www.apple.com/certificateauthority/. Pinning this hash means
+// even a future change to Apple's intermediate cert layout doesn't
+// break us — only a totally new root would, and that's an Apple-level
+// announcement we'd see in time.
+const APPLE_ROOT_G3_SHA256 =
+  '63343abfb89a6a03ebb57e9b3f5fa7be7c4f5c756f3017b3a8c488c3653e9179';
 
 interface RequestBody {
-  transactionId: string;
+  jws: string;
 }
 
 Deno.serve(async (req) => {
@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
     return json({ error: 'Method not allowed' }, 405);
   }
 
-  // 1. Auth check — only authenticated Supabase users may invoke.
+  // 1. Auth — only authenticated Supabase users may invoke.
   const authHeader = req.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
     return json({ error: 'Missing Authorization header' }, 401);
@@ -60,139 +60,97 @@ Deno.serve(async (req) => {
   if (!supabaseUrl || !serviceRoleKey) {
     return json({ error: 'Server misconfigured (no Supabase env)' }, 500);
   }
-
-  // 1a. Use the caller's JWT against an anon client to recover their user id.
-  //     Service-role updates use the elevated client below.
-  const anonClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY') ?? '', {
-    global: { headers: { Authorization: authHeader } },
-  });
+  const anonClient = createClient(
+    supabaseUrl,
+    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+    { global: { headers: { Authorization: authHeader } } },
+  );
   const { data: userData, error: userErr } = await anonClient.auth.getUser();
   if (userErr || !userData?.user) {
     return json({ error: 'Invalid session' }, 401);
   }
   const userId = userData.user.id;
 
-  // 2. Parse body.
+  // 2. Body parse.
   let body: RequestBody;
   try {
     body = (await req.json()) as RequestBody;
   } catch {
     return json({ error: 'Invalid JSON body' }, 400);
   }
-  const transactionId = (body?.transactionId ?? '').trim();
-  if (!transactionId) {
-    return json({ error: 'Missing transactionId' }, 400);
+  const jws = (body?.jws ?? '').trim();
+  if (!jws || jws.split('.').length !== 3) {
+    return json({ error: 'Missing or malformed jws' }, 400);
   }
 
-  // 3. Build the Apple App Store Server API JWT.
-  const p8 = Deno.env.get('APP_STORE_API_KEY_P8');
-  const keyId = Deno.env.get('APP_STORE_API_KEY_ID');
-  const issuerId = Deno.env.get('APP_STORE_API_ISSUER_ID');
-  const bundleId = Deno.env.get('APP_STORE_BUNDLE_ID') ?? DEFAULT_BUNDLE_ID;
-  if (!p8 || !keyId || !issuerId) {
-    return json(
-      { error: 'Server misconfigured (missing Apple credentials)' },
-      500,
-    );
-  }
-
-  // DEBUG: log the shape of the secrets so we can tell whether the
-  // .p8 was mangled during `supabase secrets set` (newlines stripped,
-  // trailing whitespace, etc.). Doesn't log the key body itself.
-  console.log('[verify-receipt][debug] keyId:', JSON.stringify(keyId));
-  console.log('[verify-receipt][debug] issuerId:', JSON.stringify(issuerId));
-  console.log('[verify-receipt][debug] bundleId:', JSON.stringify(bundleId));
-  console.log(
-    '[verify-receipt][debug] p8 length:',
-    p8.length,
-    'starts with:',
-    JSON.stringify(p8.substring(0, 30)),
-    'ends with:',
-    JSON.stringify(p8.substring(p8.length - 30)),
-    'newlines:',
-    (p8.match(/\n/g) || []).length,
-  );
-
-  let appleJwt: string;
+  // 3. Decode the JWS header to pull out the x5c cert chain.
+  let header: any;
   try {
-    // Some `supabase secrets set` flows strip line breaks; re-insert
-    // them between the PEM header/footer and the base64 body so jose
-    // can parse the key either way.
-    const p8Normalized = normalizePem(p8);
-    const privateKey = await importPKCS8(p8Normalized, 'ES256');
-    appleJwt = await new SignJWT({ bid: bundleId })
-      .setProtectedHeader({ alg: 'ES256', kid: keyId, typ: 'JWT' })
-      .setIssuer(issuerId)
-      .setAudience('appstoreconnect-v1')
-      .setIssuedAt()
-      .setExpirationTime('20m')
-      .sign(privateKey);
-    console.log('[verify-receipt][debug] JWT prefix:', appleJwt.substring(0, 32));
+    header = decodeProtectedHeader(jws);
   } catch (e) {
-    console.error('[verify-receipt] failed to sign Apple JWT', e);
-    return json({ error: 'Apple JWT signing failed', detail: String(e) }, 500);
+    return json({ error: 'Could not decode JWS header', detail: String(e) }, 400);
+  }
+  const x5c = header?.x5c as string[] | undefined;
+  if (!Array.isArray(x5c) || x5c.length < 1) {
+    return json({ error: 'JWS missing x5c certificate chain' }, 400);
   }
 
-  // 4. Query Apple. Try production first; fall back to sandbox on 404 so
-  //    TestFlight builds (whose transactions live in the sandbox env)
-  //    get validated by the same function.
-  let appleRes = await fetch(
-    `${APPLE_PROD}/inApps/v1/transactions/${encodeURIComponent(transactionId)}`,
-    { headers: { Authorization: `Bearer ${appleJwt}` } },
-  );
-  let env: 'production' | 'sandbox' = 'production';
-  if (appleRes.status === 404) {
-    env = 'sandbox';
-    appleRes = await fetch(
-      `${APPLE_SANDBOX}/inApps/v1/transactions/${encodeURIComponent(transactionId)}`,
-      { headers: { Authorization: `Bearer ${appleJwt}` } },
-    );
+  // 4. Pin the chain root to Apple Root CA G3.
+  let rootCert: X509Certificate;
+  try {
+    rootCert = new X509Certificate(base64ToBytes(x5c[x5c.length - 1]));
+  } catch (e) {
+    return json({ error: 'Could not parse root cert', detail: String(e) }, 400);
   }
-  if (!appleRes.ok) {
-    const text = await appleRes.text();
-    console.warn('[verify-receipt] Apple non-2xx', appleRes.status, text);
-    return json(
-      { error: 'Apple verification failed', status: appleRes.status },
-      502,
-    );
+  const rootHash = await sha256Hex(new Uint8Array(rootCert.rawData));
+  if (rootHash !== APPLE_ROOT_G3_SHA256) {
+    console.warn('[verify-receipt] root cert hash mismatch', rootHash);
+    return json({ error: 'JWS root cert is not Apple Root CA G3' }, 400);
   }
 
-  const apple = (await appleRes.json()) as { signedTransactionInfo?: string };
-  const jws = apple.signedTransactionInfo;
-  if (!jws) {
-    return json({ error: 'Apple response missing signedTransactionInfo' }, 502);
+  // 5. Parse the whole chain and verify each cert is signed by the
+  //    next one up. The peculiar/x509 verify() does the cryptographic
+  //    check against the issuer's public key.
+  let certs: X509Certificate[];
+  try {
+    certs = x5c.map((b64) => new X509Certificate(base64ToBytes(b64)));
+  } catch (e) {
+    return json({ error: 'Cert chain parse failed', detail: String(e) }, 400);
+  }
+  for (let i = 0; i < certs.length - 1; i++) {
+    const ok = await certs[i].verify({ publicKey: certs[i + 1].publicKey });
+    if (!ok) {
+      console.warn('[verify-receipt] chain link failed at', i);
+      return json({ error: `Chain validation failed at cert ${i}` }, 400);
+    }
   }
 
-  // 5. Decode the JWS payload. Apple already signed it; we just need to
-  //    read it. The middle base64url segment of a JWS is the payload.
-  const segments = jws.split('.');
-  if (segments.length !== 3) {
-    return json({ error: 'Malformed JWS from Apple' }, 502);
-  }
+  // 6. Verify the JWS itself with the leaf cert's public key.
   let payload: any;
   try {
-    payload = JSON.parse(b64urlDecode(segments[1]));
-  } catch {
-    return json({ error: 'Could not decode JWS payload' }, 502);
+    const leafPubKey = await certs[0].publicKey.export();
+    const result = await compactVerify(jws, leafPubKey);
+    payload = JSON.parse(new TextDecoder().decode(result.payload));
+  } catch (e) {
+    console.warn('[verify-receipt] JWS signature verify failed', e);
+    return json({ error: 'JWS signature verification failed' }, 400);
   }
 
-  // 6. Sanity-check the payload matches the caller's app + product.
+  // 7. Validate claims against what we expect for this app.
+  const bundleId = Deno.env.get('APP_STORE_BUNDLE_ID') ?? DEFAULT_BUNDLE_ID;
   if (payload.bundleId !== bundleId) {
-    return json({ error: 'Bundle ID mismatch' }, 400);
+    return json({ error: 'Bundle ID mismatch', got: payload.bundleId }, 400);
   }
   if (payload.productId !== EXPECTED_PRODUCT_ID) {
-    return json(
-      { error: 'Product ID mismatch', got: payload.productId },
-      400,
-    );
+    return json({ error: 'Product ID mismatch', got: payload.productId }, 400);
   }
   const expiresMs = Number(payload.expiresDate);
   if (!Number.isFinite(expiresMs)) {
-    return json({ error: 'Missing/invalid expiresDate on transaction' }, 502);
+    return json({ error: 'Missing/invalid expiresDate on transaction' }, 400);
   }
   const expiresIso = new Date(expiresMs).toISOString();
 
-  // 7. Write authoritative value with service role (bypasses RLS).
+  // 8. Write authoritative state with service role.
   const adminClient = createClient(supabaseUrl, serviceRoleKey);
   const { error: updErr } = await adminClient
     .from('users')
@@ -208,7 +166,7 @@ Deno.serve(async (req) => {
 
   return json({
     success: true,
-    env,
+    env: payload.environment ?? 'unknown',
     expiresAt: expiresIso,
     productId: payload.productId,
   });
@@ -223,33 +181,19 @@ function json(body: unknown, status = 200) {
   });
 }
 
-function b64urlDecode(s: string): string {
-  // Base64URL → Base64 → string
-  const normalized = s.replace(/-/g, '+').replace(/_/g, '/');
+function base64ToBytes(b64: string): Uint8Array {
+  // Accept both regular base64 and base64url.
+  const normalized = b64.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized + '==='.slice((normalized.length + 3) % 4);
-  return atob(padded);
+  const bin = atob(padded);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
-/**
- * Re-insert PEM newlines if a `supabase secrets set` shell substitution
- * stripped them. Apple delivers .p8 files as standard PKCS8 PEM:
- *   -----BEGIN PRIVATE KEY-----
- *   <base64 body, 64-char lines>
- *   -----END PRIVATE KEY-----
- * If the secret was set without preserving newlines we end up with a
- * single line; jose's importPKCS8 then rejects it as malformed.
- */
-function normalizePem(pem: string): string {
-  const trimmed = pem.trim();
-  if (trimmed.includes('\n')) return trimmed;
-  const header = '-----BEGIN PRIVATE KEY-----';
-  const footer = '-----END PRIVATE KEY-----';
-  const headerIdx = trimmed.indexOf(header);
-  const footerIdx = trimmed.indexOf(footer);
-  if (headerIdx < 0 || footerIdx < 0) return trimmed; // unrecognised shape
-  const body = trimmed
-    .substring(headerIdx + header.length, footerIdx)
-    .replace(/\s+/g, '');
-  const wrapped = body.match(/.{1,64}/g)?.join('\n') ?? body;
-  return `${header}\n${wrapped}\n${footer}`;
+async function sha256Hex(data: Uint8Array): Promise<string> {
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }

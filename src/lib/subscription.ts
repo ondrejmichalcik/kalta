@@ -216,17 +216,17 @@ export async function openManageSubscriptions(): Promise<void> {
  * row in Supabase. The cleanup_lapsed_cloud_data cron reads this column
  * to decide which warehouses to GC after 30 days of lapse.
  *
- * Implementation: we DO NOT write `subscription_expires_at` directly
- * from the client — RLS revokes that column from authenticated users.
- * Instead we ship the active subscription's `transactionId` to the
- * `verify-receipt` Edge Function, which signs a JWT for Apple's App
- * Store Server API, fetches the authoritative transaction info, and
- * updates the column with the service-role client.
+ * Implementation: we ship the active subscription's Apple-signed JWS
+ * (`PurchaseIOS.purchaseToken`) to the `verify-receipt` Edge Function.
+ * The function pins the cert chain to Apple Root CA G3, verifies the
+ * JWS signature locally, then writes `subscription_expires_at` with
+ * the service-role client (RLS revokes the column from authenticated
+ * users, so the client can no longer falsify it).
  *
  * Failure modes (silent — refresh retries on next launch):
  * - Not signed in: no user, skip
- * - No active subscription with a transactionId: skip
- * - Edge Function unreachable / Apple API down: log + skip
+ * - No active subscription with a JWS: skip
+ * - Edge Function unreachable: log + skip
  */
 async function pushSubscriptionToSupabase(state: SubscriptionState): Promise<void> {
   if (state.status === 'never' || state.status === 'loading') return;
@@ -237,26 +237,29 @@ async function pushSubscriptionToSupabase(state: SubscriptionState): Promise<voi
   const { data: userData } = await supabase.auth.getUser();
   if (!userData?.user?.id) return; // offline / signed out
 
-  // Pull the freshest transactionId straight from StoreKit. expo-iap's
-  // shape varies slightly across iOS versions, so accept either field
-  // and stringify before sending.
-  let transactionId: string | null = null;
+  // expo-iap exposes the Apple-signed JWS as `purchaseToken` on iOS
+  // (comment in the type: "Unified purchase token (iOS JWS, Android
+  // purchaseToken)"). Older fields like `transactionId` would only
+  // identify the row, not prove Apple signed it.
+  let jws: string | null = null;
   try {
     const purchases = (await getAvailablePurchases({
       onlyIncludeActiveItemsIOS: true,
     } as any)) as any[];
     const active = purchases.find((p) => p?.productId === SUBSCRIPTION_PRODUCT_ID);
-    const raw = active?.transactionId ?? active?.id ?? active?.originalTransactionId;
-    if (raw != null) transactionId = String(raw);
+    const candidate = active?.purchaseToken ?? active?.jwsRepresentation;
+    if (typeof candidate === 'string' && candidate.split('.').length === 3) {
+      jws = candidate;
+    }
   } catch (err) {
-    console.warn('[subscription] could not read transactionId', err);
+    console.warn('[subscription] could not read JWS from purchases', err);
     return;
   }
-  if (!transactionId) return;
+  if (!jws) return;
 
   try {
     const { error } = await supabase.functions.invoke('verify-receipt', {
-      body: { transactionId },
+      body: { jws },
     });
     if (error) {
       console.warn('[subscription] verify-receipt returned error', error);
