@@ -812,6 +812,37 @@ exception when undefined_function then
   null;
 end $$;
 
+-- ============================================================================
+-- COMPANION EDGE FUNCTION — supabase/functions/sweep-storage
+-- ============================================================================
+-- The cleanup function above hard-deletes warehouses (cascading to boxes,
+-- items, and inventory_lines), but objects in the `product-images` bucket
+-- remain — Postgres can't reach into Supabase Storage. The companion
+-- Edge Function `sweep-storage` walks the bucket weekly and deletes any
+-- object whose path isn't referenced by an `items.image_url`.
+--
+-- Deploy (one-time, from the repo root):
+--   supabase functions deploy sweep-storage --no-verify-jwt=false
+--
+-- Schedule weekly (Supabase Dashboard → Database → Cron Jobs → New cron):
+--   Name:     kalta-sweep-storage
+--   Schedule: 0 4 * * 0   (Sundays at 04:00 UTC, an hour after the daily
+--                          cleanup so it sees the cascade-orphaned objects)
+--   Command:
+--     select net.http_post(
+--       url := 'https://<project-ref>.supabase.co/functions/v1/sweep-storage',
+--       headers := jsonb_build_object(
+--         'Content-Type', 'application/json',
+--         'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key')
+--       ),
+--       body := '{}'::jsonb
+--     );
+--
+-- Requires the `pg_net` extension (enable in Dashboard → Database → Extensions).
+-- The service-role JWT can be stored as a Vault secret or in
+-- `app.settings.service_role_key` via ALTER DATABASE ... SET. Don't hard-code
+-- it in this file — it's source-controlled.
+
 do $$ begin
   alter publication supabase_realtime add table public.inventory_sessions;
 exception when duplicate_object then null;
