@@ -1,4 +1,4 @@
-# Implementation plan – Stockr
+# Implementation plan – Kalta (formerly Stockr)
 
 Živý dokument stavu vývoje. Po každém dokončeném kroku aktualizovat.
 
@@ -172,6 +172,8 @@ Insertnutý mezi Sprint 2 a Sprint 3. Cíl: projekt převést do angličtiny, sj
 
 **Reference:** NoWaste food inventory app (Main Pantry detail screen uložený v `screen/nowaste_fridge_detail.png`).
 
+> 📌 **Pozn (2026-05-19 cleanup):** Inner ⏳ markery níže jsou **historical planning artifacts** z doby plánování sprintu. Sprint 2.6 je celý ✅ delivered (viz CLAUDE.md "Design system po Sprintu 2.6" pro confirmation). ⏳ v této sekci = "tohle byl plán který se zrealizoval", ne "open item".
+
 ### Fáze 1 — Theme retune (light-first palette)
 
 - ⏳ **`src/theme/colors.ts`** rewrite z dark-first na light-first
@@ -273,6 +275,8 @@ Druhý, menší kus sprintu: **pack size** na items. Currently lze říct "2 pac
 - Pack size bundled do 2.7, ne samostatný warm-up
 - **Role model = Multi-owner** (co-owners): `warehouse_members.role` může být `owner` na víc řádcích, kterýkoliv owner může invitovat/přejmenovat/mazat/promote/demote. Invariant: vždy ≥1 owner.
 - **Invite flow má "Invite as co-owner" checkbox** rovnou v invite dialogu (ne jen ex-post promote v members listu)
+
+> 📌 **Pozn (2026-05-19 cleanup):** Inner ⏳ markery níže jsou **historical planning artifacts** z doby plánování sprintu. Sprint 2.7 je celý ✅ delivered. ⏳ v této sekci = "tohle byl plán který se zrealizoval", ne "open item".
 
 ### Fáze 1 — Schema & data layer
 
@@ -400,7 +404,7 @@ Druhý, menší kus sprintu: **pack size** na items. Currently lze říct "2 pac
 
 ---
 
-## Sprint 3 – Tisk a AI ⏳
+## Sprint 3 – Tisk a AI ✅ (uzavřen 2026-05-19)
 
 ### Brother PT-P710BT tisk (revised plan)
 **Rozhodnutí:** Brother PT-P710BT místo Niimbot B21. Důvody: AirPrint support (žádný BLE reverse engineering), laminované pásky vydrží 20+ let (prepper requirement), multi-use pro celou domácnost.
@@ -422,7 +426,7 @@ Druhý, menší kus sprintu: **pack size** na items. Currently lze říct "2 pac
 - ✅ **Klíčové zjištění: iOS system print dialog Bluetooth-only printery nevidí.** AirPrint scanuje přes Bonjour/WiFi, Bluetooth tiskárny tam nejsou. Brother iPrint&Label ani novější P-touch Design&Print 2 nepřijímají file imports (PDF ani PNG, ani přes share sheet — "Cannot share files"). Ani Photos-based workflow nefunguje, Brother apps jsou template-only.
 - ✅ **Jediná funkční cesta = Brother Mobile Print SDK integrace** (viz Sprint 3F)
 - ❌ Niimbot BLE protokol — zrušeno, Brother SDK má oficiální knihovnu
-- ⏳ Skutečný tiskový test landscape orientation layout — čeká na nový build po rotation fix (Sprint 3F)
+- ✅ Real-device landscape print test verified 2026-05-19 (Sprint 3F)
 
 ### Sprint 3D extras — iterativní ladění label layoutu
 - ✅ **Rotation fix** — Brother SDK treats PDF width jako tape width (ne shorter-dim-auto). Landscape PDF (80×24mm) → 0.3× scale → miniature output. Fix: portrait PDF (24×80mm) + content rotated 90° via CSS transform. `@page size: 68pt 227pt`, `.label` absolute positioned + `translate(-50%, -50%) rotate(90deg)`, zachován horizontální visual design.
@@ -451,7 +455,7 @@ Druhý, menší kus sprintu: **pack size** na items. Currently lze říct "2 pac
 
 ### Custom products rozšíření
 - ✅ Upsert při přidání draftu se známým EAN — už je
-- ⏳ Settings screen `settings/products.tsx` pro spravování custom DB — odložit do Sprint 4
+- ⏳ Settings screen `settings/products.tsx` pro spravování custom DB — odložené, never built; post-launch nice-to-have (viz Technical debt)
 
 ### Sprint 3E — TestFlight build pipeline ✅ (2026-04-15)
 Posun z Sprint 5 plánu předem, protože Brother PT-P710BT Bluetooth vyžaduje real-device test (simulátor nemá Bluetooth stack). Tím máme zároveň připravenou distribuci pro manželku.
@@ -467,7 +471,7 @@ Posun z Sprint 5 plánu předem, protože Brother PT-P710BT Bluetooth vyžaduje 
 - ✅ iPhone install flow — TestFlight app na iPhonu (auto-loginnutý přes iCloud Apple ID), Stockr naskočí v Apps sekci, install + open. Apple Sign In flow funguje na reálné devicu.
 - ℹ️ **Gotchas** (pro budoucí builds): Apple Developer user status musí být "Active" (ne "Pending") nebo TestFlight internal tester nevidí app. iCloud Apple ID na iPhonu musí match ASC user email. Internal testers nedostávají email invite (na rozdíl od external) — app se prostě objeví v jejich TestFlight app pokud match email.
 
-### Sprint 3F — Brother Mobile Print SDK integrace 🚧 (2026-04-15, čeká na build queue)
+### Sprint 3F — Brother Mobile Print SDK integrace ✅ (2026-04-15 + verified 2026-05-19)
 Po zjištění že iOS system print dialog Bluetooth tiskárnu nevidí a Brother consumer apps (iPrint&Label / P-touch Design&Print 2) nepřijímají file imports, jedinou reálnou cestou je direct Brother SDK integrace.
 - ✅ `expo-brother-printer-sdk@0.7.0` (rakeshta) — Expo-compatible wrapper nad Brother Mobile Print SDK (xcframework bundled)
 - ✅ **Patch-package setup** — `patches/expo-brother-printer-sdk+0.7.0.patch` přidává PT series support (knihovna defaultně supports jen QL). Postinstall hook v package.json zajišťuje re-apply při `npm install` v EAS cloud.
@@ -475,7 +479,7 @@ Po zjištění že iOS system print dialog Bluetooth tiskárnu nevidí a Brother
 - ✅ **Swift rename gotcha** — `BRLMPrinterModelPT_P715eBT` Swift importuje jako `.pt_P715eBT` (lowercase kvůli lowercase `e` uprostřed ruší acronym heuristiku), ostatní PT modely jsou `.PT_P710BT` etc. První build compile fail, fix na jeden model enum value.
 - ✅ `src/lib/vision.ts` nezměněn; `src/lib/qrLabel.ts` přidána `printBoxLabelViaBrotherSDK(box)` funkce: generuje PDF přes `printToFileAsync` → `BrotherPrinterSDK.searchBluetoothPrinters()` najde paired channely → prefer PT-series match → `BrotherPrinterSDK.printPDF(uri, channel, { labelSize: 5, autoCut: true })` přes Bluetooth
 - ✅ `LabelModalContent` (box/[boxId].tsx) + `box/new.tsx` — **3 print button stack**: **Print to Brother** (primary sage, Brother SDK path), **AirPrint / other** (secondary, iOS system dialog pro budoucí WiFi printery), **Save PDF** (tertiary, share sheet fallback)
-- ⏳ **Waiting on build** — aktuálně v EAS free tier queue (~4h), po built + submit + TestFlight update → reálný print test s rotovaným portrait PDF
+- ✅ **Real print test verified** (2026-05-19) — landscape PDF rotation works on real PT-P710BT hardware
 
 **Známé zbytky kterým se může dařit špatně v real-world testu:**
 - Rotation direction — pokud `rotate(90deg)` vyjde tape s QR na špatné straně, swap na `rotate(-90deg)` nebo `270deg`
@@ -559,7 +563,7 @@ Po zjištění že iOS system print dialog Bluetooth tiskárnu nevidí a Brother
 
 ---
 
-## Sprint 5 – App Store Release 🚧 (in progress)
+## Sprint 5 – App Store Release 🚧 (in progress; jediný blocker = screenshots, 2026-05-19)
 
 ### Rebrand
 - ✅ **Stockr → Kalta** (2026-04-23)
@@ -586,40 +590,41 @@ Po zjištění že iOS system print dialog Bluetooth tiskárnu nevidí a Brother
 - `docs/setup/paid-app-setup.md` — step-by-step App Store Connect (Paid Apps Agreement, W-8BEN s Article 12, banking, contacts, SBP, Family Sharing, promo codes)
 - `docs/app-store/screenshots.md` — capture plán pro 6.9" iPhone simulator
 
-### Pricing rozhodnutí (2026-04-25)
-- **Tier 10 ($9.99)** — pokrývá ~2-3 roky Supabase hostingu per user; eliminuje impulse-buy, přitahuje serious users
-- **Apple Small Business Program** — schvaluje se po enrollment, sníží Apple cut z 30% na 15% (od dalšího kvartálu)
-- **Family Sharing** enabled — manželka stáhne zdarma přes iCloud Family group
-- Dříve plánovaný free + tip jar zamítnut (nepokryje hosting at scale)
+### Pricing rozhodnutí (2026-04-25 → 2026-05-15)
+- ❌ ~~**Tier 10 ($9.99)** one-time~~ — původní plán; one-time cena pokryla ~2-3 roky Supabase hostingu per user, dál ztrátová → 2026-05-15 pivot na subscription model (viz Sprint 5.5)
+- ✅ **Tier 15 ($14.99 / year) auto-renewing subscription** — free download, hard paywall na first launch
+- ✅ **Apple Small Business Program** — enrollment submitted 2026-05-19, awaiting Apple approval (rate aktivuje od Q3 = July 1, pokud approve do mid-June)
+- ✅ **Family Sharing** enabled — manželčin Apple ID added do Family group; po release dostane Kalta zdarma přes shared subscription
+- Detaily v Sprint 5.5 sekci níže
 
-### App Store Connect setup 🚧
+### App Store Connect setup ✅
 - ✅ Apple Developer Program ($99/rok, expire 12 Apr 2027)
 - ✅ Free Apps Agreement: Active
-- 🚧 **Paid Apps Agreement** (status `New` — 2026-04-25)
-  - Name Identification Document uploaded (Výpis z živnostenského rejstříku, IČO 04801792)
-  - Apple processuje 1-3 business days; Tax / Bank / Contacts sekce zatím gated
-- ⏳ Tax W-8BEN — Czech, Article 12 royalties, 0% withholding (po Apple verifikaci ID)
-- ⏳ Bank info — IBAN + SWIFT + holder name match (po Apple verifikaci ID)
-- ⏳ Contacts — všechny 4 role = Ondřej Michalčík
-- ⏳ Apple Small Business Program request
-- ⏳ App record creation + metadata (icon-appstore.png alpha-stripped, listing copy)
-- ⏳ Family Sharing toggle (gated na Active Paid Apps Agreement)
-- ⏳ Screenshots na 6.9" simulator (iPhone 16 Pro Max)
-- ⏳ `eas submit --platform ios` → Apple review
+- ✅ **Paid Apps Agreement Active** (2026-05-18) — Name Identification Document approved, bank ticket 19765769 resolved, DAC7 + DSA compliance "No" (Kalta is standalone software, not gig platform)
+- ✅ Tax W-8BEN — Czech, Article 12 royalties, 0% withholding, Active
+- ✅ Bank info — Air Bank AS (CZK / USD royalty), Active
+- ✅ Contacts — všechny 4 role = Ondřej Michalčík
+- ⏳ Apple Small Business Program approval — submitted 2026-05-19, awaiting (non-blocker, defaults 30 % until approved)
+- ✅ App record creation + metadata (subscription product `com.ondrejmichalcik.kalta.cloud_yearly` Tier 15, Family Sharing enabled, EN+CS localizations, paywall review screenshot from `screen/IMG_6775.PNG`)
+- ✅ Family Sharing toggle ON for subscription
+- ❌ **Screenshots na 6.7" Display (6 screens)** — **only remaining blocker for Submit**
+- ⏳ `Submit for Review` (gated na screenshots)
 
-### EAS Build pipeline
-- ✅ EAS account migrated to Production plan (po hit free tier limit)
-- ✅ `appVersionSource: "remote"` + `autoIncrement: true` — buildNumber server-side, žádné app.json modifikace
+### EAS Build pipeline ✅
+- ✅ EAS account on Production plan
+- ✅ `appVersionSource: "remote"` + `autoIncrement: true` — buildNumber server-side
 - ✅ Env vars push do preview environment (Supabase URL + publishable key)
-- ✅ **Build 22** (2026-04-25) — fixes Bonjour services + KaltaMultipeer autolinking (modul nebyl součástí Pods kvůli iOS 16 platform requirement vs target 15.1)
-- ✅ **Build 23** (2026-04-26) — Sprint 5 polish (P2P review-and-accept + in-session picker + pending screen + diff + sync v2 + image compression 480px@60% + Universal Links + delete propagation + peer's `_changed_fields` honored)
-- 🚧 **Build 24 pending** — P2P transport reliability (encryption `.none`, peer dedupe, ACK protocol, delivery pill, auto-bundle response, connect watchdog) + sync v3 (full pull, ghost cleanup) + coupled-field conflicts + permission gate + UI fixes
+- ✅ **Build 22** (2026-04-25) — Bonjour services + KaltaMultipeer autolinking
+- ✅ **Build 23** (2026-04-26) — P2P review-and-accept + pending screen + sync v2 + image compression + Universal Links
+- ✅ **Build 24** (2026-04-26 follow-up) — P2P transport reliability (encryption `.none`, peer dedupe, ACK protocol, delivery pill, auto-bundle response, connect watchdog) + sync v3 (full pull, ghost cleanup) + coupled-field conflicts
+- ✅ **Build 25+** (2026-05-15 onward) — subscription enforcement enabled (commit 6d121a3), expo-iap + StoreKit Config, all Sprint 5.5 phases live in TestFlight, plus reliability fixes (P2P invite watchdog `a184f90`, circular import fix `2ac19cc`, cached-identity boot `c180dca`, sign-out resilient `3af998f`, deferred image upload `37a1f8f`, sweep-storage Edge Function `65639e6`)
 
 ### Assety
 - ✅ `assets/icon.png` — 1024×1024, sage green 3D wooden box s QR kódem (RGBA)
 - ✅ `assets/icon-appstore.png` — 1024×1024 RGB (alpha stripped) pro App Store upload (Apple odmítá alpha)
 - ✅ `assets/splash.png` — splash + login hero
-- ⏳ Screenshots z simulátoru (6 screens × 6.9")
+- ✅ `screen/IMG_6775.PNG` — paywall screenshot (1290×2796, used as subscription product review screenshot in ASC)
+- ❌ App Store listing screenshots (6× 6.7" Display from iPhone, real-data setup) — **blocker for Submit**
 
 ---
 
@@ -716,12 +721,17 @@ Phase details (each is a single commit, all gated transparently while flag was f
 - Lepší UX: cache image lokálně pod `local:<hash>` URI, na renew sync engine detekuje a uploadne do Storage
 - **Vyžaduje:** změny v `storage.ts` (lazy upload), `imageCache.ts` (`local:` URI handling), sync push step (detect + upload local images)
 
-**Storage object cleanup**
-- `cleanup_lapsed_cloud_data()` v pg_cron maže DB rows (warehouses → cascade), ale Storage object PNGs v `{warehouseId}/*` zůstávají orphans
-- Při scale by se akumulovaly
-- **Fix:** Supabase Edge Function `sweep-storage` triggered weekly: list orphan storage objects (žádný matching item.image_url) → delete
+**Storage object cleanup** ✅ (resolved 2026-05-19, commit 65639e6)
+- ~~`cleanup_lapsed_cloud_data()` v pg_cron maže DB rows (warehouses → cascade), ale Storage object PNGs v `{warehouseId}/*` zůstávají orphans~~
+- Edge Function `sweep-storage` deployed + scheduled (Sunday 04:00 UTC). Walks bucket, cross-references with `items.image_url`, deletes orphans. Manual fire test confirmed `scanned:1, deleted:0`. Cost protection at scale done.
 
 ### Operational / nice-to-have
+
+**Custom products management screen** (deferred z Sprintu 3)
+- `settings/products.tsx` — UI pro správu seznamu custom (AI-identifikovaných nebo manuálně přidaných) produktů: list, edit name/category/shelf life, delete
+- Dnes lze custom products jen vytvářet (přes scan flow), ne managovat ze Settings
+- Cca 2 hodiny práce; nice-to-have pro users co chtějí cleanup
+- Bez tohoto: custom products tabulka roste, user nemá způsob jak smazat omylem přidaný produkt
 
 **Error handling granularita**
 - Aktuální error states jsou Alert + log. Save failures nemají retry-with-backoff pro síťové operace
@@ -733,95 +743,83 @@ Phase details (each is a single commit, all gated transparently while flag was f
 
 ---
 
-## Dependencies k dnešku
+## Dependencies (snapshot — vždy verify proti `package.json`)
 
-### Core
-```json
-"expo": "~51.0.28"
-"react": "18.2.0"
-"react-native": "0.74.5"
-"typescript": "~5.3.3"
-```
+**Po SDK upgrade ve Sprintu 2.5 + průběžných additions:**
 
-### Expo moduly
 ```
-expo-router                 ~3.5.23
-expo-apple-authentication   ~6.4.2
-expo-camera                 ~15.0.16
-expo-clipboard              ~6.0.3
-expo-constants              ~16.0.2
-expo-crypto                 ~13.0.2
-expo-dev-client             ~4.0.23
-expo-haptics                ~13.0.1
-expo-linking                ~6.3.1
-expo-secure-store           ~13.0.2
-expo-splash-screen          ~0.27.5
-expo-status-bar             ~1.12.1
-expo-system-ui              ~3.0.7
-```
+Core
+  expo               ~55
+  react              19.2.0
+  react-native       0.83.4
+  typescript         ~5.9.2
 
-### Third-party
-```
-@react-native-async-storage/async-storage     1.23.1
-@react-native-community/datetimepicker        8.0.1
-@supabase/supabase-js                         ^2.45.0
-react-native-gesture-handler                  ~2.16.1
-react-native-qrcode-svg                       ^6.3.0
-react-native-reanimated                       ~3.10.1
-react-native-safe-area-context                4.10.5
-react-native-screens                          3.31.1
-react-native-svg                              15.2.0
-react-native-url-polyfill                     ^2.0.0
+Expo moduly (klíčové)
+  expo-router        ~55
+  expo-apple-authentication
+  expo-camera, expo-clipboard, expo-constants, expo-crypto
+  expo-dev-client, expo-document-picker
+  expo-file-system, expo-font
+  expo-haptics, expo-iap, expo-image-manipulator, expo-image-picker
+  expo-linking, expo-network, expo-notifications
+  expo-print, expo-secure-store, expo-sharing
+  expo-splash-screen, expo-sqlite, expo-status-bar, expo-symbols
+  expo-system-ui, expo-updates
+
+Custom native modules
+  kalta-multipeer (MultipeerConnectivity P2P)
+  expo-brother-printer-sdk (Brother Mobile Print + PT series patch)
+
+Third-party
+  @supabase/supabase-js
+  @react-native-async-storage/async-storage
+  @react-native-community/datetimepicker
+  react-native-gesture-handler
+  react-native-qrcode-svg
+  react-native-reanimated, react-native-worklets
+  react-native-safe-area-context, react-native-screens
+  react-native-svg, react-native-url-polyfill
+  qrcode
 ```
 
-### Sprint 3 will add
-```
-expo-image-picker             (kamera foto / galerie)
-expo-image-manipulator        (resize + compress před uploadem)
-expo-print                    (Brother PT-P710BT přes AirPrint)
-expo-sharing                  (fallback share PNG label)
-```
-
-### Sprint 4 will add
-```
-expo-notifications            (push)
-```
+Authoritative source = `package.json`. Tahle sekce slouží jen pro kontext, ne pro lock.
 
 ---
 
-## Aktuální stav prostředí
+## Aktuální stav prostředí (refreshed 2026-05-19)
 
 ### Backend
-- ✅ Supabase projekt vytvořený
-- ✅ `schema.sql` spuštěný (plná konsolidovaná verze včetně RPC, realtime, storage bucket)
-- ✅ Apple provider zapnutý v Supabase (Client ID: `com.ondrejmichalcik.stockr`, Allow users without email: ON)
-- ✅ Test user `test@stockr.local` / `test1234` vytvořen pro dev bypass login
+- ✅ Supabase projekt `rlpjcdpqzejcfncjipve` (production)
+- ✅ `schema.sql` spuštěný — tabulky + RLS + triggery + RPC + realtime + storage bucket + subscription columns + cleanup function + pg_cron schedules
+- ✅ Apple provider zapnutý v Supabase (Client ID: `com.ondrejmichalcik.kalta`, Allow users without email: ON)
 - ✅ Realtime replication enabled pro `boxes`, `items`, `warehouses`, `warehouse_members`
-- ✅ Storage bucket `product-images` (public) vytvořený
+- ✅ Storage bucket `product-images` (public) — vytvořený
+- ✅ pg_cron + pg_net extensions enabled
+- ✅ Cron jobs active: `kalta-cleanup-lapsed-cloud-data` (daily 03:00 UTC), `kalta-sweep-storage` (Sunday 04:00 UTC)
+- ✅ Edge Function `sweep-storage` deployed
+- ✅ Vault secrets / `app.settings.service_role_key` setup (přes hardcoded JWT v cron command — solo project trade-off)
 
 ### Frontend / Build
-- ✅ `.env` vyplněný `EXPO_PUBLIC_SUPABASE_URL` + `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (nový publishable key, ne legacy anon)
-- ✅ `npm install` proběhl
-- ✅ Ruby 3.x nainstalovaný přes Homebrew, PATH v ~/.zshrc
-- ✅ CocoaPods nainstalované přes `gem install cocoapods`
-- ✅ `expo-dev-menu` patchnut v `node_modules` pro iOS 26 kompatibilitu (nepersistovaný)
-- ✅ `npx expo prebuild --platform ios` proběhl
-- ✅ První iOS build přes `npx expo run:ios` úspěšný
-- ✅ Dev client běží v iOS Simulator (iPhone 17 Pro, iOS 26.4)
-- ✅ Metro bundler connected, JS bundle loaded
-- ✅ Sprint 1 + 2 funkčně ověřeny v simulátoru (login, dashboard, create box, QR label, add items, edit, delete, toggle view mode)
+- ✅ `.env` vyplněný `EXPO_PUBLIC_SUPABASE_URL` + `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- ✅ Expo SDK ~55, React 19, RN 0.83 (po Sprintu 2.5 SDK upgrade)
+- ✅ Native moduly: expo-iap, expo-camera, expo-haptics, expo-sqlite, expo-notifications, expo-brother-printer-sdk + `kalta-multipeer` custom module — vše v EAS Build pipeline
+- ✅ `npm run typecheck` clean (od commit 2aba003)
+- ✅ TestFlight Build 25+ active, subscription enforcement ON, all flows tested in sandbox
+- ✅ EAS env vars set v preview environment
 
 ### Apple Developer
-- ✅ Apple Developer Program aktivní
-- ✅ App ID `com.ondrejmichalcik.stockr` registrován s capabilities:
-  - Sign In with Apple
-  - Push Notifications
-- ⏳ Fyzický iPhone — nespárovaný s Xcode signing (čeká na setup)
-- ⏳ Apple Sign In test na reálném zařízení (v simulátoru obejito přes dev bypass)
+- ✅ Apple Developer Program aktivní (expire 12 Apr 2027)
+- ✅ App ID `com.ondrejmichalcik.kalta` registrován s capabilities: Sign In with Apple, Push Notifications, In-App Purchase
+- ✅ Paid Apps Agreement Active (2026-05-18)
+- ✅ Bank, Tax, Contacts, DAC7, DSA — vše Active
+- ⏳ Apple Small Business Program — submitted 2026-05-19, awaiting Apple review
 
 ### Assety
-- ✅ `assets/icon.png` — 1024×1024, zelená paleta, symbolizuje Stockr
-- ✅ `assets/splash.png` — 1286×2778, stejný vizuál, backgroundColor `#1E5F3E`
+- ✅ `assets/icon.png` — 1024×1024, sage green 3D wooden box s QR (RGBA)
+- ✅ `assets/icon-appstore.png` — 1024×1024 RGB pro App Store upload
+- ✅ `assets/splash.png` + `assets/login-hero.png` — login/splash
+- ✅ `screen/IMG_6775.PNG` — paywall screenshot for ASC IAP review
+- ❌ App Store listing screenshots (6× 6.7") — blocker
 
 ---
 
