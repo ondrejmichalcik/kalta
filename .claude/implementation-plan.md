@@ -694,33 +694,42 @@ Phase details (each is a single commit, all gated transparently while flag was f
 
 ## Technical debt
 
-> **Pozn.:** patch-package a Expo SDK upgrade byly přesunuty do **Sprint 2.5** (Fáze 1 — Tech debt). Tahle sekce obsahuje jen zbývající položky.
+> **Pozn.:** patch-package a Expo SDK upgrade byly vyřešeny ve **Sprint 2.5**. Aktualizováno 2026-05-19 po Sprint 5.5 launch prep.
 
-### Role awareness (Sprint 4 territory, ale už se projevuje)
-- Aktuálně UI zobrazuje destruktivní akce všem
-- RLS policies to odmítnou, ale user dostane prázdný výsledek bez feedback
-- **Fix:** v `listMembers` nebo v `getMyWarehouse` vrátit roli aktuálního usera a podmíněně renderovat tlačítka
+### Pre-launch — vyřešeno ✅
 
-### Refresh invalidace realtime
-- Po `updateItem` v `ItemEditSheet` děláme optimistický update `setItems(prev.map(...))`
-- Realtime subscription pak pošle event → znovu `load()` → zbytečný double refresh
-- **Fix:** ignorovat vlastní write eventy (Supabase realtime má `eventId` per operation)
-- **Priorita nízká** — race condition je kosmetická, UI se vrátí do konzistence do 200ms
+- ~~Role awareness~~ — gating implementováno ve Sprintu 5, verified 2026-04-25
+- ~~Refresh invalidace realtime~~ — vyřešeno přes `realtimeEcho.ts` (2026-04-26)
+- ~~Settings screen + sign out~~ — žije v `app/(app)/profile.tsx` (Sprint 5)
+- ~~Dev-only email/password login~~ — odstraněno v Phase 8 cleanup
+- ~~TS errors `profile.tsx:504` + `StatusDot.tsx:15`~~ — fixnuto 2026-05-19 (commit 2aba003), typecheck je čistý
 
-### Settings screen + sign out
-- Dashboard má dočasné "Odhlásit" tlačítko — ošklivé, ale funkční
-- Přesunout do `settings/index.tsx` ve Sprintu 4
+### Post-launch — subscription model edge cases
 
-### Dev-only email/password login
-- V `login.tsx` je `__DEV__` wrapped sekce s email/password fallback
-- Slouží pro bypass Apple Sign In v simulátoru (password paste v iOS Settings nefunguje)
-- **V production buildu se nerenderuje** (`__DEV__ === false`)
-- Lze ponechat i do TestFlight buildu, ale doporučeno odstranit před App Store submission
+**Receipt validation server-side (low priority)**
+- `pushSubscriptionToSupabase` trustuje client `expires_at` — jailbroken device by mohl falsifikovat datum a obejít 30-day TTL cleanup
+- Pro household scale (10–100 users) negligible risk; nad ~1000 users worth implementing
+- **Fix:** Supabase Edge Function `verify-receipt` → POST receipt → call Apple App Store Server API → server-validated update `users.subscription_expires_at`
 
-### Error handling granularita
-- Aktuální error states jsou jen na load level
-- Save failures v editech jsou jen Alert (OK pro teď)
-- Možná přidat retry-with-backoff pro síťové operace? — zvážit při prvním reálném použití
+**Deferred image upload pro lapsed users**
+- Items vytvořené v lapsed mode mají `image_url = null` (uploadProductImage throws CloudFeatureDisabledError, UI fallback uloží item bez foto)
+- Lepší UX: cache image lokálně pod `local:<hash>` URI, na renew sync engine detekuje a uploadne do Storage
+- **Vyžaduje:** změny v `storage.ts` (lazy upload), `imageCache.ts` (`local:` URI handling), sync push step (detect + upload local images)
+
+**Storage object cleanup**
+- `cleanup_lapsed_cloud_data()` v pg_cron maže DB rows (warehouses → cascade), ale Storage object PNGs v `{warehouseId}/*` zůstávají orphans
+- Při scale by se akumulovaly
+- **Fix:** Supabase Edge Function `sweep-storage` triggered weekly: list orphan storage objects (žádný matching item.image_url) → delete
+
+### Operational / nice-to-have
+
+**Error handling granularita**
+- Aktuální error states jsou Alert + log. Save failures nemají retry-with-backoff pro síťové operace
+- Pro production použití zvážit při prvních reálných incidentech (zatím žádné nehlášené)
+
+**Lapse flow end-to-end verification**
+- Gates kódově ověřené, ale UX naživo neotestovaný (sandbox cancel z TestFlight nefunguje na iOS 18+ s real Apple ID — manuál cancel není možný)
+- Validuje se organicky po launchu prvními real lapsed users
 
 ---
 
