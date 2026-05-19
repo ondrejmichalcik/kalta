@@ -96,9 +96,30 @@ Deno.serve(async (req) => {
     );
   }
 
+  // DEBUG: log the shape of the secrets so we can tell whether the
+  // .p8 was mangled during `supabase secrets set` (newlines stripped,
+  // trailing whitespace, etc.). Doesn't log the key body itself.
+  console.log('[verify-receipt][debug] keyId:', JSON.stringify(keyId));
+  console.log('[verify-receipt][debug] issuerId:', JSON.stringify(issuerId));
+  console.log('[verify-receipt][debug] bundleId:', JSON.stringify(bundleId));
+  console.log(
+    '[verify-receipt][debug] p8 length:',
+    p8.length,
+    'starts with:',
+    JSON.stringify(p8.substring(0, 30)),
+    'ends with:',
+    JSON.stringify(p8.substring(p8.length - 30)),
+    'newlines:',
+    (p8.match(/\n/g) || []).length,
+  );
+
   let appleJwt: string;
   try {
-    const privateKey = await importPKCS8(p8, 'ES256');
+    // Some `supabase secrets set` flows strip line breaks; re-insert
+    // them between the PEM header/footer and the base64 body so jose
+    // can parse the key either way.
+    const p8Normalized = normalizePem(p8);
+    const privateKey = await importPKCS8(p8Normalized, 'ES256');
     appleJwt = await new SignJWT({ bid: bundleId })
       .setProtectedHeader({ alg: 'ES256', kid: keyId, typ: 'JWT' })
       .setIssuer(issuerId)
@@ -106,9 +127,10 @@ Deno.serve(async (req) => {
       .setIssuedAt()
       .setExpirationTime('20m')
       .sign(privateKey);
+    console.log('[verify-receipt][debug] JWT prefix:', appleJwt.substring(0, 32));
   } catch (e) {
     console.error('[verify-receipt] failed to sign Apple JWT', e);
-    return json({ error: 'Apple JWT signing failed' }, 500);
+    return json({ error: 'Apple JWT signing failed', detail: String(e) }, 500);
   }
 
   // 4. Query Apple. Try production first; fall back to sandbox on 404 so
@@ -206,4 +228,28 @@ function b64urlDecode(s: string): string {
   const normalized = s.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized + '==='.slice((normalized.length + 3) % 4);
   return atob(padded);
+}
+
+/**
+ * Re-insert PEM newlines if a `supabase secrets set` shell substitution
+ * stripped them. Apple delivers .p8 files as standard PKCS8 PEM:
+ *   -----BEGIN PRIVATE KEY-----
+ *   <base64 body, 64-char lines>
+ *   -----END PRIVATE KEY-----
+ * If the secret was set without preserving newlines we end up with a
+ * single line; jose's importPKCS8 then rejects it as malformed.
+ */
+function normalizePem(pem: string): string {
+  const trimmed = pem.trim();
+  if (trimmed.includes('\n')) return trimmed;
+  const header = '-----BEGIN PRIVATE KEY-----';
+  const footer = '-----END PRIVATE KEY-----';
+  const headerIdx = trimmed.indexOf(header);
+  const footerIdx = trimmed.indexOf(footer);
+  if (headerIdx < 0 || footerIdx < 0) return trimmed; // unrecognised shape
+  const body = trimmed
+    .substring(headerIdx + header.length, footerIdx)
+    .replace(/\s+/g, '');
+  const wrapped = body.match(/.{1,64}/g)?.join('\n') ?? body;
+  return `${header}\n${wrapped}\n${footer}`;
 }
