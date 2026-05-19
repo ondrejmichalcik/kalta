@@ -501,7 +501,9 @@ export default function ProfileScreen() {
               <Text style={styles.windowsLabel}>Remind me</Text>
               {ALL_WINDOWS.map((w) => {
                 const enabled = activeWindows.includes(w);
-                const label = w === 0 ? 'On expiry day' : w === 1 ? '1 day before' : `${w} days before`;
+                // ALL_WINDOWS = [60, 30, 1] — no 0 entry, so an "on expiry
+                // day" branch would be dead code under the current type.
+                const label = w === 1 ? '1 day before' : `${w} days before`;
                 return (
                   <Pressable
                     key={w}

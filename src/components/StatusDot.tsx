@@ -18,6 +18,7 @@ const STATUS_COLOR: Record<ExpiryStatus, string> = {
   soon: colors.warning,
   ok: colors.success,
   none: colors.borderStrong,
+  never: colors.textSubtle,
 };
 
 export function StatusDot({ status, size = 10 }: StatusDotProps) {
