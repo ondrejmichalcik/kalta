@@ -1095,6 +1095,21 @@ export async function pushSync(): Promise<{ pushed: number; failed: number }> {
   if (!isCloudEnabledNow()) {
     return { pushed: 0, failed: 0 };
   }
+
+  // Drain any deferred image uploads first — items captured while the
+  // user's subscription was lapsed currently hold `image_url='local:...'`
+  // pointing at the local cache. Replacing those with real Supabase
+  // Storage URLs BEFORE we read items rows below means the push payload
+  // already carries the correct cloud URL. The safety filter further
+  // down strips any local: URL that slipped through (e.g. a flush
+  // failure mid-way) so the server never sees the synthetic prefix.
+  try {
+    const { flushDeferredImageUploads } = require('./storage') as typeof import('./storage');
+    await flushDeferredImageUploads();
+  } catch (e) {
+    console.warn('[sync] flushDeferredImageUploads failed', e);
+  }
+
   const db = getDb();
   const pending = db.getAllSync<{
     id: number;
@@ -1135,6 +1150,16 @@ export async function pushSync(): Promise<{ pushed: number; failed: number }> {
           // Convert SQLite booleans back
           if ('opened' in clean) clean.opened = !!clean.opened;
           if ('damaged' in clean) clean.damaged = !!clean.damaged;
+          // Safety: a deferred-local image URI must never reach the
+          // server. flushDeferredImageUploads runs at the top of pushSync
+          // and normally converts these, but if its upload failed mid-way
+          // the row still carries `local:...`. Strip to NULL rather than
+          // garbage so peers/pulls don't render a broken image. The
+          // image_url will be re-set on the next sync after the upload
+          // finally succeeds (followed by another push entry for that row).
+          if (typeof clean.image_url === 'string' && clean.image_url.startsWith('local:')) {
+            clean.image_url = null;
+          }
           // Tables with secondary unique keys need explicit onConflict so the
           // upsert UPDATEs instead of failing on a duplicate-key error.
           // custom_products has unique (warehouse_id, barcode) — two clients
@@ -1160,6 +1185,11 @@ export async function pushSync(): Promise<{ pushed: number; failed: number }> {
             if (f in row) {
               patch[f] = (f === 'opened' || f === 'damaged') ? !!row[f] : row[f];
             }
+          }
+          // Same safety as the INSERT branch: never push a `local:`
+          // deferred-image URI to the server.
+          if (typeof patch.image_url === 'string' && patch.image_url.startsWith('local:')) {
+            patch.image_url = null;
           }
           if (Object.keys(patch).length > 0) {
             // For composite PK tables (warehouse_members), use different approach
