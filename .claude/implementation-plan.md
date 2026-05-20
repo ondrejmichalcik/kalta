@@ -718,17 +718,35 @@ COVERAGE GAPS          ←──── (agreguje: expired + below-par + gaps)
 
 Rozhodnutí 2026-05-20 (Ondřejův návrh, lepší než původně zvažované category defaults): místo hrubých category průměrů použít **reálná nutriční data per item**. Open Food Facts je už vrací — stačí rozšířit lookup.
 
+**Per-person daily needs** (zafixováno 2026-05-20): místo `people × fixed_rate` má každý člen domácnosti vlastní `daily_kcal` + `daily_water_l` — dospělý vs dítě je velký rozdíl. Total potřeba = součet přes členy.
+
+```
+total_daily_kcal  = Σ member.daily_kcal       // ne people × 2000
+total_daily_water = Σ member.daily_water_l     // ne people × 3
+```
+
 **Food coverage (kcal-based):**
 ```
-total_kcal = Σ (energy_kcal_per_100g / 100 × net_weight_g × quantity)
-food_days = total_kcal / (people × DAILY_KCAL)   // DAILY_KCAL default 2000
+total_kcal = Σ (energy_kcal_per_100g / 100 × net_weight_g × quantity)   // přes food items
+food_days  = total_kcal / total_daily_kcal
 ```
 
 **Water coverage (volume-based):**
 ```
-total_liters = Σ (objem v litrech podle unit l/ml nebo net_volume)
-water_days = total_liters / (people × DAILY_WATER_L)   // default 3 L
+total_liters = Σ (objem v litrech podle unit l/ml nebo net_volume)      // přes water items
+water_days   = total_liters / total_daily_water
 ```
+
+**Add-person presety** (rychlé data entry, hodnoty editovatelné — rough guidelines):
+
+| Preset | daily_kcal | daily_water_l |
+|---|---|---|
+| Adult male | 2500 | 3.0 |
+| Adult female | 2000 | 2.5 |
+| Teenager | 2200 | 2.5 |
+| Child (4–8) | 1400 | 1.5 |
+| Toddler | 1200 | 1.0 |
+| Custom | manual | manual |
 
 **Ostatní kategorie** (medicine/equipment/energy/disinfectant/documents): ne "dny", ale **coverage gaps** (máš/nemáš + par level), readiness-days nedávají smysl.
 
@@ -737,15 +755,26 @@ water_days = total_liters / (people × DAILY_WATER_L)   // default 3 L
 ### Rozhodnutí (zafixováno 2026-05-20)
 
 - **Scope: per-warehouse readiness ve v1.** Každý warehouse má vlastní `people_count`, readiness se počítá jen z jeho zásob ("Home Pantry: 12 dní jídla pro 4 lidi"). Aggregate cross-warehouse ("total survival capacity přes všechny lokace") je pozdější enhancement — většina uživatelů má primárně 1 hlavní sklad, a aggregate komplikuje různé people_count + sharing.
-- **`people_count` ≠ `warehouse_members`.** Members = kdo appku spravuje; people_count = koho zásoby živí. Explicitní field, ne odvozeno.
+- **Household = nová tabulka `household_members`, ne `people_count` int.** Každý člen má jméno + per-osobu denní potřeby (dospělý/dítě se liší). Oddělené od `warehouse_members` (členové = kdo appku spravuje; household = koho zásoby živí). Tabulka (ne JSON sloupec) kvůli konzistenci se sync architekturou + per-member merge.
+- **Add-person presety:** 6 typů (Adult M/F, Teen, Child, Toddler, Custom) předvyplní kcal+vodu, editovatelné.
 - **Surface: summary card + detail screen.** Glanceable banner na vrchu warehouse dashboardu (Boxes tab) — "⚠️ Voda: 4 dny — tvoje slabina" / "✓ 18 dní ready". Tap → full readiness detail screen. Žádný 5. tab, konzistentní s existing expiry attention bannerem na dashboardu.
 - **Pets: skip ve v1.** Zvířata potřebují jiný consumption rate; přidává komplexitu. Enhancement pokud bude poptávka.
 
 ### Data model additions
 
-`warehouses`:
-- `people_count` int default 1
-- (volitelně později: `daily_kcal_target`, `daily_water_l` override — default 2000 / 3; `pets_count`)
+Nová tabulka `household_members`:
+```sql
+create table if not exists public.household_members (
+  id            uuid primary key default gen_random_uuid(),
+  warehouse_id  uuid not null references public.warehouses(id) on delete cascade,
+  name          text not null,
+  daily_kcal    int not null default 2000,
+  daily_water_l numeric not null default 3,
+  created_at    timestamptz not null default now()
+);
+create index if not exists idx_household_members_warehouse on public.household_members(warehouse_id);
+```
+Sync plumbing (~7 míst, dle existing patternu): schema.sql (table + RLS `is_member(warehouse_id)` + realtime publication), localDb (SQLite mirror + sync metadata), localQueries (`listHouseholdMembersLocal`), localWrites (`upsert`/`deleteHouseholdMemberLocal` + enqueue), sync.ts (pull table list), p2pSync (MERGE_FIELDS + bundle), types (`HouseholdMember`), supabase.ts (SQLite-first wrappers).
 
 `items` nové sloupce:
 - `energy_kcal_per_100g` numeric null — z OFF `nutriments['energy-kcal_100g']`
@@ -759,7 +788,7 @@ OFF integrace (`openFoodFacts.ts`) extension:
 
 ### Build sekvence (kdyby šlo do realizace)
 
-1. **Household config** — schema: `warehouses.people_count` int default 1. UI: nová **HOUSEHOLD** sekce v `warehouse/[warehouseId]/(tabs)/settings.tsx` se stepperem (− N +). Lokální write přes localWrites + sync.
+1. **Household config** — schema: nová `household_members` tabulka + sync plumbing (7 míst výše). UI: nová **HOUSEHOLD** sekce v `warehouse/[warehouseId]/(tabs)/settings.tsx` — list členů (jméno + kcal·voda), Add person sheet s 6 presety + custom, edit/delete per člen, "Total: X kcal · Y L / den" řádek.
 2. **OFF nutritional fetch + items columns** — schema migrace (`energy_kcal_per_100g`, `net_weight_g`, `min_quantity`). Extend `openFoodFacts.ts` lookup o `nutriments` + quantity-string parser. ItemEditSheet + add-items: nutriční pole (auto-filled ze scanu, manual editovatelné).
 3. **Readiness calc engine** — `src/lib/readiness.ts`: čistá funkce `computeReadiness(items, peopleCount)` → `{ foodDays, waterDays, weakestLink: { category, days }, perCategory: [...] }`. Žádný UI, jen logika + unit-testovatelná.
 4. **Readiness summary card** — komponenta na vrchu `warehouse/[warehouseId]/(tabs)/index.tsx` (Boxes dashboard), vedle/nad existing expiry attention banneru. Weakest-link headline + tap.
