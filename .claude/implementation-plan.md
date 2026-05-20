@@ -697,6 +697,84 @@ Phase details (each is a single commit, all gated transparently while flag was f
 
 ---
 
+## Sprint 6 – Readiness 📋 (navrženo 2026-05-20, čeká na rozhodnutí o realizaci)
+
+**Cíl:** Posunout Kaltu z "inventory tracker" na "readiness tool". Odpovědět na **THE prepper otázku**: "Kolik dní přežiju?" Čtyři propojené featury tvoří uzavřený loop:
+
+```
+FOUNDATION (sdílená data)
+  • Household config (počet lidí per warehouse)
+  • Nutritional data per item (kcal/100g + net váha) — z Open Food Facts
+  • Par levels (min množství per item)
+        ↓                          ↓
+READINESS DASHBOARD          PAR / LOW-STOCK alerts
+"X dní pro Z lidí"                  ↓
+        ↓                    SHOPPING / RESTOCK LIST
+COVERAGE GAPS          ←──── (agreguje: expired + below-par + gaps)
+"chybí ti léky/baterie"
+```
+
+### Consumption model — DECIDED: nutritional (cal/100g + package size)
+
+Rozhodnutí 2026-05-20 (Ondřejův návrh, lepší než původně zvažované category defaults): místo hrubých category průměrů použít **reálná nutriční data per item**. Open Food Facts je už vrací — stačí rozšířit lookup.
+
+**Food coverage (kcal-based):**
+```
+total_kcal = Σ (energy_kcal_per_100g / 100 × net_weight_g × quantity)
+food_days = total_kcal / (people × DAILY_KCAL)   // DAILY_KCAL default 2000
+```
+
+**Water coverage (volume-based):**
+```
+total_liters = Σ (objem v litrech podle unit l/ml nebo net_volume)
+water_days = total_liters / (people × DAILY_WATER_L)   // default 3 L
+```
+
+**Ostatní kategorie** (medicine/equipment/energy/disinfectant/documents): ne "dny", ale **coverage gaps** (máš/nemáš + par level), readiness-days nedávají smysl.
+
+**Readiness headline = weakest-link:** `min(food_days, water_days, ...)` → "Tvoje slabina: voda, 4 dny". Pod tím per-category breakdown.
+
+### Data model additions
+
+`warehouses` (nebo nová `household_config`):
+- `people_count` int default 1 (+ pets later?)
+- volitelně `daily_kcal_target`, `daily_water_l` override (default 2000 / 3)
+
+`items` nové sloupce:
+- `energy_kcal_per_100g` numeric null — z OFF `nutriments['energy-kcal_100g']`
+- `net_weight_g` numeric null — váha per jednotka/balení, parse z OFF `product_quantity`
+- `min_quantity` numeric null — par level (low-stock threshold)
+
+OFF integrace (`openFoodFacts.ts`) extension:
+- Fetch `nutriments['energy-kcal_100g']` + `nutriments['energy-kj_100g']` fallback
+- Parse `quantity` string ("500 g", "1.5 l", "6 x 1.5 l") → normalized net amount + unit
+- Auto-fill při scanu; manual override v ItemEditSheet
+
+### Build sekvence (kdyby šlo do realizace)
+
+1. **Household config** — `people_count` per warehouse, settings field + calc input
+2. **OFF nutritional fetch + items columns** — extend lookup, schema migrace (energy, net_weight, min_quantity), ItemEditSheet nutriční pole
+3. **Readiness calc engine** — `src/lib/readiness.ts`: food kcal-days + water days + weakest-link, per-category breakdown
+4. **Readiness dashboard** — nový screen/tab: headline weakest-link + per-category coverage bary
+5. **Par levels + low-stock** — `min_quantity` detection, badge/alert na items pod minimem
+6. **Coverage gaps** — recommended kit template (per category baseline), "chybí ti X"
+7. **Shopping list** — agregace expired + below-par + gaps → checklist screen, mark-purchased flow
+
+Realisticky **~1-2 týdny**. Sekvenovatelné — par levels + shopping list jsou samostatně užitečné i bez readiness dashboardu.
+
+### Otevřené otázky před realizací
+
+- **net_weight parsing z OFF quantity string** — "6 x 1.5 l" / "500g" / "1,5 kg" formáty messy. Fallback na manual entry když parse selže.
+- **Water v pcs (lahve)** — potřebuje net_volume_ml per lahev (z OFF quantity). Nebo user zadá unit=l rovnou.
+- **Items bez OFF dat** (custom products, manual entry) — nutriční pole prázdná → nezapočítají se do readiness, nebo prompt na manual fill.
+- **Recommended kit template** — hardcoded prepper baseline (co každý kit má mít) vs user-defined targets?
+- **Daily targets** — 2000 kcal / 3 L hardcoded vs configurable per household?
+
+### Rozhodnutí: realizovat po launchi
+Sprint 6 je post-launch. Priorita až po App Store v1.0 release + prvním reálném user feedbacku. Nevstupuje do launch blockingu.
+
+---
+
 ## Technical debt
 
 > **Pozn.:** patch-package a Expo SDK upgrade byly vyřešeny ve **Sprint 2.5**. Aktualizováno 2026-05-20 po dokončení celé tech debt fronty.
