@@ -699,47 +699,31 @@ Phase details (each is a single commit, all gated transparently while flag was f
 
 ## Technical debt
 
-> **Pozn.:** patch-package a Expo SDK upgrade byly vyřešeny ve **Sprint 2.5**. Aktualizováno 2026-05-19 po Sprint 5.5 launch prep.
+> **Pozn.:** patch-package a Expo SDK upgrade byly vyřešeny ve **Sprint 2.5**. Aktualizováno 2026-05-20 po dokončení celé tech debt fronty.
 
-### Pre-launch — vyřešeno ✅
+### Vyřešeno ✅
 
 - ~~Role awareness~~ — gating implementováno ve Sprintu 5, verified 2026-04-25
 - ~~Refresh invalidace realtime~~ — vyřešeno přes `realtimeEcho.ts` (2026-04-26)
 - ~~Settings screen + sign out~~ — žije v `app/(app)/profile.tsx` (Sprint 5)
 - ~~Dev-only email/password login~~ — odstraněno v Phase 8 cleanup
-- ~~TS errors `profile.tsx:504` + `StatusDot.tsx:15`~~ — fixnuto 2026-05-19 (commit 2aba003), typecheck je čistý
+- ~~TS errors `profile.tsx:504` + `StatusDot.tsx:15`~~ — fixnuto 2026-05-19 (commit 2aba003), typecheck čistý
+- ~~Deferred image upload pro lapsed users~~ — commit 37a1f8f (2026-05-19). Lapsed photo → cache pod `local:` URI → na renew flushDeferredImageUploads uploadne + enqueue UPDATE
+- ~~Storage object cleanup~~ — commit 65639e6. `sweep-storage` Edge Function, weekly cron (Sun 04:00 UTC), confirmed working
+- ~~Custom products management screen~~ — commit 65c855d. Existing screen rozšířen o full edit sheet (name/category/shelf life) + image thumbnails + search/filter
+- ~~Receipt validation server-side~~ — commits a80e3f9 → e6df19d (2026-05-20). `verify-receipt` Edge Function: local JWS verification (Apple Server API path 401'd → pivot), cert chain pinned na Apple Root CA G3, column-level RLS revoke (jen service role píše sub columns). Confirmed POST 200, DB write verified.
 
-### Post-launch — subscription model edge cases
-
-**Receipt validation server-side (low priority)**
-- `pushSubscriptionToSupabase` trustuje client `expires_at` — jailbroken device by mohl falsifikovat datum a obejít 30-day TTL cleanup
-- Pro household scale (10–100 users) negligible risk; nad ~1000 users worth implementing
-- **Fix:** Supabase Edge Function `verify-receipt` → POST receipt → call Apple App Store Server API → server-validated update `users.subscription_expires_at`
-
-**Deferred image upload pro lapsed users**
-- Items vytvořené v lapsed mode mají `image_url = null` (uploadProductImage throws CloudFeatureDisabledError, UI fallback uloží item bez foto)
-- Lepší UX: cache image lokálně pod `local:<hash>` URI, na renew sync engine detekuje a uploadne do Storage
-- **Vyžaduje:** změny v `storage.ts` (lazy upload), `imageCache.ts` (`local:` URI handling), sync push step (detect + upload local images)
-
-**Storage object cleanup** ✅ (resolved 2026-05-19, commit 65639e6)
-- ~~`cleanup_lapsed_cloud_data()` v pg_cron maže DB rows (warehouses → cascade), ale Storage object PNGs v `{warehouseId}/*` zůstávají orphans~~
-- Edge Function `sweep-storage` deployed + scheduled (Sunday 04:00 UTC). Walks bucket, cross-references with `items.image_url`, deletes orphans. Manual fire test confirmed `scanned:1, deleted:0`. Cost protection at scale done.
-
-### Operational / nice-to-have
-
-**Custom products management screen** (deferred z Sprintu 3)
-- `settings/products.tsx` — UI pro správu seznamu custom (AI-identifikovaných nebo manuálně přidaných) produktů: list, edit name/category/shelf life, delete
-- Dnes lze custom products jen vytvářet (přes scan flow), ne managovat ze Settings
-- Cca 2 hodiny práce; nice-to-have pro users co chtějí cleanup
-- Bez tohoto: custom products tabulka roste, user nemá způsob jak smazat omylem přidaný produkt
+### Operational / nízká priorita (žádný actionable trigger)
 
 **Error handling granularita**
 - Aktuální error states jsou Alert + log. Save failures nemají retry-with-backoff pro síťové operace
-- Pro production použití zvážit při prvních reálných incidentech (zatím žádné nehlášené)
+- Zvážit při prvních reálných incidentech (zatím žádné nehlášené)
 
 **Lapse flow end-to-end verification**
-- Gates kódově ověřené, ale UX naživo neotestovaný (sandbox cancel z TestFlight nefunguje na iOS 18+ s real Apple ID — manuál cancel není možný)
+- Gates kódově ověřené, ale UX naživo neotestovaný (sandbox cancel z TestFlight nejde na iOS 18+ s real Apple ID — manuál cancel není možný)
 - Validuje se organicky po launchu prvními real lapsed users
+
+**Tech debt fronta je vyčerpaná** — vše substantial je hotové. Zbylé dvě položky čekají na reálná data z produkce, ne na implementaci.
 
 ---
 
