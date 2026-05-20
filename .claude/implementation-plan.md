@@ -734,11 +734,18 @@ water_days = total_liters / (people × DAILY_WATER_L)   // default 3 L
 
 **Readiness headline = weakest-link:** `min(food_days, water_days, ...)` → "Tvoje slabina: voda, 4 dny". Pod tím per-category breakdown.
 
+### Rozhodnutí (zafixováno 2026-05-20)
+
+- **Scope: per-warehouse readiness ve v1.** Každý warehouse má vlastní `people_count`, readiness se počítá jen z jeho zásob ("Home Pantry: 12 dní jídla pro 4 lidi"). Aggregate cross-warehouse ("total survival capacity přes všechny lokace") je pozdější enhancement — většina uživatelů má primárně 1 hlavní sklad, a aggregate komplikuje různé people_count + sharing.
+- **`people_count` ≠ `warehouse_members`.** Members = kdo appku spravuje; people_count = koho zásoby živí. Explicitní field, ne odvozeno.
+- **Surface: summary card + detail screen.** Glanceable banner na vrchu warehouse dashboardu (Boxes tab) — "⚠️ Voda: 4 dny — tvoje slabina" / "✓ 18 dní ready". Tap → full readiness detail screen. Žádný 5. tab, konzistentní s existing expiry attention bannerem na dashboardu.
+- **Pets: skip ve v1.** Zvířata potřebují jiný consumption rate; přidává komplexitu. Enhancement pokud bude poptávka.
+
 ### Data model additions
 
-`warehouses` (nebo nová `household_config`):
-- `people_count` int default 1 (+ pets later?)
-- volitelně `daily_kcal_target`, `daily_water_l` override (default 2000 / 3)
+`warehouses`:
+- `people_count` int default 1
+- (volitelně později: `daily_kcal_target`, `daily_water_l` override — default 2000 / 3; `pets_count`)
 
 `items` nové sloupce:
 - `energy_kcal_per_100g` numeric null — z OFF `nutriments['energy-kcal_100g']`
@@ -752,15 +759,16 @@ OFF integrace (`openFoodFacts.ts`) extension:
 
 ### Build sekvence (kdyby šlo do realizace)
 
-1. **Household config** — `people_count` per warehouse, settings field + calc input
-2. **OFF nutritional fetch + items columns** — extend lookup, schema migrace (energy, net_weight, min_quantity), ItemEditSheet nutriční pole
-3. **Readiness calc engine** — `src/lib/readiness.ts`: food kcal-days + water days + weakest-link, per-category breakdown
-4. **Readiness dashboard** — nový screen/tab: headline weakest-link + per-category coverage bary
-5. **Par levels + low-stock** — `min_quantity` detection, badge/alert na items pod minimem
-6. **Coverage gaps** — recommended kit template (per category baseline), "chybí ti X"
-7. **Shopping list** — agregace expired + below-par + gaps → checklist screen, mark-purchased flow
+1. **Household config** — schema: `warehouses.people_count` int default 1. UI: nová **HOUSEHOLD** sekce v `warehouse/[warehouseId]/(tabs)/settings.tsx` se stepperem (− N +). Lokální write přes localWrites + sync.
+2. **OFF nutritional fetch + items columns** — schema migrace (`energy_kcal_per_100g`, `net_weight_g`, `min_quantity`). Extend `openFoodFacts.ts` lookup o `nutriments` + quantity-string parser. ItemEditSheet + add-items: nutriční pole (auto-filled ze scanu, manual editovatelné).
+3. **Readiness calc engine** — `src/lib/readiness.ts`: čistá funkce `computeReadiness(items, peopleCount)` → `{ foodDays, waterDays, weakestLink: { category, days }, perCategory: [...] }`. Žádný UI, jen logika + unit-testovatelná.
+4. **Readiness summary card** — komponenta na vrchu `warehouse/[warehouseId]/(tabs)/index.tsx` (Boxes dashboard), vedle/nad existing expiry attention banneru. Weakest-link headline + tap.
+5. **Readiness detail screen** — `warehouse/[warehouseId]/readiness.tsx` (push z card): headline dní + per-category coverage bary ("Food 18d / Water 4d / ...") + "for N people" label + odkaz na shopping list.
+6. **Par levels + low-stock** — `items.min_quantity` UI v ItemEditSheet, low-stock badge na item cards (quantity < min), feeduje shopping list.
+7. **Coverage gaps** — recommended kit baseline (per kategorie: má warehouse aspoň X?), "chybí ti: medicine, batteries" sekce v readiness detailu.
+8. **Shopping list** — `warehouse/[warehouseId]/shopping.tsx`: agregace (expired items + below-par items + coverage gaps) → checklist, mark-purchased → optional rovnou pre-fill add-items flow.
 
-Realisticky **~1-2 týdny**. Sekvenovatelné — par levels + shopping list jsou samostatně užitečné i bez readiness dashboardu.
+Realisticky **~1-2 týdny**. Sekvenovatelné — kroky 1-5 (readiness core) jsou jeden ucelený kus; 6-8 (par/gaps/shopping) druhý, samostatně užitečný i bez readiness dashboardu.
 
 ### Otevřené otázky před realizací
 
