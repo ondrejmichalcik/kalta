@@ -32,6 +32,33 @@ export const SUBSCRIPTION_ENFORCEMENT_ENABLED = true;
 export const SUBSCRIPTION_PRODUCT_ID = 'com.ondrejmichalcik.kalta.cloud_yearly';
 
 const CACHE_KEY = '@kalta/subscription_state';
+// The Apple-signed JWS is only reliably present on the purchase-update
+// event (StoreKit hands it over right after purchase / renewal). Later
+// getAvailablePurchases queries don't always populate purchaseToken, so
+// we stash the JWS here the moment we see it and read it back when
+// pushing to verify-receipt.
+const JWS_CACHE_KEY = '@kalta/subscription_jws';
+
+/** Persist the Apple JWS from a purchase event for later verify-receipt. */
+async function persistJwsFromPurchase(purchase: any): Promise<void> {
+  if (purchase?.productId !== SUBSCRIPTION_PRODUCT_ID) return;
+  const candidate = purchase?.purchaseToken ?? purchase?.jwsRepresentation;
+  if (typeof candidate === 'string' && candidate.split('.').length === 3) {
+    try {
+      await AsyncStorage.setItem(JWS_CACHE_KEY, candidate);
+    } catch {
+      // non-fatal — fall back to getAvailablePurchases at push time
+    }
+  }
+}
+
+async function loadCachedJws(): Promise<string | null> {
+  try {
+    return await AsyncStorage.getItem(JWS_CACHE_KEY);
+  } catch {
+    return null;
+  }
+}
 
 export type SubscriptionStatus =
   | 'loading'
@@ -237,46 +264,30 @@ async function pushSubscriptionToSupabase(state: SubscriptionState): Promise<voi
   const { data: userData } = await supabase.auth.getUser();
   if (!userData?.user?.id) return; // offline / signed out
 
-  // expo-iap exposes the Apple-signed JWS as `purchaseToken` on iOS
-  // (comment in the type: "Unified purchase token (iOS JWS, Android
-  // purchaseToken)"). Older fields like `transactionId` would only
-  // identify the row, not prove Apple signed it.
-  let jws: string | null = null;
-  try {
-    const purchases = (await getAvailablePurchases({
-      onlyIncludeActiveItemsIOS: true,
-    } as any)) as any[];
-    // TEMP DEBUG: surface what StoreKit actually returns in sandbox so
-    // we can confirm whether purchaseToken/JWS is populated. Remove
-    // once verify-receipt is confirmed working.
-    console.log(
-      '[subscription][debug] purchases count:',
-      purchases.length,
-      'shapes:',
-      JSON.stringify(
-        purchases.map((p) => ({
-          productId: p?.productId,
-          hasPurchaseToken: typeof p?.purchaseToken === 'string',
-          purchaseTokenSegments:
-            typeof p?.purchaseToken === 'string'
-              ? p.purchaseToken.split('.').length
-              : 0,
-          hasJwsRepresentation: typeof p?.jwsRepresentation === 'string',
-          keys: Object.keys(p ?? {}),
-        })),
-      ),
-    );
-    const active = purchases.find((p) => p?.productId === SUBSCRIPTION_PRODUCT_ID);
-    const candidate = active?.purchaseToken ?? active?.jwsRepresentation;
-    if (typeof candidate === 'string' && candidate.split('.').length === 3) {
-      jws = candidate;
+  // Prefer the JWS captured at purchase time — it's reliably present on
+  // the purchase-update event but NOT always populated by a later
+  // getAvailablePurchases query (that switch is what stopped the call
+  // in Build 44). Fall back to getAvailablePurchases for completeness.
+  let jws: string | null = await loadCachedJws();
+  if (!jws) {
+    try {
+      const purchases = (await getAvailablePurchases({
+        onlyIncludeActiveItemsIOS: true,
+      } as any)) as any[];
+      const active = purchases.find((p) => p?.productId === SUBSCRIPTION_PRODUCT_ID);
+      const candidate = active?.purchaseToken ?? active?.jwsRepresentation;
+      if (typeof candidate === 'string' && candidate.split('.').length === 3) {
+        jws = candidate;
+        // Backfill the cache so subsequent launches don't re-query.
+        await persistJwsFromPurchase(active);
+      }
+    } catch (err) {
+      console.warn('[subscription] could not read JWS from purchases', err);
+      return;
     }
-  } catch (err) {
-    console.warn('[subscription] could not read JWS from purchases', err);
-    return;
   }
   if (!jws) {
-    console.warn('[subscription][debug] no JWS extracted — skipping verify-receipt');
+    console.warn('[subscription] no JWS available — skipping verify-receipt');
     return;
   }
 
@@ -345,6 +356,11 @@ export function useSubscription(): UseSubscriptionResult {
     }
 
     const sub1 = purchaseUpdatedListener(async (purchase) => {
+      // Capture the Apple-signed JWS NOW — it's guaranteed present on
+      // the purchase-update event (purchase/renewal), unlike a later
+      // getAvailablePurchases query. persistJwsFromPurchase no-ops for
+      // non-matching products or missing tokens.
+      await persistJwsFromPurchase(purchase);
       // StoreKit will replay unfinished transactions on launch; mark each
       // one finished so it doesn't keep firing. The actual entitlement
       // state we read separately via `getActiveSubscriptions`.
