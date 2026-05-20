@@ -246,6 +246,26 @@ async function pushSubscriptionToSupabase(state: SubscriptionState): Promise<voi
     const purchases = (await getAvailablePurchases({
       onlyIncludeActiveItemsIOS: true,
     } as any)) as any[];
+    // TEMP DEBUG: surface what StoreKit actually returns in sandbox so
+    // we can confirm whether purchaseToken/JWS is populated. Remove
+    // once verify-receipt is confirmed working.
+    console.log(
+      '[subscription][debug] purchases count:',
+      purchases.length,
+      'shapes:',
+      JSON.stringify(
+        purchases.map((p) => ({
+          productId: p?.productId,
+          hasPurchaseToken: typeof p?.purchaseToken === 'string',
+          purchaseTokenSegments:
+            typeof p?.purchaseToken === 'string'
+              ? p.purchaseToken.split('.').length
+              : 0,
+          hasJwsRepresentation: typeof p?.jwsRepresentation === 'string',
+          keys: Object.keys(p ?? {}),
+        })),
+      ),
+    );
     const active = purchases.find((p) => p?.productId === SUBSCRIPTION_PRODUCT_ID);
     const candidate = active?.purchaseToken ?? active?.jwsRepresentation;
     if (typeof candidate === 'string' && candidate.split('.').length === 3) {
@@ -255,7 +275,10 @@ async function pushSubscriptionToSupabase(state: SubscriptionState): Promise<voi
     console.warn('[subscription] could not read JWS from purchases', err);
     return;
   }
-  if (!jws) return;
+  if (!jws) {
+    console.warn('[subscription][debug] no JWS extracted — skipping verify-receipt');
+    return;
+  }
 
   try {
     const { error } = await supabase.functions.invoke('verify-receipt', {
