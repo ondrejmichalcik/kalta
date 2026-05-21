@@ -19,6 +19,9 @@ import type {
   WarehouseMember,
   WarehouseWithRole,
   Category,
+  HouseholdMember,
+  ShoppingListItem,
+  ShoppingSource,
 } from '@/src/types/database';
 
 import { hasInitialSync } from './sync';
@@ -41,6 +44,13 @@ import {
   completeInventorySessionLocal,
   upsertCustomProductLocal,
   deleteCustomProductLocal,
+  addHouseholdMemberLocal,
+  updateHouseholdMemberLocal,
+  deleteHouseholdMemberLocal,
+  setReadinessGoalLocal,
+  addShoppingItemLocal,
+  setShoppingItemCheckedLocal,
+  deleteShoppingItemLocal,
 } from './localWrites';
 import {
   findCustomProductLocal,
@@ -51,6 +61,8 @@ import {
   listAllItemsInWarehouseLocal,
   listBoxesLocal,
   listCustomProductsLocal,
+  listHouseholdMembersLocal,
+  listShoppingListLocal,
   listItemsLocal,
   listMembersLocal,
   listInventorySessionsLocal,
@@ -1289,4 +1301,123 @@ export async function upsertCustomProduct(input: {
     .single();
   if (error) throw error;
   return data as CustomProduct;
+}
+
+// ============================================================================
+// HOUSEHOLD MEMBERS (Sprint 6) — SQLite-first; local writes enqueue for push
+// ============================================================================
+
+export async function listHouseholdMembers(warehouseId: string): Promise<HouseholdMember[]> {
+  try {
+    if (hasInitialSync()) return listHouseholdMembersLocal(warehouseId);
+  } catch { /* fallback */ }
+  const { data, error } = await supabase
+    .from('household_members')
+    .select('*')
+    .eq('warehouse_id', warehouseId)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data as HouseholdMember[]) ?? [];
+}
+
+export async function addHouseholdMember(input: {
+  warehouse_id: string;
+  name: string;
+  daily_kcal: number;
+  daily_water_l: number;
+}): Promise<HouseholdMember> {
+  if (hasInitialSync()) return addHouseholdMemberLocal(input);
+  const { data, error } = await supabase
+    .from('household_members')
+    .insert(input)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as HouseholdMember;
+}
+
+export async function updateHouseholdMember(
+  id: string,
+  patch: Partial<Pick<HouseholdMember, 'name' | 'daily_kcal' | 'daily_water_l'>>,
+): Promise<void> {
+  if (hasInitialSync()) {
+    updateHouseholdMemberLocal(id, patch);
+    return;
+  }
+  const { error } = await supabase.from('household_members').update(patch).eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteHouseholdMember(id: string): Promise<void> {
+  if (hasInitialSync()) {
+    deleteHouseholdMemberLocal(id);
+    return;
+  }
+  const { error } = await supabase.from('household_members').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function setReadinessGoal(warehouseId: string, days: number): Promise<void> {
+  if (hasInitialSync()) {
+    setReadinessGoalLocal(warehouseId, days);
+    return;
+  }
+  const { error } = await supabase
+    .from('warehouses')
+    .update({ readiness_goal_days: days })
+    .eq('id', warehouseId);
+  if (error) throw error;
+}
+
+// ============================================================================
+// SHOPPING LIST (Sprint 6) — SQLite-first
+// ============================================================================
+
+export async function listShoppingList(warehouseId: string): Promise<ShoppingListItem[]> {
+  try {
+    if (hasInitialSync()) return listShoppingListLocal(warehouseId);
+  } catch { /* fallback */ }
+  const { data, error } = await supabase
+    .from('shopping_list_items')
+    .select('*')
+    .eq('warehouse_id', warehouseId)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data as ShoppingListItem[]) ?? [];
+}
+
+export async function addShoppingItem(input: {
+  warehouse_id: string;
+  label: string;
+  category?: Category | null;
+  source?: ShoppingSource;
+  source_ref?: string | null;
+  quantity?: number | null;
+}): Promise<ShoppingListItem> {
+  if (hasInitialSync()) return addShoppingItemLocal(input);
+  const { data, error } = await supabase
+    .from('shopping_list_items')
+    .insert(input)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as ShoppingListItem;
+}
+
+export async function setShoppingItemChecked(id: string, checked: boolean): Promise<void> {
+  if (hasInitialSync()) {
+    setShoppingItemCheckedLocal(id, checked);
+    return;
+  }
+  const { error } = await supabase.from('shopping_list_items').update({ checked }).eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteShoppingItem(id: string): Promise<void> {
+  if (hasInitialSync()) {
+    deleteShoppingItemLocal(id);
+    return;
+  }
+  const { error } = await supabase.from('shopping_list_items').delete().eq('id', id);
+  if (error) throw error;
 }

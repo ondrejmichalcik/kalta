@@ -10,7 +10,7 @@ import * as Crypto from 'expo-crypto';
 import { getDb } from './localDb';
 import { enqueueChange } from './sync';
 import { supabase } from './supabase';
-import type { Box, Item, Category, Unit, Warehouse, CustomProduct, InventorySession, InventoryLine, InventoryLineStatus } from '@/src/types/database';
+import type { Box, Item, Category, Unit, Warehouse, CustomProduct, InventorySession, InventoryLine, InventoryLineStatus, HouseholdMember, ShoppingListItem, ShoppingSource } from '@/src/types/database';
 
 function genId(): string {
   return Crypto.randomUUID();
@@ -269,6 +269,7 @@ export function addItemLocal(
     notes: input.notes ?? null, opened: input.opened ?? false, damaged: input.damaged ?? false,
     pack_count: input.pack_count ?? null, last_verified: null,
     added_by: addedBy, created_at: now, updated_at: now,
+    energy_kcal_per_100g: null, net_weight_g: null, min_quantity: null,
   };
 }
 
@@ -587,7 +588,7 @@ export function createWarehouseLocal(ownerId: string, name: string): Warehouse {
 
   enqueueChange('warehouses', id, 'INSERT');
 
-  return { id, owner_id: ownerId, name, created_at: now };
+  return { id, owner_id: ownerId, name, created_at: now, readiness_goal_days: 14 };
 }
 
 export function renameWarehouseLocal(id: string, name: string): Warehouse {
@@ -611,8 +612,25 @@ export function renameWarehouseLocal(id: string, name: string): Warehouse {
   enqueueChange('warehouses', id, 'UPDATE', ['name'], before ? { before } : undefined);
 
   return db.getFirstSync<Warehouse>(
-    'SELECT id, owner_id, name, created_at FROM warehouses WHERE id = ?', [id],
+    'SELECT id, owner_id, name, created_at, readiness_goal_days FROM warehouses WHERE id = ?', [id],
   )!;
+}
+
+/** Update the readiness goal (days) for a warehouse. Sprint 6. */
+export function setReadinessGoalLocal(id: string, days: number): void {
+  const db = getDb();
+  const before = captureBefore('warehouses', id, ['readiness_goal_days']);
+  db.runSync(
+    `UPDATE warehouses SET readiness_goal_days = ?, _synced = 0, _local_updated_at = ? WHERE id = ?`,
+    [days, nowIso(), id],
+  );
+  const existing = db.getFirstSync<{ _changed_fields: string | null }>(
+    'SELECT _changed_fields FROM warehouses WHERE id = ?', [id],
+  );
+  const prev = existing?._changed_fields ? JSON.parse(existing._changed_fields) : [];
+  const merged = [...new Set([...prev, 'readiness_goal_days'])];
+  db.runSync('UPDATE warehouses SET _changed_fields = ? WHERE id = ?', [JSON.stringify(merged), id]);
+  enqueueChange('warehouses', id, 'UPDATE', ['readiness_goal_days'], before ? { before } : undefined);
 }
 
 // ---- Verify items ---------------------------------------------------------
@@ -763,6 +781,7 @@ export function upsertCustomProductLocal(input: {
     id, warehouse_id: input.warehouse_id, barcode: input.barcode, name: input.name,
     category: (input.category ?? null) as Category | null, image_url: input.image_url ?? null,
     typical_expiry_days: input.typical_expiry_days ?? null, created_by: input.created_by, created_at: now,
+    min_quantity: null,
   };
 }
 
@@ -774,4 +793,102 @@ export function deleteCustomProductLocal(id: string): void {
     [now, id],
   );
   enqueueChange('custom_products', id, 'DELETE');
+}
+
+// ---- Household members (Sprint 6) -----------------------------------------
+
+export function addHouseholdMemberLocal(input: {
+  warehouse_id: string;
+  name: string;
+  daily_kcal: number;
+  daily_water_l: number;
+}): HouseholdMember {
+  const db = getDb();
+  const id = genId();
+  const now = nowIso();
+  db.runSync(
+    `INSERT INTO household_members (id, warehouse_id, name, daily_kcal, daily_water_l, created_at, _synced)
+     VALUES (?, ?, ?, ?, ?, ?, 0)`,
+    [id, input.warehouse_id, input.name, input.daily_kcal, input.daily_water_l, now],
+  );
+  enqueueChange('household_members', id, 'INSERT');
+  return { id, ...input, created_at: now };
+}
+
+export function updateHouseholdMemberLocal(
+  id: string,
+  patch: Partial<Pick<HouseholdMember, 'name' | 'daily_kcal' | 'daily_water_l'>>,
+): void {
+  const db = getDb();
+  const fields = Object.keys(patch) as (keyof typeof patch)[];
+  if (fields.length === 0) return;
+  const before = captureBefore('household_members', id, fields as string[]);
+  const setClause = fields.map((f) => `${f} = ?`).join(', ');
+  const values = fields.map((f) => patch[f] as string | number);
+  db.runSync(
+    `UPDATE household_members SET ${setClause}, _synced = 0 WHERE id = ?`,
+    [...values, id],
+  );
+  enqueueChange(
+    'household_members',
+    id,
+    'UPDATE',
+    fields as string[],
+    before ? { before } : undefined,
+  );
+}
+
+export function deleteHouseholdMemberLocal(id: string): void {
+  const db = getDb();
+  db.runSync(
+    'UPDATE household_members SET _deleted_at = ?, _synced = 0 WHERE id = ?',
+    [nowIso(), id],
+  );
+  enqueueChange('household_members', id, 'DELETE');
+}
+
+// ---- Shopping list (Sprint 6) ---------------------------------------------
+
+export function addShoppingItemLocal(input: {
+  warehouse_id: string;
+  label: string;
+  category?: Category | null;
+  source?: ShoppingSource;
+  source_ref?: string | null;
+  quantity?: number | null;
+}): ShoppingListItem {
+  const db = getDb();
+  const id = genId();
+  const now = nowIso();
+  const source = input.source ?? 'manual';
+  db.runSync(
+    `INSERT INTO shopping_list_items (id, warehouse_id, label, category, source, source_ref, quantity, checked, created_at, _synced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 0)`,
+    [id, input.warehouse_id, input.label, input.category ?? null, source, input.source_ref ?? null, input.quantity ?? null, now],
+  );
+  enqueueChange('shopping_list_items', id, 'INSERT');
+  return {
+    id, warehouse_id: input.warehouse_id, label: input.label,
+    category: (input.category ?? null) as Category | null, source,
+    source_ref: input.source_ref ?? null, quantity: input.quantity ?? null,
+    checked: false, created_at: now,
+  };
+}
+
+export function setShoppingItemCheckedLocal(id: string, checked: boolean): void {
+  const db = getDb();
+  db.runSync(
+    'UPDATE shopping_list_items SET checked = ?, _synced = 0 WHERE id = ?',
+    [checked ? 1 : 0, id],
+  );
+  enqueueChange('shopping_list_items', id, 'UPDATE', ['checked']);
+}
+
+export function deleteShoppingItemLocal(id: string): void {
+  const db = getDb();
+  db.runSync(
+    'UPDATE shopping_list_items SET _deleted_at = ?, _synced = 0 WHERE id = ?',
+    [nowIso(), id],
+  );
+  enqueueChange('shopping_list_items', id, 'DELETE');
 }

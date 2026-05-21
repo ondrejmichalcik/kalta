@@ -151,6 +151,36 @@ create table if not exists public.custom_products (
 
 create index if not exists idx_custom_products_warehouse on public.custom_products(warehouse_id);
 
+-- household_members – kdo zásoby skladu živí (Sprint 6 readiness).
+-- Per-osobu denní potřeby (dospělý vs dítě se liší). Oddělené od
+-- warehouse_members (kdo appku spravuje).
+create table if not exists public.household_members (
+  id            uuid primary key default gen_random_uuid(),
+  warehouse_id  uuid not null references public.warehouses(id) on delete cascade,
+  name          text not null,
+  daily_kcal    int not null default 2000,
+  daily_water_l numeric not null default 3,
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists idx_household_members_warehouse on public.household_members(warehouse_id);
+
+-- shopping_list_items – sdílený nákupní seznam per sklad (Sprint 6).
+-- Living list: jeden člen odškrtává v obchodě, druhý vidí update.
+create table if not exists public.shopping_list_items (
+  id            uuid primary key default gen_random_uuid(),
+  warehouse_id  uuid not null references public.warehouses(id) on delete cascade,
+  label         text not null,
+  category      text,
+  source        text not null default 'manual' check (source in ('expired','low_stock','gap','manual')),
+  source_ref    text,
+  quantity      numeric,
+  checked       boolean not null default false,
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists idx_shopping_list_warehouse on public.shopping_list_items(warehouse_id);
+
 -- ============================================================================
 -- MIGRATIONS (idempotent ALTERs for existing DBs)
 -- ============================================================================
@@ -197,6 +227,21 @@ alter table public.users
 create index if not exists idx_users_sub_expires
   on public.users(subscription_expires_at)
   where subscription_expires_at is not null;
+
+-- Sprint 6 readiness columns.
+-- warehouses.readiness_goal_days — cíl pro readiness color coding (default 2 týdny).
+alter table public.warehouses
+  add column if not exists readiness_goal_days int not null default 14;
+-- items: nutriční data (z OFF nebo manual) + per-row par level (no-barcode items).
+alter table public.items
+  add column if not exists energy_kcal_per_100g numeric;
+alter table public.items
+  add column if not exists net_weight_g numeric;
+alter table public.items
+  add column if not exists min_quantity numeric;
+-- custom_products: aggregate par level per barcode produkt.
+alter table public.custom_products
+  add column if not exists min_quantity numeric;
 
 -- ============================================================================
 -- FUNCTIONS + TRIGGERS
@@ -548,6 +593,8 @@ alter table public.items enable row level security;
 alter table public.custom_products enable row level security;
 alter table public.inventory_sessions enable row level security;
 alter table public.inventory_lines enable row level security;
+alter table public.household_members enable row level security;
+alter table public.shopping_list_items enable row level security;
 
 -- users: každý vidí sám sebe a členy svých skladů
 drop policy if exists users_self on public.users;
@@ -720,6 +767,40 @@ drop policy if exists custom_products_delete on public.custom_products;
 create policy custom_products_delete on public.custom_products for delete
   using (public.is_member(warehouse_id));
 
+-- household_members: členové CRUD
+drop policy if exists household_members_select on public.household_members;
+create policy household_members_select on public.household_members for select
+  using (public.is_member(warehouse_id));
+
+drop policy if exists household_members_insert on public.household_members;
+create policy household_members_insert on public.household_members for insert
+  with check (public.is_member(warehouse_id));
+
+drop policy if exists household_members_update on public.household_members;
+create policy household_members_update on public.household_members for update
+  using (public.is_member(warehouse_id)) with check (public.is_member(warehouse_id));
+
+drop policy if exists household_members_delete on public.household_members;
+create policy household_members_delete on public.household_members for delete
+  using (public.is_member(warehouse_id));
+
+-- shopping_list_items: členové CRUD
+drop policy if exists shopping_list_select on public.shopping_list_items;
+create policy shopping_list_select on public.shopping_list_items for select
+  using (public.is_member(warehouse_id));
+
+drop policy if exists shopping_list_insert on public.shopping_list_items;
+create policy shopping_list_insert on public.shopping_list_items for insert
+  with check (public.is_member(warehouse_id));
+
+drop policy if exists shopping_list_update on public.shopping_list_items;
+create policy shopping_list_update on public.shopping_list_items for update
+  using (public.is_member(warehouse_id)) with check (public.is_member(warehouse_id));
+
+drop policy if exists shopping_list_delete on public.shopping_list_items;
+create policy shopping_list_delete on public.shopping_list_items for delete
+  using (public.is_member(warehouse_id));
+
 -- ============================================================================
 -- REALTIME PUBLICATION
 -- ============================================================================
@@ -747,6 +828,16 @@ end $$;
 
 do $$ begin
   alter publication supabase_realtime add table public.warehouse_members;
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter publication supabase_realtime add table public.household_members;
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter publication supabase_realtime add table public.shopping_list_items;
 exception when duplicate_object then null;
 end $$;
 

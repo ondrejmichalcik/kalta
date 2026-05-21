@@ -73,6 +73,8 @@ export async function initialFullSync(userId: string): Promise<void> {
     { data: items },
     { data: customProducts },
     { data: invitations },
+    { data: householdMembers },
+    { data: shoppingItems },
     { data: inventorySessions },
     { data: inventoryLines },
   ] = await Promise.all([
@@ -85,6 +87,8 @@ export async function initialFullSync(userId: string): Promise<void> {
       .in('boxes.warehouse_id', warehouseIds),
     supabase.from('custom_products').select('*').in('warehouse_id', warehouseIds),
     supabase.from('invitations').select('*').in('warehouse_id', warehouseIds),
+    supabase.from('household_members').select('*').in('warehouse_id', warehouseIds),
+    supabase.from('shopping_list_items').select('*').in('warehouse_id', warehouseIds),
     supabase.from('inventory_sessions').select('*').in(
       'box_id',
       // Nested: sessions for boxes in our warehouses
@@ -114,9 +118,9 @@ export async function initialFullSync(userId: string): Promise<void> {
       const w = m.warehouses;
       if (!w) continue;
       db.runSync(
-        `INSERT OR REPLACE INTO warehouses (id, owner_id, name, created_at, _synced, _local_updated_at)
-         VALUES (?, ?, ?, ?, 1, ?)`,
-        [w.id, w.owner_id, w.name, w.created_at, now],
+        `INSERT OR REPLACE INTO warehouses (id, owner_id, name, created_at, readiness_goal_days, _synced, _local_updated_at)
+         VALUES (?, ?, ?, ?, ?, 1, ?)`,
+        [w.id, w.owner_id, w.name, w.created_at, w.readiness_goal_days ?? 14, now],
       );
     }
 
@@ -142,18 +146,36 @@ export async function initialFullSync(userId: string): Promise<void> {
     for (const row of (items ?? []) as any[]) {
       const { boxes: _, ...i } = row;
       db.runSync(
-        `INSERT OR REPLACE INTO items (id, box_id, name, quantity, unit, expiry_date, barcode, image_url, category, notes, opened, damaged, pack_count, last_verified, added_by, created_at, updated_at, _synced, _local_updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-        [i.id, i.box_id, i.name, i.quantity, i.unit, i.expiry_date, i.barcode, i.image_url, i.category, i.notes, i.opened ? 1 : 0, i.damaged ? 1 : 0, i.pack_count, i.last_verified, i.added_by, i.created_at, i.updated_at, now],
+        `INSERT OR REPLACE INTO items (id, box_id, name, quantity, unit, expiry_date, barcode, image_url, category, notes, opened, damaged, pack_count, last_verified, added_by, created_at, updated_at, energy_kcal_per_100g, net_weight_g, min_quantity, _synced, _local_updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+        [i.id, i.box_id, i.name, i.quantity, i.unit, i.expiry_date, i.barcode, i.image_url, i.category, i.notes, i.opened ? 1 : 0, i.damaged ? 1 : 0, i.pack_count, i.last_verified, i.added_by, i.created_at, i.updated_at, i.energy_kcal_per_100g ?? null, i.net_weight_g ?? null, i.min_quantity ?? null, now],
       );
     }
 
     // Custom products
     for (const p of (customProducts ?? []) as any[]) {
       db.runSync(
-        `INSERT OR REPLACE INTO custom_products (id, warehouse_id, barcode, name, category, image_url, typical_expiry_days, created_by, created_at, _synced)
+        `INSERT OR REPLACE INTO custom_products (id, warehouse_id, barcode, name, category, image_url, typical_expiry_days, created_by, created_at, min_quantity, _synced)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        [p.id, p.warehouse_id, p.barcode, p.name, p.category, p.image_url, p.typical_expiry_days, p.created_by, p.created_at, p.min_quantity ?? null],
+      );
+    }
+
+    // Household members (Sprint 6)
+    for (const m of (householdMembers ?? []) as any[]) {
+      db.runSync(
+        `INSERT OR REPLACE INTO household_members (id, warehouse_id, name, daily_kcal, daily_water_l, created_at, _synced)
+         VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        [m.id, m.warehouse_id, m.name, m.daily_kcal, m.daily_water_l, m.created_at],
+      );
+    }
+
+    // Shopping list items (Sprint 6)
+    for (const s of (shoppingItems ?? []) as any[]) {
+      db.runSync(
+        `INSERT OR REPLACE INTO shopping_list_items (id, warehouse_id, label, category, source, source_ref, quantity, checked, created_at, _synced)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-        [p.id, p.warehouse_id, p.barcode, p.name, p.category, p.image_url, p.typical_expiry_days, p.created_by, p.created_at],
+        [s.id, s.warehouse_id, s.label, s.category, s.source, s.source_ref, s.quantity, s.checked ? 1 : 0, s.created_at],
       );
     }
 
@@ -176,7 +198,7 @@ export async function initialFullSync(userId: string): Promise<void> {
     }
 
     // Update sync metadata
-    const tables = ['users', 'warehouses', 'warehouse_members', 'boxes', 'items', 'custom_products', 'invitations', 'inventory_sessions'];
+    const tables = ['users', 'warehouses', 'warehouse_members', 'boxes', 'items', 'custom_products', 'invitations', 'inventory_sessions', 'household_members', 'shopping_list_items'];
     for (const t of tables) {
       db.runSync(
         `INSERT OR REPLACE INTO _sync_meta (table_name, last_pulled_at) VALUES (?, ?)`,
@@ -874,7 +896,7 @@ export function getConflictCount(): number {
 
 // ---- Push sync: local → Supabase ------------------------------------------
 
-const PUSHABLE_TABLES = ['warehouses', 'boxes', 'items', 'custom_products', 'inventory_sessions', 'inventory_lines'] as const;
+const PUSHABLE_TABLES = ['warehouses', 'boxes', 'items', 'custom_products', 'inventory_sessions', 'inventory_lines', 'household_members', 'shopping_list_items'] as const;
 
 /**
  * Compare local and server row to find which fields differ.
@@ -1279,9 +1301,9 @@ export async function pullSync(userId: string): Promise<{ pulled: number; confli
         const w = m.warehouses;
         if (w) {
           db.runSync(
-            `INSERT OR REPLACE INTO warehouses (id, owner_id, name, created_at, _synced, _local_updated_at)
-             VALUES (?, ?, ?, ?, 1, ?)`,
-            [w.id, w.owner_id, w.name, w.created_at, new Date().toISOString()],
+            `INSERT OR REPLACE INTO warehouses (id, owner_id, name, created_at, readiness_goal_days, _synced, _local_updated_at)
+             VALUES (?, ?, ?, ?, ?, 1, ?)`,
+            [w.id, w.owner_id, w.name, w.created_at, w.readiness_goal_days ?? 14, new Date().toISOString()],
           );
         }
       }
@@ -1594,8 +1616,82 @@ export async function pullSync(userId: string): Promise<{ pulled: number; confli
     }
   }
 
+  // --- Household members + shopping list (Sprint 6) ---
+  // Lightweight last-write-wins pull: overwrite locally-synced rows with
+  // the server snapshot, leave pending-local (_synced=0) rows alone, and
+  // GC local synced rows the server no longer has. These tables are
+  // low-conflict (small, rarely-edited) so per-field merge is overkill.
+  const myWarehouseIds = db
+    .getAllSync<{ warehouse_id: string }>(
+      'SELECT warehouse_id FROM warehouse_members WHERE user_id = ?',
+      [userId],
+    )
+    .map((r) => r.warehouse_id);
+
+  if (myWarehouseIds.length > 0) {
+    // Household members
+    const { data: hm, error: hmErr } = await supabase
+      .from('household_members')
+      .select('*')
+      .in('warehouse_id', myWarehouseIds);
+    if (!hmErr && hm) {
+      const serverIds = new Set<string>();
+      for (const m of hm as any[]) {
+        serverIds.add(m.id);
+        const local = db.getFirstSync<{ _synced: number }>(
+          'SELECT _synced FROM household_members WHERE id = ?',
+          [m.id],
+        );
+        if (local && local._synced === 0) continue; // pending local edit wins
+        db.runSync(
+          `INSERT OR REPLACE INTO household_members (id, warehouse_id, name, daily_kcal, daily_water_l, created_at, _synced)
+           VALUES (?, ?, ?, ?, ?, ?, 1)`,
+          [m.id, m.warehouse_id, m.name, m.daily_kcal, m.daily_water_l, m.created_at],
+        );
+        pulled++;
+      }
+      const localHm = db.getAllSync<{ id: string }>(
+        `SELECT id FROM household_members WHERE warehouse_id IN (${myWarehouseIds.map(() => '?').join(',')}) AND _synced = 1 AND _deleted_at IS NULL`,
+        myWarehouseIds,
+      );
+      for (const { id } of localHm) {
+        if (!serverIds.has(id)) db.runSync('DELETE FROM household_members WHERE id = ?', [id]);
+      }
+    }
+
+    // Shopping list items
+    const { data: sl, error: slErr } = await supabase
+      .from('shopping_list_items')
+      .select('*')
+      .in('warehouse_id', myWarehouseIds);
+    if (!slErr && sl) {
+      const serverIds = new Set<string>();
+      for (const s of sl as any[]) {
+        serverIds.add(s.id);
+        const local = db.getFirstSync<{ _synced: number }>(
+          'SELECT _synced FROM shopping_list_items WHERE id = ?',
+          [s.id],
+        );
+        if (local && local._synced === 0) continue;
+        db.runSync(
+          `INSERT OR REPLACE INTO shopping_list_items (id, warehouse_id, label, category, source, source_ref, quantity, checked, created_at, _synced)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+          [s.id, s.warehouse_id, s.label, s.category, s.source, s.source_ref, s.quantity, s.checked ? 1 : 0, s.created_at],
+        );
+        pulled++;
+      }
+      const localSl = db.getAllSync<{ id: string }>(
+        `SELECT id FROM shopping_list_items WHERE warehouse_id IN (${myWarehouseIds.map(() => '?').join(',')}) AND _synced = 1 AND _deleted_at IS NULL`,
+        myWarehouseIds,
+      );
+      for (const { id } of localSl) {
+        if (!serverIds.has(id)) db.runSync('DELETE FROM shopping_list_items WHERE id = ?', [id]);
+      }
+    }
+  }
+
   // Update sync timestamps
-  for (const t of ['boxes', 'items']) {
+  for (const t of ['boxes', 'items', 'household_members', 'shopping_list_items']) {
     db.runSync(
       'INSERT OR REPLACE INTO _sync_meta (table_name, last_pulled_at) VALUES (?, ?)',
       [t, now],

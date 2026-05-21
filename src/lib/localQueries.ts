@@ -8,11 +8,13 @@ import { getDb } from './localDb';
 import type {
   Box,
   CustomProduct,
+  HouseholdMember,
   InventoryLine,
   InventorySession,
   Item,
   ItemWithBox,
   Role,
+  ShoppingListItem,
   Warehouse,
   WarehouseMember,
   WarehouseWithRole,
@@ -35,6 +37,7 @@ export function getMyWarehousesLocal(userId: string): WarehouseWithRole[] {
     owner_id: r.owner_id,
     name: r.name,
     created_at: r.created_at,
+    readiness_goal_days: r.readiness_goal_days ?? 14,
     my_role: r.my_role as Role,
   }));
 }
@@ -46,7 +49,10 @@ export function getWarehouseByIdLocal(id: string): Warehouse | null {
     [id],
   );
   if (!row) return null;
-  return { id: row.id, owner_id: row.owner_id, name: row.name, created_at: row.created_at };
+  return {
+    id: row.id, owner_id: row.owner_id, name: row.name, created_at: row.created_at,
+    readiness_goal_days: row.readiness_goal_days ?? 14,
+  };
 }
 
 // ---- Members --------------------------------------------------------------
@@ -161,6 +167,33 @@ export function listCustomProductsLocal(warehouseId: string): CustomProduct[] {
      ORDER BY name ASC`,
     [warehouseId],
   );
+}
+
+// ---- Household members (Sprint 6) -----------------------------------------
+
+export function listHouseholdMembersLocal(warehouseId: string): HouseholdMember[] {
+  const db = getDb();
+  return db.getAllSync<HouseholdMember>(
+    `SELECT id, warehouse_id, name, daily_kcal, daily_water_l, created_at
+     FROM household_members
+     WHERE warehouse_id = ? AND _deleted_at IS NULL
+     ORDER BY created_at ASC`,
+    [warehouseId],
+  );
+}
+
+// ---- Shopping list (Sprint 6) ---------------------------------------------
+
+export function listShoppingListLocal(warehouseId: string): ShoppingListItem[] {
+  const db = getDb();
+  const rows = db.getAllSync<any>(
+    `SELECT id, warehouse_id, label, category, source, source_ref, quantity, checked, created_at
+     FROM shopping_list_items
+     WHERE warehouse_id = ? AND _deleted_at IS NULL
+     ORDER BY checked ASC, created_at ASC`,
+    [warehouseId],
+  );
+  return rows.map((r) => ({ ...r, checked: !!r.checked }));
 }
 
 // ---- Inventory ------------------------------------------------------------

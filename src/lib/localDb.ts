@@ -143,6 +143,37 @@ export function initLocalDb(): void {
       UNIQUE (warehouse_id, barcode)
     );
 
+    -- Household members (Sprint 6 readiness)
+    CREATE TABLE IF NOT EXISTS household_members (
+      id TEXT PRIMARY KEY,
+      warehouse_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      daily_kcal INTEGER NOT NULL DEFAULT 2000,
+      daily_water_l REAL NOT NULL DEFAULT 3,
+      created_at TEXT NOT NULL,
+      _synced INTEGER NOT NULL DEFAULT 1,
+      _changed_fields TEXT,
+      _deleted_at TEXT,
+      _local_updated_at TEXT
+    );
+
+    -- Shopping list items (Sprint 6 readiness)
+    CREATE TABLE IF NOT EXISTS shopping_list_items (
+      id TEXT PRIMARY KEY,
+      warehouse_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      category TEXT,
+      source TEXT NOT NULL DEFAULT 'manual',
+      source_ref TEXT,
+      quantity REAL,
+      checked INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      _synced INTEGER NOT NULL DEFAULT 1,
+      _changed_fields TEXT,
+      _deleted_at TEXT,
+      _local_updated_at TEXT
+    );
+
     -- Invitations
     CREATE TABLE IF NOT EXISTS invitations (
       id TEXT PRIMARY KEY,
@@ -217,8 +248,35 @@ export function initLocalDb(): void {
     CREATE INDEX IF NOT EXISTS idx_items_box ON items(box_id);
     CREATE INDEX IF NOT EXISTS idx_items_expiry ON items(expiry_date);
     CREATE INDEX IF NOT EXISTS idx_boxes_warehouse ON boxes(warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_household_members_warehouse ON household_members(warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_shopping_list_warehouse ON shopping_list_items(warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_sync_queue_pending ON _sync_queue(pushed_at) WHERE pushed_at IS NULL;
   `);
+
+  // Column migrations for existing installs (CREATE TABLE IF NOT EXISTS
+  // above won't add columns to a table that already exists). Sprint 6
+  // readiness adds nutrition + par-level + goal columns.
+  addColumnIfMissing(db, 'warehouses', 'readiness_goal_days', 'INTEGER NOT NULL DEFAULT 14');
+  addColumnIfMissing(db, 'items', 'energy_kcal_per_100g', 'REAL');
+  addColumnIfMissing(db, 'items', 'net_weight_g', 'REAL');
+  addColumnIfMissing(db, 'items', 'min_quantity', 'REAL');
+  addColumnIfMissing(db, 'custom_products', 'min_quantity', 'REAL');
+}
+
+/**
+ * Idempotently add a column to a SQLite table. Checks PRAGMA table_info
+ * first so re-running on an already-migrated DB is a no-op (ALTER TABLE
+ * ADD COLUMN throws on duplicate in SQLite).
+ */
+function addColumnIfMissing(
+  db: ReturnType<typeof getDb>,
+  table: string,
+  column: string,
+  definition: string,
+): void {
+  const cols = db.getAllSync<{ name: string }>(`PRAGMA table_info(${table});`);
+  if (cols.some((c) => c.name === column)) return;
+  db.execSync(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
 }
 
 /**

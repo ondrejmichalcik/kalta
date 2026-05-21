@@ -60,6 +60,7 @@ export interface Warehouse {
   owner_id: string;
   name: string;
   created_at: string;
+  readiness_goal_days: number; // Sprint 6 — readiness color-coding goal (default 14)
 }
 
 // Warehouse augmented with the viewing user's role. Returned by
@@ -118,6 +119,10 @@ export interface Item {
   added_by: string | null;
   created_at: string;
   updated_at: string;
+  // Sprint 6 — readiness / par level
+  energy_kcal_per_100g: number | null;
+  net_weight_g: number | null; // grams per unit/package (for water: ml, 1g≈1ml)
+  min_quantity: number | null; // per-row par level (no-barcode items only)
 }
 
 /**
@@ -138,7 +143,51 @@ export interface CustomProduct {
   typical_expiry_days: number | null;
   created_by: string | null;
   created_at: string;
+  min_quantity: number | null; // Sprint 6 — aggregate par level per barcode product
 }
+
+// ----------------------------------------------------------------------------
+// Sprint 6 — Readiness
+// ----------------------------------------------------------------------------
+
+export interface HouseholdMember {
+  id: string;
+  warehouse_id: string;
+  name: string;
+  daily_kcal: number;
+  daily_water_l: number;
+  created_at: string;
+}
+
+export type ShoppingSource = 'expired' | 'low_stock' | 'gap' | 'manual';
+
+export interface ShoppingListItem {
+  id: string;
+  warehouse_id: string;
+  label: string;
+  category: Category | null;
+  source: ShoppingSource;
+  source_ref: string | null;
+  quantity: number | null;
+  checked: boolean;
+  created_at: string;
+}
+
+// Quick-fill presets for adding a household member. Values are rough
+// daily-needs guidelines (editable after pick).
+export interface DailyNeedPreset {
+  label: string;
+  daily_kcal: number;
+  daily_water_l: number;
+}
+
+export const DAILY_NEED_PRESETS: DailyNeedPreset[] = [
+  { label: 'Adult male', daily_kcal: 2500, daily_water_l: 3.0 },
+  { label: 'Adult female', daily_kcal: 2000, daily_water_l: 2.5 },
+  { label: 'Teenager', daily_kcal: 2200, daily_water_l: 2.5 },
+  { label: 'Child (4–8)', daily_kcal: 1400, daily_water_l: 1.5 },
+  { label: 'Toddler', daily_kcal: 1200, daily_water_l: 1.0 },
+];
 
 export interface InventorySession {
   id: string;
