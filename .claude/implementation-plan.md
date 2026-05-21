@@ -782,7 +782,10 @@ Sync plumbing (~7 míst, dle existing patternu): schema.sql (table + RLS `is_mem
 `items` nové sloupce:
 - `energy_kcal_per_100g` numeric null — z OFF `nutriments['energy-kcal_100g']`
 - `net_weight_g` numeric null — váha per jednotka/balení, parse z OFF `product_quantity`
-- `min_quantity` numeric null — par level (low-stock threshold)
+- `min_quantity` numeric null — per-row par level (jen pro **no-barcode** items)
+
+`custom_products` nový sloupec:
+- `min_quantity` numeric null — **aggregate par level** pro barcode produkty (zafixováno 2026-05-21: par levels jsou per-product aggregate, ne per-item-row). Low-stock když `Σ items.quantity WHERE barcode = X < min`.
 
 OFF integrace (`openFoodFacts.ts`) extension:
 - Fetch `nutriments['energy-kcal_100g']` + `nutriments['energy-kj_100g']` fallback
@@ -825,7 +828,12 @@ OFF integrace (`openFoodFacts.ts`) extension:
    - **uncountedItems notice** — "ⓘ 3 items nezapočítány (chybí nutriční data)" → tap odkáže na ně
    - Odkazy na Coverage gaps (krok 7) + Shopping list (krok 8)
    - **Goal config** — readiness_goal_days editovatelné (preset volby 72h / 2 týdny / 1 měsíc / 3 měsíce / custom) buď zde nebo v HOUSEHOLD settings sekci vedle members
-6. **Par levels + low-stock** — `items.min_quantity` UI v ItemEditSheet, low-stock badge na item cards (quantity < min), feeduje shopping list.
+6. **Par levels + low-stock** (zafixováno 2026-05-21: per-product aggregate, ne per-item) —
+   - **Dual storage:** barcode produkty → `custom_products.min_quantity` (aggregate); no-barcode items → `items.min_quantity` (per-row).
+   - **Detection:** barcode → `Σ items.quantity WHERE barcode=X & warehouse=W & not deleted < min` → všechny rows produktu flagged; no-barcode → `item.quantity < item.min_quantity`.
+   - **UX:** "Minimum to keep" pole v `ItemEditSheet` — smart-write: má-li item barcode → zapiš do `custom_products.min_quantity`, jinak do `items.min_quantity`. Plus min editace v Custom products screen (commit 65c855d) pro centrální správu barcode produktů.
+   - **Visual:** badge na item cards — amber "Low" / red "Out" (qty=0). Barcode produkt → badge na **všech** rows toho produktu. + dedicated low-stock **filter** na item listu ("jen low-stock").
+   - Feeduje shopping list (krok 8).
 7. **Coverage gaps** — recommended kit baseline (per kategorie: má warehouse aspoň X?), "chybí ti: medicine, batteries" sekce v readiness detailu.
 8. **Shopping list** — `warehouse/[warehouseId]/shopping.tsx`: agregace (expired items + below-par items + coverage gaps) → checklist, mark-purchased → optional rovnou pre-fill add-items flow.
 
