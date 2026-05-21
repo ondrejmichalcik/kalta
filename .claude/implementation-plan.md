@@ -842,7 +842,13 @@ OFF integrace (`openFoodFacts.ts`) extension:
    - **Gap action:** tap na ✗ → add doporučenou položku do shopping listu (krok 8). Tap na ✓ co reálně nemáš → manual dismiss ("not needed").
    - Starting checklist set (ladí se): Water; Food + can opener; First aid + meds + pain relievers; Flashlight + batteries + power bank + candles + radio; Multi-tool + whistle + masks + duct tape + gloves; Sanitizer + soap + towelettes + bags; ID/insurance copies + cash + contacts.
    - ⚠️ Keyword matching je fuzzy (CZ/EN) → false negatives možné, řešené local dismissem.
-8. **Shopping list** — `warehouse/[warehouseId]/shopping.tsx`: agregace (expired items + below-par items + coverage gaps) → checklist, mark-purchased → optional rovnou pre-fill add-items flow.
+8. **Shopping list** — `warehouse/[warehouseId]/shopping.tsx` (zafixováno 2026-05-21: synced table + add-to-inventory loop):
+   - **Synced tabulka `shopping_list_items`** (id, warehouse_id, label, category, source `expired|low_stock|gap|manual`, source_ref, quantity, checked, created_at). 8. synced entity — plumbing jako household_members (~7 míst). Důvod: živý sdílený seznam — manželka odškrtává v obchodě, ty vidíš real-time.
+   - **"Refresh suggestions" akce** — scan expired + below-par + coverage gaps → přidá nové řádky co ještě nejsou na listu (dedup; item expired AND below-par = 1 řádek). On-demand, ne auto (ať se checked-off nevrací). List = deliberate shopping plán, decoupled od live recompute.
+   - **Manuální položky** — + button, přidá libovolnou položku mimo 3 zdroje.
+   - **Check-off** — tap → checked (strikethrough, dolů), persists + syncuje.
+   - **Mark-purchased → add-to-inventory:** tap purchased item → "Restock into box" → add-items flow předvyplněný name/category → po naskladnění item z listu pryč + inventory updated → expired/low-stock/gap condition se vyřeší → readiness se zlepší. Uzavírá celý prepper loop.
+   - Per-warehouse (v1 scope).
 
 Realisticky **~1-2 týdny**. Sekvenovatelné — kroky 1-5 (readiness core) jsou jeden ucelený kus; 6-8 (par/gaps/shopping) druhý, samostatně užitečný i bez readiness dashboardu.
 
