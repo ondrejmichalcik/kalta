@@ -789,8 +789,28 @@ OFF integrace (`openFoodFacts.ts`) extension:
 ### Build sekvence (kdyby šlo do realizace)
 
 1. **Household config** — schema: nová `household_members` tabulka + sync plumbing (7 míst výše). UI: nová **HOUSEHOLD** sekce v `warehouse/[warehouseId]/(tabs)/settings.tsx` — list členů (jméno + kcal·voda), Add person sheet s 6 presety + custom, edit/delete per člen, "Total: X kcal · Y L / den" řádek.
-2. **OFF nutritional fetch + items columns** — schema migrace (`energy_kcal_per_100g`, `net_weight_g`, `min_quantity`). Extend `openFoodFacts.ts` lookup o `nutriments` + quantity-string parser. ItemEditSheet + add-items: nutriční pole (auto-filled ze scanu, manual editovatelné).
-3. **Readiness calc engine** — `src/lib/readiness.ts`: čistá funkce `computeReadiness(items, peopleCount)` → `{ foodDays, waterDays, weakestLink: { category, days }, perCategory: [...] }`. Žádný UI, jen logika + unit-testovatelná.
+2. **OFF nutritional fetch + items columns** — schema migrace (`energy_kcal_per_100g`, `net_weight_g`, `min_quantity`). Extend `openFoodFacts.ts` lookup o `nutriments` + quantity-string parser.
+   - **Nutriční pole v UI na OBOU cestách:**
+     - **Scan path** (`add-items.tsx` po EAN/AI): auto-fill `energy_kcal_per_100g` + `net_weight_g` z OFF, user může opravit.
+     - **Manual entry path** (add item bez scanu + `ItemEditSheet` edit): pole **energy (kcal/100g)** + **net weight (g)** explicitně zadatelná. Bez nich by se manuálně přidaný food/water item nezapočítal do readiness (spadl by do `uncountedItems`).
+   - Pole zobrazit jen pro relevantní kategorie (food/water) — u medicine/equipment/documents nemá kcal smysl. Pro water je `net_weight_g` = objem v ml (1g≈1ml).
+   - Volitelně helper hint: "kcal najdeš na obalu per 100g" + quick "no nutrition data" skip.
+3. **Readiness calc engine** — `src/lib/readiness.ts`: čistá funkce `computeReadiness(items, members)` → `{ foodDays, waterDays, weakestLink, perCategory, uncountedItems, totalDailyKcal, totalDailyWaterL }`. Žádný UI, unit-testovatelná. **Spec edge cases (zafixováno 2026-05-21):**
+
+   - **Unit normalizace přes `net_weight_g`** (voda hustota ≈1 g/ml, takže jeden field slouží pro jídlo gramy i vodu ml):
+     ```
+     itemTotalGrams: g→quantity, kg→×1000, ml→quantity, l→×1000,
+                     pcs/pack→quantity × net_weight_g
+     food kcal  = energy_kcal_per_100g/100 × totalGrams
+     water L    = totalGrams / 1000
+     ```
+   - **Expired → vyloučit.** `expiry_date < today` se nepočítá (safe, nespoléhat na prošlé). Never-expires sentinel (9999-12-31) a items bez data → zahrnuté (usable).
+   - **Opened → full value v1.** Načaté items se počítají plně (netrackujeme remaining %). Mírný over-count, acceptable. Remaining-% per item je pozdější enhancement.
+   - **Damaged → vyloučit.** `damaged === true` se nepočítá.
+   - **Missing nutrition data → vyloučit + count.** Food bez `energy_kcal_per_100g`, nebo pcs/pack bez `net_weight_g` → nejde spočítat → `uncountedItems++`. Surface v UI ("3 items nezapočítány").
+   - **pack_count se NEpoužívá** v readiness (je to display hint pro léky/tablety, ne content váha).
+   - **Per-member needs:** `totalDailyKcal = Σ member.daily_kcal`, `totalDailyWaterL = Σ member.daily_water_l`. Když household prázdný (0 členů) → foodDays/waterDays = null (nelze dělit nulou), UI prompt "Add household members".
+   - **Weakest-link:** `min(foodDays, waterDays)` ignoruje null kategorie. perCategory drží oba zvlášť pro breakdown.
 4. **Readiness summary card** — komponenta na vrchu `warehouse/[warehouseId]/(tabs)/index.tsx` (Boxes dashboard), vedle/nad existing expiry attention banneru. Weakest-link headline + tap.
 5. **Readiness detail screen** — `warehouse/[warehouseId]/readiness.tsx` (push z card): headline dní + per-category coverage bary ("Food 18d / Water 4d / ...") + "for N people" label + odkaz na shopping list.
 6. **Par levels + low-stock** — `items.min_quantity` UI v ItemEditSheet, low-stock badge na item cards (quantity < min), feeduje shopping list.
