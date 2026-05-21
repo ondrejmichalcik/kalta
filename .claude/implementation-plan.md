@@ -776,6 +776,9 @@ create index if not exists idx_household_members_warehouse on public.household_m
 ```
 Sync plumbing (~7 míst, dle existing patternu): schema.sql (table + RLS `is_member(warehouse_id)` + realtime publication), localDb (SQLite mirror + sync metadata), localQueries (`listHouseholdMembersLocal`), localWrites (`upsert`/`deleteHouseholdMemberLocal` + enqueue), sync.ts (pull table list), p2pSync (MERGE_FIELDS + bundle), types (`HouseholdMember`), supabase.ts (SQLite-first wrappers).
 
+`warehouses` nový sloupec:
+- `readiness_goal_days` int default 14 — cíl pro readiness color coding (zafixováno 2026-05-21: configurable per warehouse, default 2 týdny)
+
 `items` nové sloupce:
 - `energy_kcal_per_100g` numeric null — z OFF `nutriments['energy-kcal_100g']`
 - `net_weight_g` numeric null — váha per jednotka/balení, parse z OFF `product_quantity`
@@ -811,8 +814,17 @@ OFF integrace (`openFoodFacts.ts`) extension:
    - **pack_count se NEpoužívá** v readiness (je to display hint pro léky/tablety, ne content váha).
    - **Per-member needs:** `totalDailyKcal = Σ member.daily_kcal`, `totalDailyWaterL = Σ member.daily_water_l`. Když household prázdný (0 členů) → foodDays/waterDays = null (nelze dělit nulou), UI prompt "Add household members".
    - **Weakest-link:** `min(foodDays, waterDays)` ignoruje null kategorie. perCategory drží oba zvlášť pro breakdown.
-4. **Readiness summary card** — komponenta na vrchu `warehouse/[warehouseId]/(tabs)/index.tsx` (Boxes dashboard), vedle/nad existing expiry attention banneru. Weakest-link headline + tap.
-5. **Readiness detail screen** — `warehouse/[warehouseId]/readiness.tsx` (push z card): headline dní + per-category coverage bary ("Food 18d / Water 4d / ...") + "for N people" label + odkaz na shopping list.
+4. **Readiness summary card** — komponenta na vrchu `warehouse/[warehouseId]/(tabs)/index.tsx` (Boxes dashboard), vedle/nad existing expiry attention banneru.
+   - Headline = weakest link: "🛡 18 dní ready" / "⚠️ 4 dny — voda dochází"
+   - **Color podle goal** (`readiness_goal_days`, default 14): `<25%` red, `25–100%` amber, `≥100%` green
+   - Tap → detail screen
+   - **Empty states:** 0 household members → "Nastav domácnost" (→ settings); household OK ale 0 započítaných food/water → "Přidej zásoby s nutričními daty"
+5. **Readiness detail screen** — `warehouse/[warehouseId]/readiness.tsx` (push z card):
+   - Big headline (weakest-link dní) + "Tvoje slabina: Voda" + "pro 3 lidi (2 dospělí, 1 dítě)" context
+   - **Per-category progress bary** — Food/Water řádek s barem (fill = `days / readiness_goal_days`, color by threshold), label "18 dní" / "4 dny"
+   - **uncountedItems notice** — "ⓘ 3 items nezapočítány (chybí nutriční data)" → tap odkáže na ně
+   - Odkazy na Coverage gaps (krok 7) + Shopping list (krok 8)
+   - **Goal config** — readiness_goal_days editovatelné (preset volby 72h / 2 týdny / 1 měsíc / 3 měsíce / custom) buď zde nebo v HOUSEHOLD settings sekci vedle members
 6. **Par levels + low-stock** — `items.min_quantity` UI v ItemEditSheet, low-stock badge na item cards (quantity < min), feeduje shopping list.
 7. **Coverage gaps** — recommended kit baseline (per kategorie: má warehouse aspoň X?), "chybí ti: medicine, batteries" sekce v readiness detailu.
 8. **Shopping list** — `warehouse/[warehouseId]/shopping.tsx`: agregace (expired items + below-par items + coverage gaps) → checklist, mark-purchased → optional rovnou pre-fill add-items flow.
