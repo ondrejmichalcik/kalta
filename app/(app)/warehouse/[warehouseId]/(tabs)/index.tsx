@@ -29,6 +29,7 @@ import { Icon } from '@/src/components/Icon';
 import { ResourceIcon } from '@/src/components/ResourceIcon';
 import { ListHeader } from '@/src/components/ListHeader';
 import { StatusDot } from '@/src/components/StatusDot';
+import { ReadinessCard } from '@/src/components/ReadinessCard';
 import {
   ActiveFilterChips,
   FilterSheet,
@@ -236,6 +237,8 @@ export default function BoxesScreen() {
         onClearCondition={() => {}}
         onClearCategory={() => {}}
       />
+
+      {!searchVisible && <ReadinessCard warehouseId={warehouseId} />}
 
       {criticalCount > 0 && statusFilter === 'all' && !searchVisible && (
         <View style={styles.alertBanner}>

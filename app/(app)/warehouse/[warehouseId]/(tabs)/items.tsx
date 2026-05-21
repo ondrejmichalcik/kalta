@@ -21,7 +21,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useGlobalSearchParams, useRouter } from 'expo-router';
 import { Swipeable } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
-import { listAllItemsInWarehouse, openOneItem } from '@/src/lib/supabase';
+import { listAllItemsInWarehouse, listCustomProducts, openOneItem } from '@/src/lib/supabase';
+import { computeLowStock, type StockStatus } from '@/src/lib/lowStock';
 import type { ItemWithBox } from '@/src/types/database';
 import {
   EXPIRY_COLORS,
@@ -60,6 +61,8 @@ export default function ItemsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingItem, setEditingItem] = useState<ItemWithBox | null>(null);
+  const [lowStock, setLowStock] = useState<Map<string, StockStatus>>(new Map());
+  const [lowStockOnly, setLowStockOnly] = useState(false);
   const openSwipeableRef = useRef<Swipeable | null>(null);
 
   // Search + Filter
@@ -75,8 +78,12 @@ export default function ItemsScreen() {
     if (!warehouseId) return;
     try {
       setError(null);
-      const rows = await listAllItemsInWarehouse(warehouseId);
+      const [rows, customProducts] = await Promise.all([
+        listAllItemsInWarehouse(warehouseId),
+        listCustomProducts(warehouseId).catch(() => []),
+      ]);
       setItems(rows);
+      setLowStock(computeLowStock(rows, customProducts));
     } catch (e: any) {
       setError(e?.message ?? 'Cannot load items.');
       throw e;
@@ -129,14 +136,18 @@ export default function ItemsScreen() {
     if (categoryFilter.length > 0) {
       result = result.filter((i) => matchesCategoryFilter(i.category, categoryFilter));
     }
+    if (lowStockOnly) {
+      result = result.filter((i) => lowStock.has(i.id));
+    }
     return result;
-  }, [sortedItems, searchQuery, statusFilter, conditionFilter, categoryFilter]);
+  }, [sortedItems, searchQuery, statusFilter, conditionFilter, categoryFilter, lowStockOnly, lowStock]);
 
   const hasActiveFilters =
     searchQuery.trim().length > 0 ||
     statusFilter !== 'all' ||
     conditionFilter.length > 0 ||
-    categoryFilter.length > 0;
+    categoryFilter.length > 0 ||
+    lowStockOnly;
 
   // Count of non-search filters — displayed as a badge on the Filter button
   // so the user can tell at a glance that something is narrowing the list.
@@ -144,6 +155,8 @@ export default function ItemsScreen() {
     (statusFilter !== 'all' ? 1 : 0) +
     (conditionFilter.length > 0 ? 1 : 0) +
     (categoryFilter.length > 0 ? 1 : 0);
+
+  const lowStockCount = lowStock.size;
 
   const toggleSearch = () => {
     if (searchVisible) {
@@ -225,6 +238,13 @@ export default function ItemsScreen() {
             label: searchVisible ? 'Close search' : 'Search',
           },
           {
+            sfIcon: 'exclamationmark.triangle',
+            onPress: () => setLowStockOnly((v) => !v),
+            label: 'Low stock',
+            badge: lowStockCount || undefined,
+            active: lowStockOnly,
+          },
+          {
             sfIcon: 'line.3.horizontal.decrease',
             onPress: () => setFilterSheetVisible(true),
             label: 'Filter',
@@ -293,6 +313,7 @@ export default function ItemsScreen() {
         renderItem={({ item }) => (
           <ItemRow
             item={item}
+            stockStatus={lowStock.get(item.id)}
             onPress={() => setEditingItem(item)}
             onOpen={(close) => confirmOpen(item, close)}
             registerOpen={(ref) => {
@@ -359,11 +380,13 @@ export default function ItemsScreen() {
 // ---------------------------------------------------------------------------
 function ItemRow({
   item,
+  stockStatus,
   onPress,
   onOpen,
   registerOpen,
 }: {
   item: ItemWithBox;
+  stockStatus?: StockStatus;
   onPress: () => void;
   onOpen: (close: () => void) => void;
   registerOpen: (ref: Swipeable | null) => void;
@@ -407,6 +430,13 @@ function ItemRow({
           {item.damaged && (
             <View style={styles.damagedBadge}>
               <Text style={styles.damagedBadgeText}>DAMAGED</Text>
+            </View>
+          )}
+          {stockStatus && (
+            <View style={stockStatus === 'out' ? styles.outBadge : styles.lowBadge}>
+              <Text style={stockStatus === 'out' ? styles.outBadgeText : styles.lowBadgeText}>
+                {stockStatus === 'out' ? 'OUT' : 'LOW'}
+              </Text>
             </View>
           )}
           {item.notes && (
@@ -563,6 +593,34 @@ const styles = StyleSheet.create({
     borderColor: colors.dangerBgStrong,
   },
   damagedBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.danger,
+    letterSpacing: 0.5,
+  },
+  lowBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    backgroundColor: colors.warningBg,
+    borderWidth: 1,
+    borderColor: colors.warningBgStrong,
+  },
+  lowBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.warningText,
+    letterSpacing: 0.5,
+  },
+  outBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    backgroundColor: colors.dangerBg,
+    borderWidth: 1,
+    borderColor: colors.dangerBgStrong,
+  },
+  outBadgeText: {
     fontSize: 9,
     fontWeight: '800',
     color: colors.danger,

@@ -28,8 +28,10 @@ import * as ImagePicker from 'expo-image-picker';
 import { getCachedUri } from '@/src/lib/imageCache';
 import {
   addItemsBatch,
+  deleteShoppingItem,
   findCustomProduct,
   getActiveUserId,
+  setCustomProductMinQuantity,
   supabase,
   upsertCustomProduct,
 } from '@/src/lib/supabase';
@@ -83,19 +85,38 @@ interface Draft {
   image_url: string | null;
   category: Category | null;
   pack_count: number | null;
+  energy_kcal_per_100g: number | null;
+  net_weight_g: number | null;
+  min_quantity: number | null;
 }
 
 type Mode = 'scan' | 'form' | 'queue';
 type DraftSource = 'custom' | 'off' | 'manual' | null;
 
+/** Parse a free-text numeric field into a positive number, else null. */
+function parsePositiveNumber(text: string): number | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const n = parseFloat(trimmed.replace(',', '.'));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 export default function AddItemsScreen() {
   const router = useRouter();
-  const { warehouseId, boxId } = useLocalSearchParams<{
-    warehouseId: string;
-    boxId: string;
-  }>();
+  const { warehouseId, boxId, prefillName, prefillCategory, shoppingItemId } =
+    useLocalSearchParams<{
+      warehouseId: string;
+      boxId: string;
+      prefillName?: string;
+      prefillCategory?: string;
+      shoppingItemId?: string;
+    }>();
   const [permission, requestPermission] = useCameraPermissions();
   const [mode, setMode] = useState<Mode>('scan');
+  // When arriving from the shopping list "restock" flow, clear that row once
+  // items are actually saved into a box.
+  const shoppingItemIdRef = useRef<string | null>(shoppingItemId ?? null);
+  const prefilledRef = useRef(false);
 
   // Form for the product currently being scanned
   const [draft, setDraft] = useState<Partial<Draft> | null>(null);
@@ -127,6 +148,32 @@ export default function AddItemsScreen() {
       hasAnthropicKey().then(setVisionEnabled).catch(() => {});
     }, []),
   );
+
+  // Restock prefill (from the shopping list) — open straight into a manual
+  // form draft seeded with the purchased product's name + category.
+  useEffect(() => {
+    if (prefilledRef.current || !prefillName) return;
+    prefilledRef.current = true;
+    const cat =
+      prefillCategory && (CATEGORIES as readonly string[]).includes(prefillCategory)
+        ? (prefillCategory as Category)
+        : null;
+    setDraft({
+      name: prefillName,
+      quantity: 1,
+      unit: 'pcs',
+      expiry_date: '',
+      barcode: null,
+      image_url: null,
+      category: cat,
+      pack_count: null,
+      energy_kcal_per_100g: null,
+      net_weight_g: null,
+      min_quantity: null,
+    });
+    setDraftSource('manual');
+    setMode('form');
+  }, [prefillName, prefillCategory]);
 
   // Toast shown after an item is added to the queue
   const [toast, setToast] = useState<string | null>(null);
@@ -169,6 +216,9 @@ export default function AddItemsScreen() {
           image_url: custom.image_url,
           category: custom.category,
           pack_count: null,
+          energy_kcal_per_100g: null,
+          net_weight_g: null,
+          min_quantity: custom.min_quantity ?? null,
         });
         setDraftSource('custom');
         // Surface the cached Claude shelf-life hint (if any) so the user
@@ -191,6 +241,9 @@ export default function AddItemsScreen() {
           image_url: off.image_url,
           category: off.category,
           pack_count: null,
+          energy_kcal_per_100g: off.energy_kcal_per_100g,
+          net_weight_g: off.net_weight_g,
+          min_quantity: null,
         });
         setDraftSource('off');
         setShelfLifeDaysHint(null);
@@ -212,6 +265,9 @@ export default function AddItemsScreen() {
         image_url: null,
         category: null,
         pack_count: null,
+        energy_kcal_per_100g: null,
+        net_weight_g: null,
+        min_quantity: null,
       });
       setDraftSource('manual');
       setShelfLifeDaysHint(null);
@@ -254,6 +310,9 @@ export default function AddItemsScreen() {
       image_url: null,
       category: null,
       pack_count: null,
+      energy_kcal_per_100g: null,
+      net_weight_g: null,
+      min_quantity: null,
     });
     setDraftSource('manual');
     setShelfLifeDaysHint(null);
@@ -496,6 +555,9 @@ export default function AddItemsScreen() {
       image_url: draft.image_url ?? null,
       category: draft.category ?? null,
       pack_count: draft.pack_count ?? null,
+      energy_kcal_per_100g: draft.energy_kcal_per_100g ?? null,
+      net_weight_g: draft.net_weight_g ?? null,
+      min_quantity: draft.min_quantity ?? null,
     };
     setQueue((q) => [...q, entry]);
 
@@ -557,8 +619,35 @@ export default function AddItemsScreen() {
           image_url: d.image_url,
           category: d.category,
           pack_count: d.pack_count,
+          energy_kcal_per_100g: d.energy_kcal_per_100g,
+          net_weight_g: d.net_weight_g,
+          // Smart-write par level: barcoded products store it as an aggregate
+          // on custom_products (below), so keep the per-row column null.
+          min_quantity: d.barcode ? null : d.min_quantity,
         })),
       );
+
+      // Route barcoded par levels to the shared custom_products row.
+      if (warehouseId) {
+        for (const d of queue) {
+          if (d.barcode && d.min_quantity != null) {
+            await setCustomProductMinQuantity({
+              warehouse_id: warehouseId,
+              barcode: d.barcode,
+              min: d.min_quantity,
+              name: d.name,
+              category: d.category,
+              created_by: userId,
+            }).catch(() => {});
+          }
+        }
+      }
+      // Restock loop: the purchased item is now in inventory, so clear it
+      // from the shopping list.
+      if (shoppingItemIdRef.current) {
+        await deleteShoppingItem(shoppingItemIdRef.current).catch(() => {});
+        shoppingItemIdRef.current = null;
+      }
       router.replace(`/warehouse/${warehouseId}/box/${boxId}` as any);
     } catch (e: any) {
       Alert.alert('Save error', e?.message ?? 'Cannot save.');
@@ -812,6 +901,51 @@ export default function AddItemsScreen() {
               onChange={(c) => setDraft({ ...draft, category: c })}
               renderLabel={(c) => c}
               allowNull
+            />
+
+            {(draft.category === 'food' || draft.category === 'water') && (
+              <View style={styles.row}>
+                {draft.category === 'food' && (
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>kcal / 100 g</Text>
+                    <TextInput
+                      value={draft.energy_kcal_per_100g != null ? String(draft.energy_kcal_per_100g) : ''}
+                      onChangeText={(v) =>
+                        setDraft({ ...draft, energy_kcal_per_100g: parsePositiveNumber(v) })
+                      }
+                      placeholder="e.g. 350"
+                      placeholderTextColor={colors.textSubtle}
+                      keyboardType="decimal-pad"
+                      style={styles.input}
+                    />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>
+                    {draft.category === 'water' ? 'Volume (ml)' : 'Net weight (g)'}
+                  </Text>
+                  <TextInput
+                    value={draft.net_weight_g != null ? String(draft.net_weight_g) : ''}
+                    onChangeText={(v) =>
+                      setDraft({ ...draft, net_weight_g: parsePositiveNumber(v) })
+                    }
+                    placeholder={draft.category === 'water' ? 'e.g. 1500' : 'e.g. 500'}
+                    placeholderTextColor={colors.textSubtle}
+                    keyboardType="decimal-pad"
+                    style={styles.input}
+                  />
+                </View>
+              </View>
+            )}
+
+            <Text style={styles.label}>Low-stock alert below (optional)</Text>
+            <TextInput
+              value={draft.min_quantity != null ? String(draft.min_quantity) : ''}
+              onChangeText={(v) => setDraft({ ...draft, min_quantity: parsePositiveNumber(v) })}
+              placeholder="e.g. 2"
+              placeholderTextColor={colors.textSubtle}
+              keyboardType="decimal-pad"
+              style={styles.input}
             />
 
             <Pressable style={[styles.btn, styles.btnPrimary]} onPress={handleAddToQueue}>

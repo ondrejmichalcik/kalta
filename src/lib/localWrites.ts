@@ -241,6 +241,9 @@ export function addItemLocal(
     opened?: boolean;
     damaged?: boolean;
     pack_count?: number | null;
+    energy_kcal_per_100g?: number | null;
+    net_weight_g?: number | null;
+    min_quantity?: number | null;
   },
 ): Item {
   const db = getDb();
@@ -248,14 +251,16 @@ export function addItemLocal(
   const now = nowIso();
 
   db.runSync(
-    `INSERT INTO items (id, box_id, name, quantity, unit, expiry_date, barcode, image_url, category, notes, opened, damaged, pack_count, last_verified, added_by, created_at, updated_at, _synced, _local_updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, ?)`,
+    `INSERT INTO items (id, box_id, name, quantity, unit, expiry_date, barcode, image_url, category, notes, opened, damaged, pack_count, last_verified, added_by, created_at, updated_at, energy_kcal_per_100g, net_weight_g, min_quantity, _synced, _local_updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, 0, ?)`,
     [
       id, boxId, input.name, input.quantity, input.unit,
       input.expiry_date ?? null, input.barcode ?? null, input.image_url ?? null,
       input.category ?? null, input.notes ?? null,
       input.opened ? 1 : 0, input.damaged ? 1 : 0,
-      input.pack_count ?? null, addedBy, now, now, now,
+      input.pack_count ?? null, addedBy, now, now,
+      input.energy_kcal_per_100g ?? null, input.net_weight_g ?? null, input.min_quantity ?? null,
+      now,
     ],
   );
 
@@ -269,7 +274,9 @@ export function addItemLocal(
     notes: input.notes ?? null, opened: input.opened ?? false, damaged: input.damaged ?? false,
     pack_count: input.pack_count ?? null, last_verified: null,
     added_by: addedBy, created_at: now, updated_at: now,
-    energy_kcal_per_100g: null, net_weight_g: null, min_quantity: null,
+    energy_kcal_per_100g: input.energy_kcal_per_100g ?? null,
+    net_weight_g: input.net_weight_g ?? null,
+    min_quantity: input.min_quantity ?? null,
   };
 }
 
@@ -286,6 +293,9 @@ export function addItemsBatchLocal(
     category?: Category | null;
     notes?: string | null;
     pack_count?: number | null;
+    energy_kcal_per_100g?: number | null;
+    net_weight_g?: number | null;
+    min_quantity?: number | null;
   }[],
 ): Item[] {
   if (inputs.length === 0) return [];
@@ -793,6 +803,49 @@ export function deleteCustomProductLocal(id: string): void {
     [now, id],
   );
   enqueueChange('custom_products', id, 'DELETE');
+}
+
+/**
+ * Set the aggregate par level for a barcoded product. Updates the existing
+ * custom_products row, or creates a minimal one (using the item's name /
+ * category as fallback) if the product was never cached.
+ */
+export function setCustomProductMinQuantityLocal(input: {
+  warehouse_id: string;
+  barcode: string;
+  min: number | null;
+  name: string;
+  category?: Category | null;
+  created_by: string;
+}): void {
+  const db = getDb();
+  const now = nowIso();
+  const existing = db.getFirstSync<{ id: string }>(
+    'SELECT id FROM custom_products WHERE warehouse_id = ? AND barcode = ? AND _deleted_at IS NULL',
+    [input.warehouse_id, input.barcode],
+  );
+  if (existing) {
+    const before = captureBefore('custom_products', existing.id, ['min_quantity']);
+    db.runSync(
+      'UPDATE custom_products SET min_quantity = ?, _synced = 0 WHERE id = ?',
+      [input.min, existing.id],
+    );
+    enqueueChange(
+      'custom_products',
+      existing.id,
+      'UPDATE',
+      ['min_quantity'],
+      before ? { before } : undefined,
+    );
+    return;
+  }
+  const id = genId();
+  db.runSync(
+    `INSERT INTO custom_products (id, warehouse_id, barcode, name, category, image_url, typical_expiry_days, created_by, created_at, min_quantity, _synced)
+     VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, 0)`,
+    [id, input.warehouse_id, input.barcode, input.name, input.category ?? null, input.created_by, now, input.min],
+  );
+  enqueueChange('custom_products', id, 'INSERT');
 }
 
 // ---- Household members (Sprint 6) -----------------------------------------

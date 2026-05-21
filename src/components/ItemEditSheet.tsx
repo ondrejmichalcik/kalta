@@ -25,10 +25,12 @@ import * as ImagePicker from 'expo-image-picker';
 import { getCachedUri } from '@/src/lib/imageCache';
 import {
   deleteItem,
+  findCustomProduct,
   getActiveUserId,
   markItemCondition,
   moveItemQuantity,
   openOneItem,
+  setCustomProductMinQuantity,
   supabase,
   updateItem,
 } from '@/src/lib/supabase';
@@ -109,6 +111,15 @@ export function ItemEditSheet({
   const [packCountText, setPackCountText] = useState(
     item.pack_count != null ? String(item.pack_count) : '',
   );
+  const [energyText, setEnergyText] = useState(
+    item.energy_kcal_per_100g != null ? String(item.energy_kcal_per_100g) : '',
+  );
+  const [netWeightText, setNetWeightText] = useState(
+    item.net_weight_g != null ? String(item.net_weight_g) : '',
+  );
+  const [minQtyText, setMinQtyText] = useState(
+    item.min_quantity != null ? String(item.min_quantity) : '',
+  );
 
   // Reset form when the item changes (user closes and opens a different one)
   useEffect(() => {
@@ -125,8 +136,27 @@ export function ItemEditSheet({
       Number.isInteger(item.quantity) ? String(item.quantity) : item.quantity.toString(),
     );
     setPackCountText(item.pack_count != null ? String(item.pack_count) : '');
+    setEnergyText(item.energy_kcal_per_100g != null ? String(item.energy_kcal_per_100g) : '');
+    setNetWeightText(item.net_weight_g != null ? String(item.net_weight_g) : '');
+    setMinQtyText(item.min_quantity != null ? String(item.min_quantity) : '');
     setShowDatePicker(false);
   }, [item.id]);
+
+  // Barcoded products store their par level on the shared custom_products row
+  // (aggregate across all boxes), not per item. Load that value so the field
+  // reflects the real threshold instead of the unused per-row column.
+  useEffect(() => {
+    if (!item.barcode || !warehouseId) return;
+    let cancelled = false;
+    findCustomProduct(warehouseId, item.barcode)
+      .then((cp) => {
+        if (!cancelled) setMinQtyText(cp?.min_quantity != null ? String(cp.min_quantity) : '');
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [item.id, item.barcode, warehouseId]);
 
   // Condition marking available for discrete units (pcs/pack).
   const canMarkCondition =
@@ -384,7 +414,12 @@ export function ItemEditSheet({
         const parsed = parseInt(trimmedPack, 10);
         if (Number.isFinite(parsed) && parsed > 0) packCount = parsed;
       }
-      const updated = await updateItem(item.id, {
+      const isFoodOrWater = draft.category === 'food' || draft.category === 'water';
+      const energy = isFoodOrWater ? parsePositiveNumber(energyText) : null;
+      const netWeight = isFoodOrWater ? parsePositiveNumber(netWeightText) : null;
+      const minQty = parsePositiveNumber(minQtyText);
+
+      const patch: Parameters<typeof updateItem>[1] = {
         name,
         quantity: qty,
         unit: draft.unit,
@@ -392,7 +427,25 @@ export function ItemEditSheet({
         category: draft.category,
         pack_count: packCount,
         image_url: draft.image_url,
-      });
+        energy_kcal_per_100g: energy,
+        net_weight_g: netWeight,
+      };
+      // Smart-write par level: barcoded products store it as an aggregate on
+      // custom_products; no-barcode items store it per row.
+      if (!item.barcode) patch.min_quantity = minQty;
+      const updated = await updateItem(item.id, patch);
+
+      if (item.barcode) {
+        const uid = (await getActiveUserId()) ?? '';
+        await setCustomProductMinQuantity({
+          warehouse_id: warehouseId,
+          barcode: item.barcode,
+          min: minQty,
+          name,
+          category: draft.category,
+          created_by: uid,
+        });
+      }
       onSaved(updated);
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Cannot save.');
@@ -582,6 +635,54 @@ export function ItemEditSheet({
             allowNull
           />
 
+          {(draft.category === 'food' || draft.category === 'water') && (
+            <View style={styles.row}>
+              {draft.category === 'food' && (
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>kcal / 100 g</Text>
+                  <TextInput
+                    value={energyText}
+                    onChangeText={setEnergyText}
+                    placeholder="e.g. 350"
+                    placeholderTextColor={colors.textSubtle}
+                    keyboardType="decimal-pad"
+                    style={styles.input}
+                  />
+                </View>
+              )}
+              <View style={{ flex: 1 }}>
+                <Text style={styles.label}>
+                  {draft.category === 'water' ? 'Volume (ml)' : 'Net weight (g)'}
+                </Text>
+                <TextInput
+                  value={netWeightText}
+                  onChangeText={setNetWeightText}
+                  placeholder={draft.category === 'water' ? 'e.g. 1500' : 'e.g. 500'}
+                  placeholderTextColor={colors.textSubtle}
+                  keyboardType="decimal-pad"
+                  style={styles.input}
+                />
+              </View>
+            </View>
+          )}
+
+          <Text style={styles.label}>
+            {item.barcode ? 'Minimum to keep (all boxes)' : 'Low-stock alert below'}
+          </Text>
+          <TextInput
+            value={minQtyText}
+            onChangeText={setMinQtyText}
+            placeholder="e.g. 2"
+            placeholderTextColor={colors.textSubtle}
+            keyboardType="decimal-pad"
+            style={styles.input}
+          />
+          {!!item.barcode && (
+            <Text style={styles.minHint}>
+              Applies to the total of this product across every box.
+            </Text>
+          )}
+
           {canMarkCondition && (
             <Pressable
               style={[styles.openBtn, saving && { opacity: 0.5 }]}
@@ -729,6 +830,14 @@ export function ItemEditSheet({
   );
 }
 
+/** Parse a free-text numeric field into a positive number, else null. */
+function parsePositiveNumber(text: string): number | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const n = parseFloat(trimmed.replace(',', '.'));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 // ---------------------------------------------------------------------------
 // ChipRow — internal helper
 // ---------------------------------------------------------------------------
@@ -844,6 +953,12 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   row: { flexDirection: 'row', gap: spacing.md },
+  minHint: {
+    ...typography.footnote,
+    color: colors.textMuted,
+    marginTop: spacing.xs,
+    marginLeft: spacing.xs,
+  },
   expirySegmented: {
     flexDirection: 'row',
     backgroundColor: colors.palette.neutral[100],

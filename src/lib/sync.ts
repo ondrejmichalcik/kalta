@@ -361,8 +361,11 @@ const SAFE_FIELDS: Record<string, Set<string>> = {
     'pack_count',
     'last_verified',
     'box_id',
+    'energy_kcal_per_100g',
+    'net_weight_g',
+    'min_quantity',
   ]),
-  custom_products: new Set(['name', 'category', 'image_url', 'typical_expiry_days']),
+  custom_products: new Set(['name', 'category', 'image_url', 'typical_expiry_days', 'min_quantity']),
   inventory_sessions: new Set(['notes', 'completed_at', 'found_count', 'missing_count']),
 };
 
@@ -1688,10 +1691,41 @@ export async function pullSync(userId: string): Promise<{ pulled: number; confli
         if (!serverIds.has(id)) db.runSync('DELETE FROM shopping_list_items WHERE id = ?', [id]);
       }
     }
+
+    // Custom products (cached barcode products + aggregate par levels). Same
+    // last-write-wins shape — small, rarely-edited, low-conflict.
+    const { data: cp, error: cpErr } = await supabase
+      .from('custom_products')
+      .select('*')
+      .in('warehouse_id', myWarehouseIds);
+    if (!cpErr && cp) {
+      const serverIds = new Set<string>();
+      for (const p of cp as any[]) {
+        serverIds.add(p.id);
+        const local = db.getFirstSync<{ _synced: number }>(
+          'SELECT _synced FROM custom_products WHERE id = ?',
+          [p.id],
+        );
+        if (local && local._synced === 0) continue; // pending local edit wins
+        db.runSync(
+          `INSERT OR REPLACE INTO custom_products (id, warehouse_id, barcode, name, category, image_url, typical_expiry_days, created_by, created_at, min_quantity, _synced)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+          [p.id, p.warehouse_id, p.barcode, p.name, p.category, p.image_url, p.typical_expiry_days, p.created_by, p.created_at, p.min_quantity ?? null],
+        );
+        pulled++;
+      }
+      const localCp = db.getAllSync<{ id: string }>(
+        `SELECT id FROM custom_products WHERE warehouse_id IN (${myWarehouseIds.map(() => '?').join(',')}) AND _synced = 1 AND _deleted_at IS NULL`,
+        myWarehouseIds,
+      );
+      for (const { id } of localCp) {
+        if (!serverIds.has(id)) db.runSync('DELETE FROM custom_products WHERE id = ?', [id]);
+      }
+    }
   }
 
   // Update sync timestamps
-  for (const t of ['boxes', 'items', 'household_members', 'shopping_list_items']) {
+  for (const t of ['boxes', 'items', 'household_members', 'shopping_list_items', 'custom_products']) {
     db.runSync(
       'INSERT OR REPLACE INTO _sync_meta (table_name, last_pulled_at) VALUES (?, ?)',
       [t, now],

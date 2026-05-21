@@ -39,6 +39,8 @@ import {
   getActiveUserId,
   getBoxById,
   getMyWarehouses,
+  listAllItemsInWarehouse,
+  listCustomProducts,
   listItems,
   moveItemQuantity,
   openOneItem,
@@ -46,6 +48,7 @@ import {
   subscribeItems,
   verifyItems,
 } from '@/src/lib/supabase';
+import { computeLowStock, type StockStatus } from '@/src/lib/lowStock';
 import {
   printBoxLabel,
   printBoxLabelViaBrotherSDK,
@@ -99,6 +102,7 @@ export default function BoxDetailScreen() {
   }>();
   const [box, setBox] = useState<Box | null>(null);
   const [items, setItems] = useState<Item[]>([]);
+  const [lowStock, setLowStock] = useState<Map<string, StockStatus>>(new Map());
   const [myRole, setMyRole] = useState<Role | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -165,6 +169,19 @@ export default function BoxDetailScreen() {
       const [b, is] = await Promise.all([getBoxById(id), listItems(id)]);
       setBox(b);
       setItems(is);
+      // Low-stock badges need warehouse-wide context: barcoded products keep
+      // an aggregate par level summed across every box, so we can't decide
+      // status from this box's rows alone.
+      if (warehouseId) {
+        Promise.all([
+          listAllItemsInWarehouse(warehouseId),
+          listCustomProducts(warehouseId).catch(() => []),
+        ])
+          .then(([allItems, customProducts]) =>
+            setLowStock(computeLowStock(allItems, customProducts)),
+          )
+          .catch(() => {});
+      }
       // Resolve user's role in this warehouse for gating destructive actions
       if (warehouseId) {
         const uid = await getActiveUserId();
@@ -688,6 +705,7 @@ export default function BoxDetailScreen() {
           ) : viewMode === 'list' ? (
             <SwipeableRow
               item={item}
+              stockStatus={lowStock.get(item.id)}
               onPress={() => setEditingItem(item)}
               onDelete={(close) => confirmDelete(item, close)}
               onOpen={(close) => confirmOpen(item, close)}
@@ -699,7 +717,7 @@ export default function BoxDetailScreen() {
               }}
             />
           ) : (
-            <GridCard item={item} onPress={() => setEditingItem(item)} />
+            <GridCard item={item} stockStatus={lowStock.get(item.id)} onPress={() => setEditingItem(item)} />
           )
         }
       />
@@ -1118,12 +1136,14 @@ function LabelModalContent({ box, onClose }: { box: Box; onClose: () => void }) 
 
 function SwipeableRow({
   item,
+  stockStatus,
   onPress,
   onDelete,
   onOpen,
   registerOpen,
 }: {
   item: Item;
+  stockStatus?: StockStatus;
   onPress: () => void;
   onDelete: (close: () => void) => void;
   onOpen: (close: () => void) => void;
@@ -1196,6 +1216,13 @@ function SwipeableRow({
                   <Text style={styles.damagedBadgeText}>DAMAGED</Text>
                 </View>
               )}
+              {stockStatus && (
+                <View style={stockStatus === 'out' ? styles.outBadge : styles.lowBadge}>
+                  <Text style={stockStatus === 'out' ? styles.outBadgeText : styles.lowBadgeText}>
+                    {stockStatus === 'out' ? 'OUT' : 'LOW'}
+                  </Text>
+                </View>
+              )}
               {item.notes && (
                 <View style={styles.notesBadge}>
                   <Icon sf="note.text" size={9} color={colors.infoText} />
@@ -1233,7 +1260,15 @@ function formatShortExpiry(dateStr: string): string {
 // GridCard — tap opens edit sheet (no swipe in grid mode)
 // ---------------------------------------------------------------------------
 
-function GridCard({ item, onPress }: { item: Item; onPress: () => void }) {
+function GridCard({
+  item,
+  stockStatus,
+  onPress,
+}: {
+  item: Item;
+  stockStatus?: StockStatus;
+  onPress: () => void;
+}) {
   const status = getExpiryStatus(item.expiry_date);
   const palette =
     status === 'none'
@@ -1261,6 +1296,18 @@ function GridCard({ item, onPress }: { item: Item; onPress: () => void }) {
         {item.opened && (
           <View style={styles.gridOpenedBadge}>
             <Text style={styles.gridOpenedBadgeText}>OPENED</Text>
+          </View>
+        )}
+        {stockStatus && (
+          <View style={stockStatus === 'out' ? styles.gridOutBadge : styles.gridLowBadge}>
+            <Text
+              style={[
+                styles.gridStockBadgeText,
+                { color: stockStatus === 'out' ? colors.danger : colors.warningText },
+              ]}
+            >
+              {stockStatus === 'out' ? 'OUT' : 'LOW'}
+            </Text>
           </View>
         )}
       </View>
@@ -1480,6 +1527,34 @@ const styles = StyleSheet.create({
     color: colors.danger,
     letterSpacing: 0.5,
   },
+  lowBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    backgroundColor: colors.warningBg,
+    borderWidth: 1,
+    borderColor: colors.warningBgStrong,
+  },
+  lowBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.warningText,
+    letterSpacing: 0.5,
+  },
+  outBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    backgroundColor: colors.dangerBg,
+    borderWidth: 1,
+    borderColor: colors.dangerBgStrong,
+  },
+  outBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.danger,
+    letterSpacing: 0.5,
+  },
   notesBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1596,6 +1671,34 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: '800',
     color: colors.warningText,
+    letterSpacing: 0.3,
+  },
+  gridLowBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: radius.sm,
+    backgroundColor: colors.warningBg,
+    borderWidth: 1,
+    borderColor: colors.warningBgStrong,
+  },
+  gridOutBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: radius.sm,
+    backgroundColor: colors.dangerBg,
+    borderWidth: 1,
+    borderColor: colors.dangerBgStrong,
+  },
+  gridStockBadgeText: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: colors.danger,
     letterSpacing: 0.3,
   },
   gridName: {

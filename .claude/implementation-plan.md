@@ -697,7 +697,13 @@ Phase details (each is a single commit, all gated transparently while flag was f
 
 ---
 
-## Sprint 6 – Readiness 📋 (navrženo 2026-05-20, čeká na rozhodnutí o realizaci)
+## Sprint 6 – Readiness ✅ (code-complete 2026-05-21)
+
+**Stav:** Všech 8 kroků implementováno a typecheck prochází. Kód-kompletní, žádné nové native deps → Metro reload (ne `expo run:ios`).
+
+**⚠️ Před testováním na zařízení:** spustit aktualizované `supabase/schema.sql` na produkční Supabase — nové tabulky `household_members`, `shopping_list_items`, sloupce `warehouses.readiness_goal_days`, `items.energy_kcal_per_100g/net_weight_g/min_quantity`, `custom_products.min_quantity` + jejich RLS policies + realtime publication. Lokální SQLite migrace běží automaticky přes `addColumnIfMissing`.
+
+**Známé mezery / volitelný follow-up:** žádné blokující. (Box-detail low-stock badge i incremental pull `custom_products` doděláno 2026-05-21 — viz "Budoucí enhancementy" níže.)
 
 **Cíl:** Posunout Kaltu z "inventory tracker" na "readiness tool". Odpovědět na **THE prepper otázku**: "Kolik dní přežiju?" Čtyři propojené featury tvoří uzavřený loop:
 
@@ -792,16 +798,16 @@ OFF integrace (`openFoodFacts.ts`) extension:
 - Parse `quantity` string ("500 g", "1.5 l", "6 x 1.5 l") → normalized net amount + unit
 - Auto-fill při scanu; manual override v ItemEditSheet
 
-### Build sekvence (kdyby šlo do realizace)
+### Build sekvence — ✅ VŠE IMPLEMENTOVÁNO (2026-05-21)
 
-1. **Household config** — schema: nová `household_members` tabulka + sync plumbing (7 míst výše). UI: nová **HOUSEHOLD** sekce v `warehouse/[warehouseId]/(tabs)/settings.tsx` — list členů (jméno + kcal·voda), Add person sheet s 6 presety + custom, edit/delete per člen, "Total: X kcal · Y L / den" řádek.
-2. **OFF nutritional fetch + items columns** — schema migrace (`energy_kcal_per_100g`, `net_weight_g`, `min_quantity`). Extend `openFoodFacts.ts` lookup o `nutriments` + quantity-string parser.
+1. ✅ **Household config** — `household_members` tabulka + sync plumbing + `HouseholdSection.tsx` (list členů, MemberSheet s 6 presety + custom, edit/delete, total řádek, readiness goal chips 72h/2 týdny/1 měsíc/3 měsíce) v settings.
+2. ✅ **OFF nutritional fetch + items columns** — schema migrace (`energy_kcal_per_100g`, `net_weight_g`, `min_quantity`). Extend `openFoodFacts.ts` lookup o `nutriments` + quantity-string parser.
    - **Nutriční pole v UI na OBOU cestách:**
      - **Scan path** (`add-items.tsx` po EAN/AI): auto-fill `energy_kcal_per_100g` + `net_weight_g` z OFF, user může opravit.
      - **Manual entry path** (add item bez scanu + `ItemEditSheet` edit): pole **energy (kcal/100g)** + **net weight (g)** explicitně zadatelná. Bez nich by se manuálně přidaný food/water item nezapočítal do readiness (spadl by do `uncountedItems`).
    - Pole zobrazit jen pro relevantní kategorie (food/water) — u medicine/equipment/documents nemá kcal smysl. Pro water je `net_weight_g` = objem v ml (1g≈1ml).
    - Volitelně helper hint: "kcal najdeš na obalu per 100g" + quick "no nutrition data" skip.
-3. **Readiness calc engine** — `src/lib/readiness.ts`: čistá funkce `computeReadiness(items, members)` → `{ foodDays, waterDays, weakestLink, perCategory, uncountedItems, totalDailyKcal, totalDailyWaterL }`. Žádný UI, unit-testovatelná. **Spec edge cases (zafixováno 2026-05-21):**
+3. ✅ **Readiness calc engine** — `src/lib/readiness.ts`: čistá funkce `computeReadiness(items, members)` → `{ foodDays, waterDays, weakestLink, perCategory, uncountedItems, totalDailyKcal, totalDailyWaterL }`. Žádný UI, unit-testovatelná. **Spec edge cases (zafixováno 2026-05-21):**
 
    - **Unit normalizace přes `net_weight_g`** (voda hustota ≈1 g/ml, takže jeden field slouží pro jídlo gramy i vodu ml):
      ```
@@ -817,48 +823,52 @@ OFF integrace (`openFoodFacts.ts`) extension:
    - **pack_count se NEpoužívá** v readiness (je to display hint pro léky/tablety, ne content váha).
    - **Per-member needs:** `totalDailyKcal = Σ member.daily_kcal`, `totalDailyWaterL = Σ member.daily_water_l`. Když household prázdný (0 členů) → foodDays/waterDays = null (nelze dělit nulou), UI prompt "Add household members".
    - **Weakest-link:** `min(foodDays, waterDays)` ignoruje null kategorie. perCategory drží oba zvlášť pro breakdown.
-4. **Readiness summary card** — komponenta na vrchu `warehouse/[warehouseId]/(tabs)/index.tsx` (Boxes dashboard), vedle/nad existing expiry attention banneru.
+4. ✅ **Readiness summary card** — `src/components/ReadinessCard.tsx` na vrchu `warehouse/[warehouseId]/(tabs)/index.tsx` (Boxes dashboard), nad expiry attention bannerem.
    - Headline = weakest link: "🛡 18 dní ready" / "⚠️ 4 dny — voda dochází"
    - **Color podle goal** (`readiness_goal_days`, default 14): `<25%` red, `25–100%` amber, `≥100%` green
    - Tap → detail screen
    - **Empty states:** 0 household members → "Nastav domácnost" (→ settings); household OK ale 0 započítaných food/water → "Přidej zásoby s nutričními daty"
-5. **Readiness detail screen** — `warehouse/[warehouseId]/readiness.tsx` (push z card):
+5. ✅ **Readiness detail screen** — `warehouse/[warehouseId]/readiness.tsx` (push z card). Goal config zůstává v HOUSEHOLD settings (HouseholdSection), detail jen čte + odkazuje. Obsahuje i kit completeness (krok 7) + odkaz na shopping list (krok 8):
    - Big headline (weakest-link dní) + "Tvoje slabina: Voda" + "pro 3 lidi (2 dospělí, 1 dítě)" context
    - **Per-category progress bary** — Food/Water řádek s barem (fill = `days / readiness_goal_days`, color by threshold), label "18 dní" / "4 dny"
    - **uncountedItems notice** — "ⓘ 3 items nezapočítány (chybí nutriční data)" → tap odkáže na ně
    - Odkazy na Coverage gaps (krok 7) + Shopping list (krok 8)
    - **Goal config** — readiness_goal_days editovatelné (preset volby 72h / 2 týdny / 1 měsíc / 3 měsíce / custom) buď zde nebo v HOUSEHOLD settings sekci vedle members
-6. **Par levels + low-stock** (zafixováno 2026-05-21: per-product aggregate, ne per-item) —
-   - **Dual storage:** barcode produkty → `custom_products.min_quantity` (aggregate); no-barcode items → `items.min_quantity` (per-row).
-   - **Detection:** barcode → `Σ items.quantity WHERE barcode=X & warehouse=W & not deleted < min` → všechny rows produktu flagged; no-barcode → `item.quantity < item.min_quantity`.
-   - **UX:** "Minimum to keep" pole v `ItemEditSheet` — smart-write: má-li item barcode → zapiš do `custom_products.min_quantity`, jinak do `items.min_quantity`. Plus min editace v Custom products screen (commit 65c855d) pro centrální správu barcode produktů.
-   - **Visual:** badge na item cards — amber "Low" / red "Out" (qty=0). Barcode produkt → badge na **všech** rows toho produktu. + dedicated low-stock **filter** na item listu ("jen low-stock").
+6. ✅ **Par levels + low-stock** (per-product aggregate, ne per-item) — `src/lib/lowStock.ts` `computeLowStock(items, customProducts)`.
+   - **Dual storage:** barcode produkty → `custom_products.min_quantity` (aggregate, write přes `setCustomProductMinQuantity`); no-barcode items → `items.min_quantity` (per-row).
+   - **Detection:** barcode → Σ `items.quantity` napříč bednami < min → všechny rows flagged; no-barcode → `item.quantity < item.min_quantity`. `out` = total ≤ 0.
+   - **UX:** "Minimum to keep" pole v `ItemEditSheet` (smart-read i smart-write: barcode → custom_products, jinak items) + v `add-items` (routing při save). Hint u barcoded "applies to total across every box".
+   - **Visual:** badge **LOW** (amber) / **OUT** (red) na Items timeline rows + dedicated low-stock toggle/filtr v headeru. (Box-detail badge = volitelný follow-up, viz známé mezery výše.)
    - Feeduje shopping list (krok 8).
-7. **Coverage gaps / kit completeness** (zafixováno 2026-05-21: full curated FEMA checklist, ne jen category presence) —
-   - **Hardcoded checklist** `src/data/emergencyKit.ts`: ~20-30 doporučených items dle FEMA Ready.gov "Build A Kit", každý `{ id, label, category, keywords: string[], rationale }`. Keywords EN + CZ pro matching (flashlight/baterka/čelovka).
-   - **Auto-match:** checklist item je "covered" když existuje inventory item (non-expired, non-deleted) s name obsahujícím některý keyword. Jinak gap.
-   - **Manual dismiss** false negatives přes **local AsyncStorage** per warehouse (`@kalta/kit_dismissed_<warehouseId>`), NE synced tabulka — coverage gaps je osobní view, cross-device sync není pro v1 nutný. Promote na `kit_checklist_overrides` tabulku později pokud bude potřeba.
-   - **Display:** "KIT COMPLETENESS 12/24" sekce v readiness detailu, grid ✓/✗ items grouped by kategorie.
-   - **Gap action:** tap na ✗ → add doporučenou položku do shopping listu (krok 8). Tap na ✓ co reálně nemáš → manual dismiss ("not needed").
-   - Starting checklist set (ladí se): Water; Food + can opener; First aid + meds + pain relievers; Flashlight + batteries + power bank + candles + radio; Multi-tool + whistle + masks + duct tape + gloves; Sanitizer + soap + towelettes + bags; ID/insurance copies + cash + contacts.
-   - ⚠️ Keyword matching je fuzzy (CZ/EN) → false negatives možné, řešené local dismissem.
-8. **Shopping list** — `warehouse/[warehouseId]/shopping.tsx` (zafixováno 2026-05-21: synced table + add-to-inventory loop):
-   - **Synced tabulka `shopping_list_items`** (id, warehouse_id, label, category, source `expired|low_stock|gap|manual`, source_ref, quantity, checked, created_at). 8. synced entity — plumbing jako household_members (~7 míst). Důvod: živý sdílený seznam — manželka odškrtává v obchodě, ty vidíš real-time.
-   - **"Refresh suggestions" akce** — scan expired + below-par + coverage gaps → přidá nové řádky co ještě nejsou na listu (dedup; item expired AND below-par = 1 řádek). On-demand, ne auto (ať se checked-off nevrací). List = deliberate shopping plán, decoupled od live recompute.
-   - **Manuální položky** — + button, přidá libovolnou položku mimo 3 zdroje.
-   - **Check-off** — tap → checked (strikethrough, dolů), persists + syncuje.
-   - **Mark-purchased → add-to-inventory:** tap purchased item → "Restock into box" → add-items flow předvyplněný name/category → po naskladnění item z listu pryč + inventory updated → expired/low-stock/gap condition se vyřeší → readiness se zlepší. Uzavírá celý prepper loop.
+7. ✅ **Coverage gaps / kit completeness** (full curated FEMA checklist) — `src/data/emergencyKit.ts` + `src/lib/kitCoverage.ts`.
+   - **Hardcoded checklist** `src/data/emergencyKit.ts`: 23 items dle FEMA Ready.gov "Build A Kit", 7 skupin, každý `{ id, label, group, category, keywords: string[], rationale }`. Keywords EN + CZ (flashlight/baterka/čelovka).
+   - **Auto-match:** `computeKitCoverage` — checklist item "covered" když non-expired inventory item name obsahuje některý keyword (lowercase substring). Jinak gap.
+   - **Manual dismiss** přes **local AsyncStorage** `@kalta/kit_dismissed_<warehouseId>` (osobní view, ne synced).
+   - **Display:** "EMERGENCY KIT 12/23" sekce v readiness detailu (`KitChecklist`), grid ✓/✗ chipů grouped by skupinu, dismissnuté přeškrtnuté.
+   - **Gap action:** tap na ✗ → ActionSheet "Add to shopping list" (`addShoppingItem` source `gap`) / "I already have this" (dismiss). Tap na dismissnuté → "Mark as missing again".
+8. ✅ **Shopping list** — `warehouse/[warehouseId]/shopping.tsx` (synced table + add-to-inventory loop):
+   - **Synced tabulka `shopping_list_items`** (id, warehouse_id, label, category, source `expired|low_stock|gap|manual`, source_ref, quantity, checked, created_at). 8. synced entity.
+   - **"Refresh suggestions"** — scan expired + low-stock (`computeLowStock`) + gaps (`computeKitCoverage`) → dedup podle labelu (expired+below-par = 1 řádek), vynechá co už na listu je (i checked → nevrací se).
+   - **Manuální položky** — `+` button → prompt.
+   - **Check-off** — tap kolečko → checked (strikethrough, dolů), optimistic + `setShoppingItemChecked`.
+   - **Mark-purchased → add-to-inventory:** row `…` menu → "Restock into a box" → BoxPicker → `router.push` add-items s `prefillName`/`prefillCategory`/`shoppingItemId` → add-items otevře prefilled manual draft → po Save all se shopping řádek smaže. Uzavírá prepper loop.
    - Per-warehouse (v1 scope).
 
-Realisticky **~1-2 týdny**. Sekvenovatelné — kroky 1-5 (readiness core) jsou jeden ucelený kus; 6-8 (par/gaps/shopping) druhý, samostatně užitečný i bez readiness dashboardu.
+### Otevřené otázky — vyřešeno při realizaci (2026-05-21)
 
-### Otevřené otázky před realizací
+- ✅ **net_weight parsing z OFF quantity string** — `parseNetWeightGrams` v `openFoodFacts.ts` zvládá "6 x 1.5 l" / "500g" / "1,5 kg"; preferuje numerické `product_quantity`, fallback na parse quantity stringu, jinak null → manual entry.
+- ✅ **Water v pcs (lahve)** — `net_weight_g` slouží i jako objem v ml (1g≈1ml); pcs/pack × net_weight_g. Nebo user zadá unit=l/ml rovnou.
+- ✅ **Items bez OFF dat** — nutriční pole prázdná → spadnou do `uncountedItems`, surfacováno v detailu ("3 items not counted"). Manual fill v ItemEditSheet / add-items.
+- ✅ **Recommended kit template** — hardcoded FEMA baseline (`emergencyKit.ts`, 23 items), local dismiss pro per-warehouse úpravy.
+- ✅ **Daily targets** — per-member configurable přes `household_members` (6 presetů + custom), ne hardcoded.
 
-- **net_weight parsing z OFF quantity string** — "6 x 1.5 l" / "500g" / "1,5 kg" formáty messy. Fallback na manual entry když parse selže.
-- **Water v pcs (lahve)** — potřebuje net_volume_ml per lahev (z OFF quantity). Nebo user zadá unit=l rovnou.
-- **Items bez OFF dat** (custom products, manual entry) — nutriční pole prázdná → nezapočítají se do readiness, nebo prompt na manual fill.
-- **Recommended kit template** — hardcoded prepper baseline (co každý kit má mít) vs user-defined targets?
-- **Daily targets** — 2000 kcal / 3 L hardcoded vs configurable per household?
+### Budoucí enhancementy (mimo v1)
+- Opened items remaining-% (teď full value — mírný over-count readiness, přijatelné).
+- Aggregate cross-warehouse readiness (teď per-warehouse).
+
+**Hotovo 2026-05-21 (post-Sprint 6):**
+- ✅ Box-detail low-stock badge — list i grid mód, warehouse-wide aggregate přes `computeLowStock`.
+- ✅ Incremental pull pro `custom_products` — přidán do `pullSync` (last-write-wins, mirror household_members); par levels + name/category se teď synchronizují mezi zařízeními při běžném cyklu, ne jen při initial sync.
 
 ### Rozhodnutí: realizovat po launchi
 Sprint 6 je post-launch. Priorita až po App Store v1.0 release + prvním reálném user feedbacku. Nevstupuje do launch blockingu.

@@ -44,6 +44,7 @@ import {
   completeInventorySessionLocal,
   upsertCustomProductLocal,
   deleteCustomProductLocal,
+  setCustomProductMinQuantityLocal,
   addHouseholdMemberLocal,
   updateHouseholdMemberLocal,
   deleteHouseholdMemberLocal,
@@ -614,6 +615,9 @@ export interface NewItemInput {
   notes?: string | null;
   opened?: boolean;
   pack_count?: number | null;
+  energy_kcal_per_100g?: number | null;
+  net_weight_g?: number | null;
+  min_quantity?: number | null;
 }
 
 export async function addItem(
@@ -1301,6 +1305,53 @@ export async function upsertCustomProduct(input: {
     .single();
   if (error) throw error;
   return data as CustomProduct;
+}
+
+/**
+ * Set the aggregate par level (min_quantity) for a barcoded product. Used by
+ * the smart-write par-level field — barcoded items store their threshold on
+ * the shared custom_products row, not per item row.
+ */
+export async function setCustomProductMinQuantity(input: {
+  warehouse_id: string;
+  barcode: string;
+  min: number | null;
+  name: string;
+  category?: Category | null;
+  created_by: string;
+}): Promise<void> {
+  if (hasInitialSync()) {
+    setCustomProductMinQuantityLocal(input);
+    supabase
+      .from('custom_products')
+      .upsert(
+        {
+          warehouse_id: input.warehouse_id,
+          barcode: input.barcode,
+          name: input.name,
+          category: input.category ?? null,
+          created_by: input.created_by,
+          min_quantity: input.min,
+        },
+        { onConflict: 'warehouse_id,barcode' },
+      )
+      .then(() => {}, () => {});
+    return;
+  }
+  const { error } = await supabase
+    .from('custom_products')
+    .upsert(
+      {
+        warehouse_id: input.warehouse_id,
+        barcode: input.barcode,
+        name: input.name,
+        category: input.category ?? null,
+        created_by: input.created_by,
+        min_quantity: input.min,
+      },
+      { onConflict: 'warehouse_id,barcode' },
+    );
+  if (error) throw error;
 }
 
 // ============================================================================
