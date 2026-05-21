@@ -834,7 +834,14 @@ OFF integrace (`openFoodFacts.ts`) extension:
    - **UX:** "Minimum to keep" pole v `ItemEditSheet` — smart-write: má-li item barcode → zapiš do `custom_products.min_quantity`, jinak do `items.min_quantity`. Plus min editace v Custom products screen (commit 65c855d) pro centrální správu barcode produktů.
    - **Visual:** badge na item cards — amber "Low" / red "Out" (qty=0). Barcode produkt → badge na **všech** rows toho produktu. + dedicated low-stock **filter** na item listu ("jen low-stock").
    - Feeduje shopping list (krok 8).
-7. **Coverage gaps** — recommended kit baseline (per kategorie: má warehouse aspoň X?), "chybí ti: medicine, batteries" sekce v readiness detailu.
+7. **Coverage gaps / kit completeness** (zafixováno 2026-05-21: full curated FEMA checklist, ne jen category presence) —
+   - **Hardcoded checklist** `src/data/emergencyKit.ts`: ~20-30 doporučených items dle FEMA Ready.gov "Build A Kit", každý `{ id, label, category, keywords: string[], rationale }`. Keywords EN + CZ pro matching (flashlight/baterka/čelovka).
+   - **Auto-match:** checklist item je "covered" když existuje inventory item (non-expired, non-deleted) s name obsahujícím některý keyword. Jinak gap.
+   - **Manual dismiss** false negatives přes **local AsyncStorage** per warehouse (`@kalta/kit_dismissed_<warehouseId>`), NE synced tabulka — coverage gaps je osobní view, cross-device sync není pro v1 nutný. Promote na `kit_checklist_overrides` tabulku později pokud bude potřeba.
+   - **Display:** "KIT COMPLETENESS 12/24" sekce v readiness detailu, grid ✓/✗ items grouped by kategorie.
+   - **Gap action:** tap na ✗ → add doporučenou položku do shopping listu (krok 8). Tap na ✓ co reálně nemáš → manual dismiss ("not needed").
+   - Starting checklist set (ladí se): Water; Food + can opener; First aid + meds + pain relievers; Flashlight + batteries + power bank + candles + radio; Multi-tool + whistle + masks + duct tape + gloves; Sanitizer + soap + towelettes + bags; ID/insurance copies + cash + contacts.
+   - ⚠️ Keyword matching je fuzzy (CZ/EN) → false negatives možné, řešené local dismissem.
 8. **Shopping list** — `warehouse/[warehouseId]/shopping.tsx`: agregace (expired items + below-par items + coverage gaps) → checklist, mark-purchased → optional rovnou pre-fill add-items flow.
 
 Realisticky **~1-2 týdny**. Sekvenovatelné — kroky 1-5 (readiness core) jsou jeden ucelený kus; 6-8 (par/gaps/shopping) druhý, samostatně užitečný i bez readiness dashboardu.
