@@ -42,6 +42,7 @@ import { colors, radius, spacing, typography } from '@/src/theme';
 import { Card } from '@/src/components/Card';
 import { Icon } from '@/src/components/Icon';
 import { ListHeader } from '@/src/components/ListHeader';
+import { HouseholdSection } from '@/src/components/HouseholdSection';
 
 const TAB_BAR_HEIGHT = 84;
 
@@ -389,6 +390,8 @@ export default function WarehouseSettingsScreen() {
         ListHeaderComponent={<Text style={styles.sectionHeader}>MEMBERS</Text>}
         ListFooterComponent={
           <View style={styles.dangerZone}>
+            {warehouseId ? <HouseholdSection warehouseId={warehouseId} /> : null}
+
             <Text style={styles.sectionHeader}>DATA</Text>
             <Pressable
               style={({ pressed }) => [styles.dataBtn, pressed && { opacity: 0.7 }]}
