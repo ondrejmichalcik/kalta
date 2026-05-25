@@ -19,6 +19,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 import {
   addHouseholdMember,
   deleteHouseholdMember,
@@ -220,7 +221,16 @@ function MemberSheet({
   const applyPreset = (p: (typeof DAILY_NEED_PRESETS)[number]) => {
     setKcal(String(p.daily_kcal));
     setWater(String(p.daily_water_l));
+    Haptics.selectionAsync().catch(() => {});
   };
+
+  // A preset is "active" when both current values exactly match it. If the
+  // user tweaks kcal or water manually, the chip auto-deselects.
+  const kcalN = parseInt(kcal, 10);
+  const waterN = parseFloat(water.replace(',', '.'));
+  const activePresetLabel = DAILY_NEED_PRESETS.find(
+    (p) => p.daily_kcal === kcalN && p.daily_water_l === waterN,
+  )?.label;
 
   const handleSave = async () => {
     const trimmed = name.trim();
@@ -307,15 +317,22 @@ function MemberSheet({
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.chipRow}
             >
-              {DAILY_NEED_PRESETS.map((p) => (
-                <Pressable
-                  key={p.label}
-                  onPress={() => applyPreset(p)}
-                  style={styles.chip}
-                >
-                  <Text style={styles.chipText}>{p.label}</Text>
-                </Pressable>
-              ))}
+              {DAILY_NEED_PRESETS.map((p) => {
+                const active = p.label === activePresetLabel;
+                return (
+                  <Pressable
+                    key={p.label}
+                    onPress={() => applyPreset(p)}
+                    style={[styles.chip, active && styles.chipActive]}
+                  >
+                    <Text
+                      style={[styles.chipText, active && styles.chipTextActive]}
+                    >
+                      {p.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </ScrollView>
 
             <Text style={styles.label}>Calories per day (kcal)</Text>

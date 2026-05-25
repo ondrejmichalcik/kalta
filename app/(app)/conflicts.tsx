@@ -27,7 +27,7 @@ import {
 import { colors, radius, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
 import { ResourceIcon, type ResourceTable } from '@/src/components/ResourceIcon';
-import type { Category } from '@/src/types/database';
+import { CATEGORY_LABEL, type Category } from '@/src/types/database';
 
 const TABLE_LABEL: Record<string, string> = {
   warehouses: 'Warehouse',
@@ -49,7 +49,10 @@ const FIELD_LABELS: Record<string, string> = {
   notes: 'Notes',
   opened: 'Opened',
   damaged: 'Damaged',
-  pack_count: 'Pack count',
+  pack_count: 'Pcs in package',
+  energy_kcal_per_100g: 'Calories / 100 g',
+  net_weight_g: 'Content per item',
+  min_quantity: 'Low-stock threshold',
   last_verified: 'Last verified',
   box_id: 'Box',
   location: 'Location',
@@ -67,6 +70,9 @@ function formatValue(field: string, value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   if (field === 'image_url') return 'updated';
+  if (field === 'category' && typeof value === 'string') {
+    return CATEGORY_LABEL[value as Category] ?? value;
+  }
   if (field === 'expiry_date' || field === 'last_verified' || field === 'completed_at') {
     const ts = String(value);
     if (ts === '9999-12-31') return 'Never';
@@ -84,7 +90,7 @@ function formatValue(field: string, value: unknown): string {
 
 // Append the sibling unit to a quantity value so "25" reads as "25 pcs"
 // — picking 25 vs 9 is meaningless without it, especially when one side
-// is `pcs` and the other is `kg`.
+// is `pcs` and the other is `pack`.
 function formatValueWithContext(
   field: string,
   value: unknown,

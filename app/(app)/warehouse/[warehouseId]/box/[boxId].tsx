@@ -76,22 +76,10 @@ import {
   type ConditionFilter,
   type StatusFilter,
 } from '@/src/components/FilterSheet';
+import { CATEGORY_SF } from '@/src/components/categoryIcons';
 
 type ViewMode = 'list' | 'grid';
 const VIEW_MODE_KEY = 'kalta:boxViewMode';
-
-// Category → SF Symbol mapping. Kept here because it's a display concern
-// and the SF symbol names are stable strings.
-const CATEGORY_SF: Record<Category, SFSymbolName> = {
-  food: 'fork.knife',
-  medicine: 'pills.fill',
-  water: 'drop.fill',
-  disinfectant: 'bubbles.and.sparkles.fill',
-  equipment: 'wrench.adjustable.fill',
-  energy: 'bolt.fill',
-  documents: 'doc.fill',
-  other: 'shippingbox.fill',
-};
 
 export default function BoxDetailScreen() {
   const router = useRouter();

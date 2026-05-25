@@ -1,7 +1,7 @@
 // ============================================================================
 // Kalta – Coupled field groups for sync conflict detection
 // Some fields only make sense as a pair: picking `quantity = 9` without
-// also choosing `unit = kg` is meaningless when the other side has 25 pcs.
+// also choosing `unit = pack` is meaningless when the other side has 25 pcs.
 // Promotion ensures both peers / both sync paths land on the same set of
 // conflict fields, which keeps resolution maps comparable and the UI
 // consistent across cloud sync (`/conflicts` screen) and P2P review.

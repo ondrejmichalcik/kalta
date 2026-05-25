@@ -81,17 +81,17 @@ function mapCategory(tags: string[] | undefined): Category | null {
   if (!tags || tags.length === 0) return null;
   const joined = tags.join(' ').toLowerCase();
 
-  // Medicine / drugstore
-  if (/medicine|pharmac|drug|medicament|lék|vitamin/.test(joined)) return 'medicine';
+  // First aid / drugstore
+  if (/medicine|pharmac|drug|medicament|lék|vitamin/.test(joined)) return 'first_aid';
 
   // Water
   if (/mineral-water|spring-water|drinking-water|water\b|voda/.test(joined)) return 'water';
 
-  // Disinfectant / hygiene
-  if (/disinfect|sanit|hygien|dezinf|cleaner|soap|mýdlo/.test(joined)) return 'disinfectant';
+  // Sanitation / hygiene
+  if (/disinfect|sanit|hygien|dezinf|cleaner|soap|mýdlo/.test(joined)) return 'sanitation';
 
-  // Energy / batteries
-  if (/battery|baterie|energy-drink/.test(joined)) return 'energy';
+  // Light & power (batteries — energy-drink falls through to food)
+  if (/\bbattery\b|\bbaterie\b/.test(joined)) return 'light_power';
 
   // Anything else food-related
   if (/food|beverage|dairy|meat|fish|vegetable|fruit|cereal|snack|bread|cheese|pasta|drink|juice|coffee|tea|potraviny|nápoj|pečivo|mléko|maso/.test(joined))

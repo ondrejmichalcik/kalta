@@ -36,8 +36,8 @@ import {
 } from '@/src/lib/supabase';
 import { deleteProductImage, uploadProductImage } from '@/src/lib/storage';
 import { BoxPicker } from './BoxPicker';
+import { CategoryPickerSheet, CategoryPickerTrigger } from './CategoryPickerSheet';
 import {
-  CATEGORIES,
   NEVER_EXPIRES_DATE,
   UNITS,
   formatDate,
@@ -102,6 +102,7 @@ export function ItemEditSheet({
   const [uploadingImage, setUploadingImage] = useState(false);
   const [showBoxPicker, setShowBoxPicker] = useState(false);
   const [showConditionSheet, setShowConditionSheet] = useState(false);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [condOpened, setCondOpened] = useState(false);
   const [condDamaged, setCondDamaged] = useState(false);
   const [condNotes, setCondNotes] = useState('');
@@ -509,8 +510,8 @@ export function ItemEditSheet({
               <Text style={styles.label}>Quantity</Text>
               <TextInput
                 value={quantityText}
-                onChangeText={setQuantityText}
-                keyboardType="decimal-pad"
+                onChangeText={(v) => setQuantityText(v.replace(/[^0-9]/g, ''))}
+                keyboardType="number-pad"
                 style={styles.input}
               />
             </View>
@@ -524,15 +525,19 @@ export function ItemEditSheet({
             </View>
           </View>
 
-          <Text style={styles.label}>Pcs per package (optional)</Text>
-          <TextInput
-            value={packCountText}
-            onChangeText={setPackCountText}
-            placeholder="e.g. 24"
-            placeholderTextColor={colors.textSubtle}
-            keyboardType="number-pad"
-            style={styles.input}
-          />
+          {draft.unit === 'pack' && (
+            <>
+              <Text style={styles.label}>Pcs inside one package (optional)</Text>
+              <TextInput
+                value={packCountText}
+                onChangeText={setPackCountText}
+                placeholder="e.g. 24"
+                placeholderTextColor={colors.textSubtle}
+                keyboardType="number-pad"
+                style={styles.input}
+              />
+            </>
+          )}
 
           <Text style={styles.label}>Expiry</Text>
           <View style={styles.expirySegmented}>
@@ -627,12 +632,9 @@ export function ItemEditSheet({
           )}
 
           <Text style={styles.label}>Category</Text>
-          <ChipRow
-            options={CATEGORIES}
+          <CategoryPickerTrigger
             value={draft.category}
-            onChange={(c) => setDraft({ ...draft, category: c })}
-            renderLabel={(c) => c}
-            allowNull
+            onPress={() => setShowCategoryPicker(true)}
           />
 
           {(draft.category === 'food' || draft.category === 'water') && (
@@ -652,7 +654,7 @@ export function ItemEditSheet({
               )}
               <View style={{ flex: 1 }}>
                 <Text style={styles.label}>
-                  {draft.category === 'water' ? 'Volume (ml)' : 'Net weight (g)'}
+                  {draft.category === 'water' ? 'Content per item (ml)' : 'Content per item (g)'}
                 </Text>
                 <TextInput
                   value={netWeightText}
@@ -721,6 +723,13 @@ export function ItemEditSheet({
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <CategoryPickerSheet
+        visible={showCategoryPicker}
+        value={draft.category}
+        onSelect={(c) => setDraft({ ...draft, category: c })}
+        onClose={() => setShowCategoryPicker(false)}
+      />
 
       {/* Box picker for move */}
       <Modal

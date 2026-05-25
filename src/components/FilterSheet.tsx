@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Category } from '@/src/types/database';
-import { CATEGORIES, daysUntil } from '@/src/types/database';
+import { CATEGORIES, CATEGORY_LABEL, daysUntil } from '@/src/types/database';
 import { colors, radius, spacing, typography } from '@/src/theme';
 import { Icon } from './Icon';
 
@@ -137,7 +137,7 @@ const CONDITION_OPTIONS: { value: ConditionFlag; label: string }[] = [
 ];
 
 function categoryLabel(c: Category): string {
-  return c.charAt(0).toUpperCase() + c.slice(1);
+  return CATEGORY_LABEL[c];
 }
 
 const DEFAULT_SECTIONS: FilterSection[] = ['status', 'condition', 'category'];

@@ -5,40 +5,54 @@ import { colors } from '@/src/theme';
 
 export type Role = 'owner' | 'member';
 
-export type Unit = 'pcs' | 'g' | 'kg' | 'ml' | 'l' | 'pack';
+export type Unit = 'pcs' | 'pack';
 
-export const UNITS: Unit[] = ['pcs', 'g', 'kg', 'ml', 'l', 'pack'];
+export const UNITS: Unit[] = ['pcs', 'pack'];
 
+// Categories mirror the emergency-kit group names so the form, the readiness
+// kit checklist, and the shopping list all speak the same vocabulary.
+// Storage values stay snake_case; CATEGORY_LABEL provides the display text.
 export type Category =
-  | 'food'
-  | 'medicine'
   | 'water'
-  | 'disinfectant'
-  | 'equipment'
-  | 'energy'
+  | 'food'
+  | 'first_aid'
+  | 'light_power'
+  | 'tools_safety'
+  | 'sanitation'
   | 'documents'
   | 'other';
 
 export const CATEGORIES: Category[] = [
-  'food',
-  'medicine',
   'water',
-  'disinfectant',
-  'equipment',
-  'energy',
+  'food',
+  'first_aid',
+  'light_power',
+  'tools_safety',
+  'sanitation',
   'documents',
   'other',
 ];
 
+export const CATEGORY_LABEL: Record<Category, string> = {
+  water: 'Water',
+  food: 'Food',
+  first_aid: 'First aid',
+  light_power: 'Light & power',
+  tools_safety: 'Tools & safety',
+  sanitation: 'Sanitation',
+  documents: 'Documents',
+  other: 'Other',
+};
+
 // Maps domain categories to the custom icon names rendered via <Icon>.
 // Keep in sync with src/components/Icon.tsx IconName union.
 export const CATEGORY_ICON: Record<Category, string> = {
-  food: 'food-can',
-  medicine: 'medicine-pill',
   water: 'water-drop',
-  disinfectant: 'disinfectant-bottle',
-  equipment: 'tool-wrench',
-  energy: 'battery',
+  food: 'food-can',
+  first_aid: 'medicine-pill',
+  light_power: 'flashlight-on',
+  tools_safety: 'tool-wrench',
+  sanitation: 'disinfectant-bottle',
   documents: 'document',
   other: 'box-generic',
 };

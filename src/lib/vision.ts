@@ -87,12 +87,12 @@ export async function identifyProduct(imageUrl: string): Promise<IdentifiedProdu
             category: {
               type: 'string',
               enum: [
-                'food',
-                'medicine',
                 'water',
-                'disinfectant',
-                'equipment',
-                'energy',
+                'food',
+                'first_aid',
+                'light_power',
+                'tools_safety',
+                'sanitation',
                 'documents',
                 'other',
               ],

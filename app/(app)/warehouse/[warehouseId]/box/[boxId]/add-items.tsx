@@ -57,19 +57,8 @@ import {
 import type { Category, Unit } from '@/src/types/database';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
-import type { SFSymbolName } from '@/src/components/Icon';
-
-// Category → SF Symbol mapping for this screen's form + queue chips.
-const CATEGORY_SF: Record<Category, SFSymbolName> = {
-  food: 'fork.knife',
-  medicine: 'pills.fill',
-  water: 'drop.fill',
-  disinfectant: 'bubbles.and.sparkles.fill',
-  equipment: 'wrench.adjustable.fill',
-  energy: 'bolt.fill',
-  documents: 'doc.fill',
-  other: 'shippingbox.fill',
-};
+import { CategoryPickerSheet, CategoryPickerTrigger } from '@/src/components/CategoryPickerSheet';
+import { CATEGORY_SF } from '@/src/components/categoryIcons';
 
 // ---------------------------------------------------------------------------
 // Queue item – local state before batch save
@@ -123,6 +112,7 @@ export default function AddItemsScreen() {
   const [draftSource, setDraftSource] = useState<DraftSource>(null);
   const [looking, setLooking] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
 
   // Queue of items waiting for the batch save
   const [queue, setQueue] = useState<Draft[]>([]);
@@ -816,10 +806,11 @@ export default function AddItemsScreen() {
                 <Text style={styles.label}>Quantity</Text>
                 <TextInput
                   value={draft.quantity?.toString() ?? ''}
-                  onChangeText={(v) =>
-                    setDraft({ ...draft, quantity: parseFloat(v.replace(',', '.')) || 0 })
-                  }
-                  keyboardType="decimal-pad"
+                  onChangeText={(v) => {
+                    const digits = v.replace(/[^0-9]/g, '');
+                    setDraft({ ...draft, quantity: digits ? parseInt(digits, 10) : 0 });
+                  }}
+                  keyboardType="number-pad"
                   style={styles.input}
                 />
               </View>
@@ -833,26 +824,30 @@ export default function AddItemsScreen() {
               </View>
             </View>
 
-            <Text style={styles.label}>Pcs per package (optional)</Text>
-            <TextInput
-              value={draft.pack_count != null ? String(draft.pack_count) : ''}
-              onChangeText={(v) => {
-                const trimmed = v.trim();
-                if (!trimmed) {
-                  setDraft({ ...draft, pack_count: null });
-                  return;
-                }
-                const parsed = parseInt(trimmed, 10);
-                setDraft({
-                  ...draft,
-                  pack_count: Number.isFinite(parsed) && parsed > 0 ? parsed : null,
-                });
-              }}
-              placeholder="e.g. 24"
-              placeholderTextColor={colors.textSubtle}
-              keyboardType="number-pad"
-              style={styles.input}
-            />
+            {draft.unit === 'pack' && (
+              <>
+                <Text style={styles.label}>Pcs inside one package (optional)</Text>
+                <TextInput
+                  value={draft.pack_count != null ? String(draft.pack_count) : ''}
+                  onChangeText={(v) => {
+                    const trimmed = v.trim();
+                    if (!trimmed) {
+                      setDraft({ ...draft, pack_count: null });
+                      return;
+                    }
+                    const parsed = parseInt(trimmed, 10);
+                    setDraft({
+                      ...draft,
+                      pack_count: Number.isFinite(parsed) && parsed > 0 ? parsed : null,
+                    });
+                  }}
+                  placeholder="e.g. 24"
+                  placeholderTextColor={colors.textSubtle}
+                  keyboardType="number-pad"
+                  style={styles.input}
+                />
+              </>
+            )}
 
             <Text style={styles.label}>Expiry date</Text>
             <Pressable
@@ -895,12 +890,9 @@ export default function AddItemsScreen() {
             )}
 
             <Text style={styles.label}>Category</Text>
-            <ChipRow
-              options={CATEGORIES}
+            <CategoryPickerTrigger
               value={draft.category ?? null}
-              onChange={(c) => setDraft({ ...draft, category: c })}
-              renderLabel={(c) => c}
-              allowNull
+              onPress={() => setShowCategoryPicker(true)}
             />
 
             {(draft.category === 'food' || draft.category === 'water') && (
@@ -922,7 +914,7 @@ export default function AddItemsScreen() {
                 )}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.label}>
-                    {draft.category === 'water' ? 'Volume (ml)' : 'Net weight (g)'}
+                    {draft.category === 'water' ? 'Content per item (ml)' : 'Content per item (g)'}
                   </Text>
                   <TextInput
                     value={draft.net_weight_g != null ? String(draft.net_weight_g) : ''}
@@ -1020,6 +1012,13 @@ export default function AddItemsScreen() {
           </Text>
         </Animated.View>
       )}
+
+      <CategoryPickerSheet
+        visible={showCategoryPicker}
+        value={draft?.category ?? null}
+        onSelect={(c) => setDraft((d) => (d ? { ...d, category: c } : d))}
+        onClose={() => setShowCategoryPicker(false)}
+      />
     </SafeAreaView>
   );
 }

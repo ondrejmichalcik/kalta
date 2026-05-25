@@ -85,11 +85,11 @@ create table if not exists public.items (
   box_id       uuid not null references public.boxes(id) on delete cascade,
   name         text not null,
   quantity     numeric not null default 1,
-  unit         text not null default 'pcs' check (unit in ('pcs','g','kg','ml','l','pack')),
+  unit         text not null default 'pcs' check (unit in ('pcs','pack')),
   expiry_date  date,
   barcode      text,
   image_url    text,
-  category     text check (category in ('food','medicine','water','disinfectant','equipment','energy','documents','other')),
+  category     text check (category in ('water','food','first_aid','light_power','tools_safety','sanitation','documents','other')),
   notes        text,
   opened       boolean not null default false,
   damaged      boolean not null default false,
@@ -208,6 +208,77 @@ alter table public.items add column if not exists opened boolean not null defaul
 alter table public.items add column if not exists damaged boolean not null default false;
 alter table public.items add column if not exists pack_count int;
 alter table public.items add column if not exists last_verified timestamptz;
+
+-- items.unit collapse to discrete (Sprint 6+, simplified add-item form).
+-- The old g/kg/ml/l options confused users when paired with readiness
+-- fields (net_weight_g, pack_count). We now model every item as a discrete
+-- count (pcs/pack) with optional net_weight_g for the per-unit content.
+-- Convert any legacy bulk rows: total grams become net_weight_g on a
+-- single unit. Lossy on count (a "3 kg" row becomes "1 pcs × 3000 g" —
+-- factually correct on content, but the original purchase-count intent
+-- is lost). Acceptable pre-launch.
+do $$
+begin
+  if exists (
+    select 1 from public.items
+    where unit in ('g','kg','ml','l')
+  ) then
+    update public.items
+    set
+      net_weight_g = coalesce(
+        net_weight_g,
+        case unit
+          when 'g'  then quantity
+          when 'kg' then quantity * 1000
+          when 'ml' then quantity
+          when 'l'  then quantity * 1000
+        end
+      ),
+      quantity = 1,
+      unit = 'pcs'
+    where unit in ('g','kg','ml','l');
+  end if;
+end $$;
+
+alter table public.items drop constraint if exists items_unit_check;
+alter table public.items
+  add constraint items_unit_check check (unit in ('pcs', 'pack'));
+
+-- items.category rename (Sprint 6+, align with emergency-kit groups).
+-- Form, kit checklist, and shopping list now share the same vocabulary.
+-- Mapping (lossy for 'equipment' — defaults to tools_safety; user can move
+-- flashlights/radios/candles to light_power manually):
+--   medicine     -> first_aid
+--   disinfectant -> sanitation
+--   energy       -> light_power
+--   equipment    -> tools_safety
+--   food/water/documents/other -> unchanged
+alter table public.items drop constraint if exists items_category_check;
+update public.items set category = case category
+  when 'medicine'     then 'first_aid'
+  when 'disinfectant' then 'sanitation'
+  when 'energy'       then 'light_power'
+  when 'equipment'    then 'tools_safety'
+  else category
+end where category in ('medicine','disinfectant','energy','equipment');
+update public.custom_products set category = case category
+  when 'medicine'     then 'first_aid'
+  when 'disinfectant' then 'sanitation'
+  when 'energy'       then 'light_power'
+  when 'equipment'    then 'tools_safety'
+  else category
+end where category in ('medicine','disinfectant','energy','equipment');
+update public.shopping_list_items set category = case category
+  when 'medicine'     then 'first_aid'
+  when 'disinfectant' then 'sanitation'
+  when 'energy'       then 'light_power'
+  when 'equipment'    then 'tools_safety'
+  else category
+end where category in ('medicine','disinfectant','energy','equipment');
+alter table public.items
+  add constraint items_category_check check (
+    category in ('water','food','first_aid','light_power','tools_safety','sanitation','documents','other')
+  );
 
 -- inventory_lines: add found_quantity + relax status check for 'partial' (Sprint 3 inventory rewrite)
 alter table public.inventory_lines add column if not exists found_quantity numeric not null default 0;

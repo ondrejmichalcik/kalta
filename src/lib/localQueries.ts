@@ -118,6 +118,10 @@ function mapItem(r: any): Item {
     ...r,
     opened: !!r.opened,
     damaged: !!r.damaged,
+    // Legacy rows (unit g/kg/ml/l) may still exist in the local cache before
+    // the server migration syncs back. Coerce to 'pcs' for the UI; the canonical
+    // fix lands when the migrated row syncs in.
+    unit: r.unit === 'pack' ? 'pack' : 'pcs',
   };
 }
 

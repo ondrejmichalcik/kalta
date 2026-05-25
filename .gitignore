@@ -17,6 +17,9 @@ expo-env.d.ts
 # EAS
 .eas/
 
+# Supabase CLI cache (project-ref, pooler URL, version metadata — no secrets)
+supabase/.temp/
+
 # Env
 .env
 .env.local

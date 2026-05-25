@@ -61,6 +61,9 @@ const MERGE_FIELDS: Record<string, string[]> = {
     'pack_count',
     'last_verified',
     'box_id',
+    'energy_kcal_per_100g',
+    'net_weight_g',
+    'min_quantity',
   ],
   custom_products: ['name', 'category', 'image_url', 'typical_expiry_days'],
   inventory_sessions: ['notes', 'completed_at', 'missing_count', 'found_count'],
@@ -278,7 +281,7 @@ function buildPreviewEntry(
   // For items, always include `unit` in the values maps (even when unit
   // itself didn't change) so the review screen can render the quantity
   // with its unit context — picking "MINE 15" vs "THEIRS 3" alone is
-  // meaningless when one side is grams and the other is pieces.
+  // meaningless when one side is pcs and the other is pack.
   // Doesn't affect `changed_fields`, so no extra diff row is rendered.
   if (table === 'items') {
     if (beforeValues && local && !('unit' in beforeValues)) {

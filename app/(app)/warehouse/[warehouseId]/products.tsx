@@ -31,7 +31,7 @@ import {
 } from '@/src/lib/supabase';
 import { getCachedUri } from '@/src/lib/imageCache';
 import type { Category, CustomProduct } from '@/src/types/database';
-import { CATEGORIES, CATEGORY_ICON } from '@/src/types/database';
+import { CATEGORIES, CATEGORY_ICON, CATEGORY_LABEL } from '@/src/types/database';
 import { colors, radius, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
 import { Card } from '@/src/components/Card';
@@ -206,7 +206,7 @@ export default function ProductsScreen() {
                 </Text>
                 <Text style={styles.cardMeta} numberOfLines={1}>
                   {product.barcode}
-                  {product.category ? ` · ${product.category}` : ''}
+                  {product.category ? ` · ${CATEGORY_LABEL[product.category as Category] ?? product.category}` : ''}
                   {product.typical_expiry_days
                     ? ` · ${formatShelfHint(product.typical_expiry_days)}`
                     : ''}

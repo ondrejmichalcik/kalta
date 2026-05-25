@@ -30,6 +30,7 @@ import { computeKitCoverage, type KitCoverageEntry } from '@/src/lib/kitCoverage
 import type { HouseholdMember, ItemWithBox } from '@/src/types/database';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
+import { CATEGORY_SF } from '@/src/components/categoryIcons';
 
 const dismissKey = (warehouseId: string) => `@kalta/kit_dismissed_${warehouseId}`;
 
@@ -62,7 +63,6 @@ function goalLabel(days: number): string {
 export default function ReadinessScreen() {
   const router = useRouter();
   const { warehouseId } = useLocalSearchParams<{ warehouseId: string }>();
-  const [result, setResult] = useState<ReadinessResult | null>(null);
   const [items, setItems] = useState<ItemWithBox[]>([]);
   const [members, setMembers] = useState<HouseholdMember[]>([]);
   const [goalDays, setGoalDays] = useState(14);
@@ -81,7 +81,6 @@ export default function ReadinessScreen() {
       setItems(rows);
       setMembers(mem);
       setGoalDays(wh?.readiness_goal_days ?? 14);
-      setResult(computeReadiness(rows, mem));
       if (dismissedRaw) {
         try {
           setDismissed(new Set(JSON.parse(dismissedRaw) as string[]));
@@ -103,6 +102,14 @@ export default function ReadinessScreen() {
   );
 
   const kit = useMemo(() => computeKitCoverage(items, dismissed), [items, dismissed]);
+  const hasWaterFilter = useMemo(
+    () => kit.entries.some((e) => e.item.id === 'water-filter' && e.covered),
+    [kit],
+  );
+  const result = useMemo(
+    () => computeReadiness(items, members, { hasWaterFilter }),
+    [items, members, hasWaterFilter],
+  );
 
   const persistDismissed = (next: Set<string>) => {
     setDismissed(next);
@@ -170,7 +177,7 @@ export default function ReadinessScreen() {
         <View style={styles.topBarBtn} />
       </View>
 
-      {loading || !result ? (
+      {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} />
         </View>
@@ -204,7 +211,12 @@ export default function ReadinessScreen() {
                 sf="drop.fill"
                 days={result.waterDays}
                 goalDays={goalDays}
-                detail={`${(result.perCategory.water.totalL ?? 0).toFixed(1)} L stored`}
+                detail={
+                  hasWaterFilter
+                    ? `${(result.perCategory.water.totalL ?? 0).toFixed(1)} L stored + water filter extends supply`
+                    : `${(result.perCategory.water.totalL ?? 0).toFixed(1)} L stored`
+                }
+                filtered={hasWaterFilter}
               />
 
               {result.uncountedItems > 0 && (
@@ -298,22 +310,31 @@ function CoverageBar({
   days,
   goalDays,
   detail,
+  filtered = false,
 }: {
   label: string;
   sf: Parameters<typeof Icon>[0]['sf'];
   days: number | null;
   goalDays: number;
   detail: string;
+  /** Treat as covered regardless of days (e.g. water filter present). */
+  filtered?: boolean;
 }) {
   const ratio = days != null && goalDays > 0 ? days / goalDays : 0;
-  const tone = toneFor(ratio);
+  const tone: Tone = filtered ? 'green' : toneFor(ratio);
   const color = TONE_COLOR[tone];
-  const fillPct = Math.max(0, Math.min(1, ratio)) * 100;
+  const fillPct = filtered ? 100 : Math.max(0, Math.min(1, ratio)) * 100;
   return (
     <View style={styles.coverageRow}>
       <View style={styles.coverageHeader}>
         <Icon sf={sf} size={16} color={colors.textMuted} />
         <Text style={styles.coverageLabel}>{label}</Text>
+        {filtered && (
+          <View style={styles.filterBadge}>
+            <Icon sf="checkmark.circle.fill" size={11} color={colors.successText} />
+            <Text style={styles.filterBadgeText}>Filter</Text>
+          </View>
+        )}
         <Text style={[styles.coverageDays, { color: days != null ? color : colors.textSubtle }]}>
           {days != null ? formatDays(days) : '—'}
         </Text>
@@ -346,9 +367,18 @@ function KitChecklist({
 
   return (
     <View style={styles.kitCard}>
-      {groups.map((g) => (
+      {groups.map((g) => {
+        // All items in a kit group share the same domain category, so the
+        // first one is enough to pick the section glyph.
+        const cat = g.entries[0]?.item.category ?? null;
+        return (
         <View key={g.name} style={styles.kitGroup}>
-          <Text style={styles.kitGroupLabel}>{g.name}</Text>
+          <View style={styles.kitGroupHeader}>
+            {cat && (
+              <Icon sf={CATEGORY_SF[cat]} size={13} color={colors.textMuted} />
+            )}
+            <Text style={styles.kitGroupLabel}>{g.name}</Text>
+          </View>
           <View style={styles.kitRowWrap}>
             {g.entries.map((e) => (
               <Pressable
@@ -378,7 +408,8 @@ function KitChecklist({
             ))}
           </View>
         </View>
-      ))}
+        );
+      })}
     </View>
   );
 }
@@ -435,6 +466,23 @@ const styles = StyleSheet.create({
   coverageHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   coverageLabel: { ...typography.body, color: colors.text, fontWeight: '600', flex: 1 },
   coverageDays: { ...typography.body, fontWeight: '800' },
+  filterBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.xs + 2,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+    backgroundColor: colors.successBg,
+    borderWidth: 1,
+    borderColor: colors.successBgStrong,
+  },
+  filterBadgeText: {
+    ...typography.caption,
+    color: colors.successText,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
   track: {
     height: 8,
     borderRadius: 4,
@@ -491,6 +539,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   kitGroup: { gap: spacing.xs + 2 },
+  kitGroupHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   kitGroupLabel: { ...typography.label, color: colors.textMuted },
   kitRowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs + 2 },
   kitChip: {

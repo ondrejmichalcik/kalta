@@ -30,7 +30,7 @@ import {
 } from '@/src/lib/supabase';
 import { computeLowStock } from '@/src/lib/lowStock';
 import { computeKitCoverage } from '@/src/lib/kitCoverage';
-import { getExpiryStatus } from '@/src/types/database';
+import { CATEGORY_LABEL, getExpiryStatus } from '@/src/types/database';
 import type { Category, ShoppingListItem, ShoppingSource } from '@/src/types/database';
 import { BoxPicker } from '@/src/components/BoxPicker';
 import { Icon } from '@/src/components/Icon';
@@ -360,7 +360,9 @@ function ShoppingRow({
         </Text>
         <View style={styles.rowMeta}>
           <Text style={styles.sourceTag}>{SOURCE_LABEL[item.source]}</Text>
-          {item.category ? <Text style={styles.catTag}>· {item.category}</Text> : null}
+          {item.category ? (
+            <Text style={styles.catTag}>· {CATEGORY_LABEL[item.category] ?? item.category}</Text>
+          ) : null}
         </View>
       </View>
       <Pressable hitSlop={8} onPress={onMenu} style={styles.moreBtn}>

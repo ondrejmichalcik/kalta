@@ -24,12 +24,12 @@ export type ResourceTable =
   | 'inventory_lines';
 
 const CATEGORY_PNG: Record<Category, ReturnType<typeof require>> = {
-  food: require('@/assets/icons/food-can.png'),
-  medicine: require('@/assets/icons/medicine-pill.png'),
   water: require('@/assets/icons/water-drop.png'),
-  disinfectant: require('@/assets/icons/disinfectant-bottle.png'),
-  equipment: require('@/assets/icons/tool-wrench.png'),
-  energy: require('@/assets/icons/battery.png'),
+  food: require('@/assets/icons/food-can.png'),
+  first_aid: require('@/assets/icons/medicine-pill.png'),
+  light_power: require('@/assets/icons/flashlight-on.png'),
+  tools_safety: require('@/assets/icons/tool-wrench.png'),
+  sanitation: require('@/assets/icons/disinfectant-bottle.png'),
   documents: require('@/assets/icons/document.png'),
   other: require('@/assets/icons/tag.png'),
 };
