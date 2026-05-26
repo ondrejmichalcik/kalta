@@ -30,7 +30,7 @@ import {
   setShoppingItemChecked,
 } from '@/src/lib/supabase';
 import { computeLowStock } from '@/src/lib/lowStock';
-import { computeKitCoverage } from '@/src/lib/kitCoverage';
+import { computeKitCoverage, type KitOverride } from '@/src/lib/kitCoverage';
 import { CATEGORY_LABEL, getExpiryStatus } from '@/src/types/database';
 import type { Category, Item, ItemWithBox, ShoppingListItem, ShoppingSource } from '@/src/types/database';
 import { BoxPicker } from '@/src/components/BoxPicker';
@@ -171,12 +171,27 @@ export default function ShoppingScreen() {
         listCustomProducts(warehouseId).catch(() => []),
         AsyncStorage.getItem(dismissKey(warehouseId)).catch(() => null),
       ]);
-      const dismissed = new Set<string>(
-        dismissedRaw ? (JSON.parse(dismissedRaw) as string[]) : [],
-      );
+      // overrides may live as legacy string[] (force_stocked only) or the
+      // newer { [id]: 'force_stocked' | 'force_missing' } map — readiness.tsx
+      // owns the canonical format, this screen only needs to read it.
+      const overrides = new Map<string, KitOverride>();
+      if (dismissedRaw) {
+        try {
+          const parsed = JSON.parse(dismissedRaw);
+          if (Array.isArray(parsed)) {
+            for (const id of parsed) overrides.set(id, 'force_stocked');
+          } else if (parsed && typeof parsed === 'object') {
+            for (const [k, v] of Object.entries(parsed)) {
+              overrides.set(k, v as KitOverride);
+            }
+          }
+        } catch {
+          /* corrupt — treat as no overrides */
+        }
+      }
 
       const lowStock = computeLowStock(items, customProducts);
-      const kit = computeKitCoverage(items, dismissed);
+      const kit = computeKitCoverage(items, overrides);
 
       // Build suggestions keyed by normalized label so expired + below-par of
       // the same product collapse into one row.

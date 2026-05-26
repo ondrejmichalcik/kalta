@@ -115,6 +115,10 @@ export default function AddItemsScreen() {
   const [looking, setLooking] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  // Progressive disclosure: nutrition + low-stock fields live under one tap.
+  // EAN scans auto-fill them in the background, so the typical add doesn't
+  // need them visible at all.
+  const [showMoreDetails, setShowMoreDetails] = useState(false);
 
   // Queue of items waiting for the batch save
   const [queue, setQueue] = useState<Draft[]>([]);
@@ -956,50 +960,68 @@ export default function AddItemsScreen() {
               onPress={() => setShowCategoryPicker(true)}
             />
 
-            {(draft.category === 'food' || draft.category === 'water') && (
-              <View style={styles.row}>
-                {draft.category === 'food' && (
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.label}>kcal / 100 g</Text>
-                    <TextInput
-                      value={draft.energy_kcal_per_100g != null ? String(draft.energy_kcal_per_100g) : ''}
-                      onChangeText={(v) =>
-                        setDraft({ ...draft, energy_kcal_per_100g: parsePositiveNumber(v) })
-                      }
-                      placeholder="e.g. 350"
-                      placeholderTextColor={colors.textSubtle}
-                      keyboardType="decimal-pad"
-                      style={styles.input}
-                    />
+            <Pressable
+              style={({ pressed }) => [styles.disclosureToggle, pressed && { opacity: 0.6 }]}
+              onPress={() => setShowMoreDetails((v) => !v)}
+            >
+              <Icon
+                sf={showMoreDetails ? 'chevron.down' : 'chevron.right'}
+                size={14}
+                color={colors.textMuted}
+              />
+              <Text style={styles.disclosureToggleText}>
+                {showMoreDetails ? 'Hide details' : 'More details (optional)'}
+              </Text>
+            </Pressable>
+
+            {showMoreDetails && (
+              <>
+                {(draft.category === 'food' || draft.category === 'water') && (
+                  <View style={styles.row}>
+                    {draft.category === 'food' && (
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.label}>kcal / 100 g</Text>
+                        <TextInput
+                          value={draft.energy_kcal_per_100g != null ? String(draft.energy_kcal_per_100g) : ''}
+                          onChangeText={(v) =>
+                            setDraft({ ...draft, energy_kcal_per_100g: parsePositiveNumber(v) })
+                          }
+                          placeholder="e.g. 350"
+                          placeholderTextColor={colors.textSubtle}
+                          keyboardType="decimal-pad"
+                          style={styles.input}
+                        />
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.label}>
+                        {draft.category === 'water' ? 'Content per item (ml)' : 'Content per item (g)'}
+                      </Text>
+                      <TextInput
+                        value={draft.net_weight_g != null ? String(draft.net_weight_g) : ''}
+                        onChangeText={(v) =>
+                          setDraft({ ...draft, net_weight_g: parsePositiveNumber(v) })
+                        }
+                        placeholder={draft.category === 'water' ? 'e.g. 1500' : 'e.g. 500'}
+                        placeholderTextColor={colors.textSubtle}
+                        keyboardType="decimal-pad"
+                        style={styles.input}
+                      />
+                    </View>
                   </View>
                 )}
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.label}>
-                    {draft.category === 'water' ? 'Content per item (ml)' : 'Content per item (g)'}
-                  </Text>
-                  <TextInput
-                    value={draft.net_weight_g != null ? String(draft.net_weight_g) : ''}
-                    onChangeText={(v) =>
-                      setDraft({ ...draft, net_weight_g: parsePositiveNumber(v) })
-                    }
-                    placeholder={draft.category === 'water' ? 'e.g. 1500' : 'e.g. 500'}
-                    placeholderTextColor={colors.textSubtle}
-                    keyboardType="decimal-pad"
-                    style={styles.input}
-                  />
-                </View>
-              </View>
-            )}
 
-            <Text style={styles.label}>Low-stock alert below (optional)</Text>
-            <TextInput
-              value={draft.min_quantity != null ? String(draft.min_quantity) : ''}
-              onChangeText={(v) => setDraft({ ...draft, min_quantity: parsePositiveNumber(v) })}
-              placeholder="e.g. 2"
-              placeholderTextColor={colors.textSubtle}
-              keyboardType="decimal-pad"
-              style={styles.input}
-            />
+                <Text style={styles.label}>Low-stock alert below (optional)</Text>
+                <TextInput
+                  value={draft.min_quantity != null ? String(draft.min_quantity) : ''}
+                  onChangeText={(v) => setDraft({ ...draft, min_quantity: parsePositiveNumber(v) })}
+                  placeholder="e.g. 2"
+                  placeholderTextColor={colors.textSubtle}
+                  keyboardType="decimal-pad"
+                  style={styles.input}
+                />
+              </>
+            )}
 
             <Pressable style={[styles.btn, styles.btnPrimary]} onPress={handleAddToQueue}>
               <View style={styles.btnContent}>
@@ -1449,6 +1471,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+  },
+  disclosureToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs + 2,
+    paddingVertical: spacing.sm,
+    marginTop: spacing.md,
+  },
+  disclosureToggleText: {
+    ...typography.footnote,
+    color: colors.textMuted,
+    fontWeight: '600',
   },
   btnPrimary: { backgroundColor: colors.primary },
   btnPrimaryText: {

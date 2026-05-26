@@ -27,7 +27,11 @@ import {
   listShoppingList,
 } from '@/src/lib/supabase';
 import { computeReadiness, type ReadinessResult } from '@/src/lib/readiness';
-import { computeKitCoverage, type KitCoverageEntry } from '@/src/lib/kitCoverage';
+import {
+  computeKitCoverage,
+  type KitCoverageEntry,
+  type KitOverride,
+} from '@/src/lib/kitCoverage';
 import type { HouseholdMember, ItemWithBox, ShoppingListItem } from '@/src/types/database';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
@@ -68,13 +72,13 @@ export default function ReadinessScreen() {
   const [members, setMembers] = useState<HouseholdMember[]>([]);
   const [shoppingList, setShoppingList] = useState<ShoppingListItem[]>([]);
   const [goalDays, setGoalDays] = useState(14);
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [overrides, setOverrides] = useState<Map<string, KitOverride>>(new Map());
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     if (!warehouseId) return;
     try {
-      const [rows, mem, wh, shop, dismissedRaw] = await Promise.all([
+      const [rows, mem, wh, shop, overridesRaw] = await Promise.all([
         listAllItemsInWarehouse(warehouseId),
         listHouseholdMembers(warehouseId),
         getWarehouseById(warehouseId),
@@ -85,9 +89,18 @@ export default function ReadinessScreen() {
       setMembers(mem);
       setShoppingList(shop);
       setGoalDays(wh?.readiness_goal_days ?? 14);
-      if (dismissedRaw) {
+      if (overridesRaw) {
         try {
-          setDismissed(new Set(JSON.parse(dismissedRaw) as string[]));
+          const parsed = JSON.parse(overridesRaw);
+          // Legacy format: string[] of dismissed ids — all were force_stocked.
+          // New format: { [id]: 'force_stocked' | 'force_missing' }.
+          if (Array.isArray(parsed)) {
+            const m = new Map<string, KitOverride>();
+            for (const id of parsed) m.set(id, 'force_stocked');
+            setOverrides(m);
+          } else if (parsed && typeof parsed === 'object') {
+            setOverrides(new Map(Object.entries(parsed) as [string, KitOverride][]));
+          }
         } catch {
           /* corrupt — ignore */
         }
@@ -106,8 +119,8 @@ export default function ReadinessScreen() {
   );
 
   const kit = useMemo(
-    () => computeKitCoverage(items, dismissed, shoppingList),
-    [items, dismissed, shoppingList],
+    () => computeKitCoverage(items, overrides, shoppingList),
+    [items, overrides, shoppingList],
   );
   const hasWaterFilter = useMemo(
     () => kit.entries.some((e) => e.item.id === 'water-filter' && e.covered),
@@ -118,34 +131,74 @@ export default function ReadinessScreen() {
     [items, members, hasWaterFilter],
   );
 
-  const persistDismissed = (next: Set<string>) => {
-    setDismissed(next);
+  const persistOverrides = (next: Map<string, KitOverride>) => {
+    setOverrides(next);
     if (warehouseId) {
-      AsyncStorage.setItem(dismissKey(warehouseId), JSON.stringify([...next])).catch(() => {});
+      const obj = Object.fromEntries(next);
+      AsyncStorage.setItem(dismissKey(warehouseId), JSON.stringify(obj)).catch(() => {});
     }
   };
 
-  const toggleDismiss = (id: string) => {
-    const next = new Set(dismissed);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    persistDismissed(next);
+  const setOverride = (id: string, value: KitOverride | null) => {
+    const next = new Map(overrides);
+    if (value == null) next.delete(id);
+    else next.set(id, value);
+    persistOverrides(next);
   };
 
   const goToShopping = () => router.push(`/warehouse/${warehouseId}/shopping` as any);
 
   const handleEntryPress = (entry: KitCoverageEntry) => {
-    const { item, state, dismissed: isDismissed } = entry;
-    if (isDismissed) {
+    const { item, state, override, matchedItem } = entry;
+
+    // User previously forced this to stocked despite no real match.
+    if (override === 'force_stocked') {
       Alert.alert(item.label, 'You marked this as covered.', [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Mark as missing again', onPress: () => toggleDismiss(item.id) },
+        {
+          text: 'Reset to auto-detect',
+          onPress: () => setOverride(item.id, null),
+        },
       ]);
       return;
     }
-    if (state === 'stocked') return; // genuinely in stock — nothing to do
+
+    // User previously forced to missing despite the matcher finding something.
+    if (override === 'force_missing') {
+      Alert.alert(
+        item.label,
+        matchedItem
+          ? `You marked this as missing despite "${matchedItem.name}" being in inventory.`
+          : 'You marked this as missing.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Reset to auto-detect', onPress: () => setOverride(item.id, null) },
+        ],
+      );
+      return;
+    }
+
+    if (state === 'stocked') {
+      // Real inventory match — let the user see what got matched and back out
+      // of false positives without changing the inventory itself.
+      if (matchedItem) {
+        ActionSheetIOS.showActionSheetWithOptions(
+          {
+            title: item.label,
+            message: `Matched: "${matchedItem.name}"`,
+            options: ['OK', `That's not really ${item.label}`, 'Cancel'],
+            destructiveButtonIndex: 1,
+            cancelButtonIndex: 2,
+          },
+          (idx) => {
+            if (idx === 1) setOverride(item.id, 'force_missing');
+          },
+        );
+      }
+      return;
+    }
+
     if (state === 'on_list' || state === 'purchased') {
-      // Already tracked — bounce the user to the shopping list to finish the loop.
       ActionSheetIOS.showActionSheetWithOptions(
         {
           title: item.label,
@@ -158,11 +211,12 @@ export default function ReadinessScreen() {
         },
         (idx) => {
           if (idx === 0) goToShopping();
-          else if (idx === 1) toggleDismiss(item.id);
+          else if (idx === 1) setOverride(item.id, 'force_stocked');
         },
       );
       return;
     }
+
     // missing
     ActionSheetIOS.showActionSheetWithOptions(
       {
@@ -180,12 +234,10 @@ export default function ReadinessScreen() {
             source: 'gap',
             source_ref: item.id,
           })
-            .then(() => {
-              load(); // refresh so the chip flips to on_list immediately
-            })
+            .then(() => load())
             .catch((e: any) => Alert.alert('Error', e?.message ?? 'Cannot add to shopping list.'));
         } else if (idx === 1) {
-          toggleDismiss(item.id);
+          setOverride(item.id, 'force_stocked');
         }
       },
     );
@@ -468,7 +520,11 @@ function KitChecklist({
                     style={[
                       styles.kitChipText,
                       { color: v.fg },
-                      e.dismissed && styles.kitChipDismissed,
+                      // Strike-through any user override so it's clear at a
+                      // glance that the chip's state isn't the matcher's
+                      // verdict — applies to both force_stocked (dismissed
+                      // gap) and force_missing (rejected match).
+                      e.override != null && styles.kitChipDismissed,
                     ]}
                   >
                     {e.item.label}

@@ -124,6 +124,14 @@ export function ItemEditSheet({
   const [minQtyText, setMinQtyText] = useState(
     item.min_quantity != null ? String(item.min_quantity) : '',
   );
+  // Open the details expander by default for items that already carry any
+  // readiness / stock data — saves a tap when the user came here precisely
+  // to tweak those values. New items typically start collapsed.
+  const [showMoreDetails, setShowMoreDetails] = useState(
+    item.energy_kcal_per_100g != null ||
+      item.net_weight_g != null ||
+      item.min_quantity != null,
+  );
 
   // Reset form when the item changes (user closes and opens a different one)
   useEffect(() => {
@@ -144,6 +152,11 @@ export function ItemEditSheet({
     setNetWeightText(item.net_weight_g != null ? String(item.net_weight_g) : '');
     setMinQtyText(item.min_quantity != null ? String(item.min_quantity) : '');
     setShowDatePicker(false);
+    setShowMoreDetails(
+      item.energy_kcal_per_100g != null ||
+        item.net_weight_g != null ||
+        item.min_quantity != null,
+    );
   }, [item.id]);
 
   // Barcoded products store their par level on the shared custom_products row
@@ -677,52 +690,70 @@ export function ItemEditSheet({
             onPress={() => setShowCategoryPicker(true)}
           />
 
-          {(draft.category === 'food' || draft.category === 'water') && (
-            <View style={styles.row}>
-              {draft.category === 'food' && (
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.label}>kcal / 100 g</Text>
-                  <TextInput
-                    value={energyText}
-                    onChangeText={setEnergyText}
-                    placeholder="e.g. 350"
-                    placeholderTextColor={colors.textSubtle}
-                    keyboardType="decimal-pad"
-                    style={styles.input}
-                  />
+          <Pressable
+            style={({ pressed }) => [styles.disclosureToggle, pressed && { opacity: 0.6 }]}
+            onPress={() => setShowMoreDetails((v) => !v)}
+          >
+            <Icon
+              sf={showMoreDetails ? 'chevron.down' : 'chevron.right'}
+              size={14}
+              color={colors.textMuted}
+            />
+            <Text style={styles.disclosureToggleText}>
+              {showMoreDetails ? 'Hide details' : 'More details (optional)'}
+            </Text>
+          </Pressable>
+
+          {showMoreDetails && (
+            <>
+              {(draft.category === 'food' || draft.category === 'water') && (
+                <View style={styles.row}>
+                  {draft.category === 'food' && (
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.label}>kcal / 100 g</Text>
+                      <TextInput
+                        value={energyText}
+                        onChangeText={setEnergyText}
+                        placeholder="e.g. 350"
+                        placeholderTextColor={colors.textSubtle}
+                        keyboardType="decimal-pad"
+                        style={styles.input}
+                      />
+                    </View>
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>
+                      {draft.category === 'water' ? 'Content per item (ml)' : 'Content per item (g)'}
+                    </Text>
+                    <TextInput
+                      value={netWeightText}
+                      onChangeText={setNetWeightText}
+                      placeholder={draft.category === 'water' ? 'e.g. 1500' : 'e.g. 500'}
+                      placeholderTextColor={colors.textSubtle}
+                      keyboardType="decimal-pad"
+                      style={styles.input}
+                    />
+                  </View>
                 </View>
               )}
-              <View style={{ flex: 1 }}>
-                <Text style={styles.label}>
-                  {draft.category === 'water' ? 'Content per item (ml)' : 'Content per item (g)'}
-                </Text>
-                <TextInput
-                  value={netWeightText}
-                  onChangeText={setNetWeightText}
-                  placeholder={draft.category === 'water' ? 'e.g. 1500' : 'e.g. 500'}
-                  placeholderTextColor={colors.textSubtle}
-                  keyboardType="decimal-pad"
-                  style={styles.input}
-                />
-              </View>
-            </View>
-          )}
 
-          <Text style={styles.label}>
-            {item.barcode ? 'Minimum to keep (all boxes)' : 'Low-stock alert below'}
-          </Text>
-          <TextInput
-            value={minQtyText}
-            onChangeText={setMinQtyText}
-            placeholder="e.g. 2"
-            placeholderTextColor={colors.textSubtle}
-            keyboardType="decimal-pad"
-            style={styles.input}
-          />
-          {!!item.barcode && (
-            <Text style={styles.minHint}>
-              Applies to the total of this product across every box.
-            </Text>
+              <Text style={styles.label}>
+                {item.barcode ? 'Minimum to keep (all boxes)' : 'Low-stock alert below'}
+              </Text>
+              <TextInput
+                value={minQtyText}
+                onChangeText={setMinQtyText}
+                placeholder="e.g. 2"
+                placeholderTextColor={colors.textSubtle}
+                keyboardType="decimal-pad"
+                style={styles.input}
+              />
+              {!!item.barcode && (
+                <Text style={styles.minHint}>
+                  Applies to the total of this product across every box.
+                </Text>
+              )}
+            </>
           )}
 
           <Pressable
@@ -1030,6 +1061,18 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     marginTop: spacing.xs,
     marginLeft: spacing.xs,
+  },
+  disclosureToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs + 2,
+    paddingVertical: spacing.sm,
+    marginTop: spacing.md,
+  },
+  disclosureToggleText: {
+    ...typography.footnote,
+    color: colors.textMuted,
+    fontWeight: '600',
   },
   expirySegmented: {
     flexDirection: 'row',

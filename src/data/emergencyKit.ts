@@ -52,7 +52,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Non-perishable food',
     group: 'Food',
     category: 'food',
-    keywords: ['food', 'jídlo', 'konzerva', 'canned', 'rice', 'rýže', 'pasta', 'těstovin', 'beans', 'luštěnin'],
+    keywords: ['food', 'jídlo', 'konzerv*', 'canned', 'rice', 'rýže', 'pasta', 'těstovin*', 'beans', 'luštěnin*'],
     rationale: 'Several days of shelf-stable food that needs no cooking.',
   },
   {
@@ -60,7 +60,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Manual can opener',
     group: 'Food',
     category: 'tools_safety',
-    keywords: ['opener', 'otvírák'],
+    keywords: ['opener*', 'otvírák*'],
     rationale: 'Canned food is useless without a way to open it.',
   },
 
@@ -70,7 +70,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'First aid kit',
     group: 'First aid',
     category: 'first_aid',
-    keywords: ['first aid', 'lékárnič', 'obvaz', 'bandage', 'plaster', 'náplast'],
+    keywords: ['first aid', 'lékárnič*', 'obvaz*', 'bandage*', 'plaster*', 'náplast*'],
     rationale: 'Bandages, antiseptic, gauze for treating injuries.',
   },
   {
@@ -78,7 +78,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Prescription medication',
     group: 'First aid',
     category: 'first_aid',
-    keywords: ['medicine', 'lék', 'léky', 'prescription', 'předpis'],
+    keywords: ['medicine*', 'lék*', 'prescription*', 'předpis*'],
     rationale: 'A 7-day supply of any regular medication.',
   },
   {
@@ -86,7 +86,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Pain relievers',
     group: 'First aid',
     category: 'first_aid',
-    keywords: ['ibuprofen', 'paracetamol', 'painkiller', 'aspirin', 'analget', 'bolest'],
+    keywords: ['ibuprofen*', 'paracetamol*', 'painkiller*', 'aspirin*', 'analget*', 'bolest*'],
     rationale: 'Over-the-counter pain and fever relief.',
   },
 
@@ -96,7 +96,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Flashlight',
     group: 'Light & power',
     category: 'light_power',
-    keywords: ['flashlight', 'baterka', 'čelovka', 'headlamp', 'svítilna'],
+    keywords: ['flashlight*', 'baterk*', 'čelovk*', 'headlamp*', 'svítiln*'],
     rationale: 'Hands-free light during a power outage.',
   },
   {
@@ -104,7 +104,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Spare batteries',
     group: 'Light & power',
     category: 'light_power',
-    keywords: ['batter', 'baterie', 'aa', 'aaa'],
+    keywords: ['batter*', 'bateri*', 'aa', 'aaa'],
     rationale: 'Power for flashlights and radio.',
   },
   {
@@ -112,7 +112,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Power bank',
     group: 'Light & power',
     category: 'light_power',
-    keywords: ['power bank', 'powerbank', 'nabíječk', 'charger'],
+    keywords: ['power bank', 'powerbank*', 'nabíječk*', 'charger*'],
     rationale: 'Keep a phone alive when the grid is down.',
   },
   {
@@ -120,7 +120,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Candles & matches',
     group: 'Light & power',
     category: 'light_power',
-    keywords: ['candle', 'svíčk', 'matches', 'zápalk', 'sirky'],
+    keywords: ['candle*', 'svíčk*', 'matches', 'match', 'zápalk*', 'sirk*'],
     rationale: 'Backup light and a way to start a fire.',
   },
   {
@@ -138,7 +138,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Multi-tool or knife',
     group: 'Tools & safety',
     category: 'tools_safety',
-    keywords: ['multitool', 'multi-tool', 'knife', 'nůž', 'tool', 'nářadí'],
+    keywords: ['multitool*', 'multi-tool', 'knife', 'knives', 'nůž', 'nože', 'tool', 'tools', 'nářadí'],
     rationale: 'General-purpose cutting and repair.',
   },
   {
@@ -146,7 +146,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Whistle',
     group: 'Tools & safety',
     category: 'tools_safety',
-    keywords: ['whistle', 'píšťalk'],
+    keywords: ['whistle*', 'píšťalk*'],
     rationale: 'Signal for help without shouting.',
   },
   {
@@ -154,7 +154,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Face masks',
     group: 'Tools & safety',
     category: 'tools_safety',
-    keywords: ['mask', 'maska', 'respirátor', 'respirator', 'ffp', 'rouška'],
+    keywords: ['mask*', 'respirátor*', 'respirator*', 'ffp', 'roušk*'],
     rationale: 'Filter dust, smoke, and airborne contaminants.',
   },
   {
@@ -162,7 +162,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Duct tape',
     group: 'Tools & safety',
     category: 'tools_safety',
-    keywords: ['duct tape', 'tape', 'páska', 'lepicí'],
+    keywords: ['duct tape', 'tape', 'pásk*', 'lepicí'],
     rationale: 'Seal, repair, and improvise.',
   },
   {
@@ -170,7 +170,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Work gloves',
     group: 'Tools & safety',
     category: 'tools_safety',
-    keywords: ['glove', 'rukavic'],
+    keywords: ['glove*', 'rukavic*'],
     rationale: 'Protect hands during cleanup.',
   },
 
@@ -180,7 +180,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Hand sanitizer',
     group: 'Sanitation',
     category: 'sanitation',
-    keywords: ['sanitizer', 'dezinfekc', 'disinfect', 'gel'],
+    keywords: ['sanitizer*', 'dezinfekc*', 'disinfect*'],
     rationale: 'Hygiene when running water is unavailable.',
   },
   {
@@ -188,7 +188,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Soap',
     group: 'Sanitation',
     category: 'sanitation',
-    keywords: ['soap', 'mýdlo'],
+    keywords: ['soap*', 'mýdl*'],
     rationale: 'Basic hygiene to prevent illness.',
   },
   {
@@ -196,7 +196,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Wet wipes',
     group: 'Sanitation',
     category: 'sanitation',
-    keywords: ['wipe', 'ubrousk', 'towelette', 'vlhčen'],
+    keywords: ['wipe*', 'ubrousk*', 'towelette*', 'vlhčen*'],
     rationale: 'Cleaning without water.',
   },
   {
@@ -204,7 +204,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Garbage bags',
     group: 'Sanitation',
     category: 'sanitation',
-    keywords: ['garbage', 'pytel', 'sáček', 'odpad', 'trash bag'],
+    keywords: ['garbage', 'pytel', 'pytl*', 'sáček', 'sáčk*', 'odpad*', 'trash bag'],
     rationale: 'Waste containment and sanitation.',
   },
 
@@ -214,7 +214,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'ID & insurance copies',
     group: 'Documents',
     category: 'documents',
-    keywords: ['id', 'doklad', 'pojištění', 'insurance', 'passport', 'pas', 'občank'],
+    keywords: ['id', 'doklad*', 'pojištění', 'insurance', 'passport*', 'pas', 'občank*'],
     rationale: 'Copies of key documents in a waterproof bag.',
   },
   {
@@ -230,7 +230,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Emergency contacts',
     group: 'Documents',
     category: 'documents',
-    keywords: ['contact', 'kontakt', 'telefon'],
+    keywords: ['contact*', 'kontakt*', 'telefon*'],
     rationale: 'A written list in case your phone dies.',
   },
 ];
