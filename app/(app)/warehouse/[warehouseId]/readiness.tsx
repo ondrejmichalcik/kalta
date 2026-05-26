@@ -24,10 +24,11 @@ import {
   getWarehouseById,
   listAllItemsInWarehouse,
   listHouseholdMembers,
+  listShoppingList,
 } from '@/src/lib/supabase';
 import { computeReadiness, type ReadinessResult } from '@/src/lib/readiness';
 import { computeKitCoverage, type KitCoverageEntry } from '@/src/lib/kitCoverage';
-import type { HouseholdMember, ItemWithBox } from '@/src/types/database';
+import type { HouseholdMember, ItemWithBox, ShoppingListItem } from '@/src/types/database';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
 import { CATEGORY_SF } from '@/src/components/categoryIcons';
@@ -65,6 +66,7 @@ export default function ReadinessScreen() {
   const { warehouseId } = useLocalSearchParams<{ warehouseId: string }>();
   const [items, setItems] = useState<ItemWithBox[]>([]);
   const [members, setMembers] = useState<HouseholdMember[]>([]);
+  const [shoppingList, setShoppingList] = useState<ShoppingListItem[]>([]);
   const [goalDays, setGoalDays] = useState(14);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -72,14 +74,16 @@ export default function ReadinessScreen() {
   const load = useCallback(async () => {
     if (!warehouseId) return;
     try {
-      const [rows, mem, wh, dismissedRaw] = await Promise.all([
+      const [rows, mem, wh, shop, dismissedRaw] = await Promise.all([
         listAllItemsInWarehouse(warehouseId),
         listHouseholdMembers(warehouseId),
         getWarehouseById(warehouseId),
+        listShoppingList(warehouseId).catch(() => [] as ShoppingListItem[]),
         AsyncStorage.getItem(dismissKey(warehouseId)).catch(() => null),
       ]);
       setItems(rows);
       setMembers(mem);
+      setShoppingList(shop);
       setGoalDays(wh?.readiness_goal_days ?? 14);
       if (dismissedRaw) {
         try {
@@ -101,7 +105,10 @@ export default function ReadinessScreen() {
     }, [load]),
   );
 
-  const kit = useMemo(() => computeKitCoverage(items, dismissed), [items, dismissed]);
+  const kit = useMemo(
+    () => computeKitCoverage(items, dismissed, shoppingList),
+    [items, dismissed, shoppingList],
+  );
   const hasWaterFilter = useMemo(
     () => kit.entries.some((e) => e.item.id === 'water-filter' && e.covered),
     [kit],
@@ -125,9 +132,10 @@ export default function ReadinessScreen() {
     persistDismissed(next);
   };
 
+  const goToShopping = () => router.push(`/warehouse/${warehouseId}/shopping` as any);
+
   const handleEntryPress = (entry: KitCoverageEntry) => {
-    const { item, covered, dismissed: isDismissed } = entry;
-    if (covered && !isDismissed) return; // genuinely in stock — nothing to do
+    const { item, state, dismissed: isDismissed } = entry;
     if (isDismissed) {
       Alert.alert(item.label, 'You marked this as covered.', [
         { text: 'Cancel', style: 'cancel' },
@@ -135,7 +143,27 @@ export default function ReadinessScreen() {
       ]);
       return;
     }
-    // Gap (not covered)
+    if (state === 'stocked') return; // genuinely in stock — nothing to do
+    if (state === 'on_list' || state === 'purchased') {
+      // Already tracked — bounce the user to the shopping list to finish the loop.
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: item.label,
+          message:
+            state === 'purchased'
+              ? 'You marked this as purchased. Open Shopping list to restock.'
+              : 'This is on your shopping list.',
+          options: ['Open shopping list', 'I already have this', 'Cancel'],
+          cancelButtonIndex: 2,
+        },
+        (idx) => {
+          if (idx === 0) goToShopping();
+          else if (idx === 1) toggleDismiss(item.id);
+        },
+      );
+      return;
+    }
+    // missing
     ActionSheetIOS.showActionSheetWithOptions(
       {
         title: item.label,
@@ -152,7 +180,9 @@ export default function ReadinessScreen() {
             source: 'gap',
             source_ref: item.id,
           })
-            .then(() => Alert.alert('Added', `"${item.label}" added to your shopping list.`))
+            .then(() => {
+              load(); // refresh so the chip flips to on_list immediately
+            })
             .catch((e: any) => Alert.alert('Error', e?.message ?? 'Cannot add to shopping list.'));
         } else if (idx === 1) {
           toggleDismiss(item.id);
@@ -347,6 +377,47 @@ function CoverageBar({
   );
 }
 
+// Map each kit lifecycle state to the chip visual. Stocked = green, purchased
+// = amber bag, on_list = blue cart, missing = red plus.
+function chipVisualFor(entry: KitCoverageEntry): {
+  bg: string;
+  border: string;
+  fg: string;
+  icon: Parameters<typeof Icon>[0]['sf'];
+} {
+  if (entry.state === 'stocked') {
+    return {
+      bg: colors.successBg,
+      border: colors.successBgStrong,
+      fg: colors.successText,
+      icon: 'checkmark.circle.fill',
+    };
+  }
+  if (entry.state === 'purchased') {
+    return {
+      bg: colors.warningBg,
+      border: colors.warningBgStrong,
+      fg: colors.warningText,
+      icon: 'bag.fill',
+    };
+  }
+  if (entry.state === 'on_list') {
+    return {
+      bg: colors.primaryTint,
+      border: colors.primarySubtle,
+      fg: colors.primary,
+      icon: 'cart.fill',
+    };
+  }
+  // missing
+  return {
+    bg: colors.dangerBg,
+    border: colors.dangerBgStrong,
+    fg: colors.dangerText,
+    icon: 'plus.circle',
+  };
+}
+
 function KitChecklist({
   entries,
   onPress,
@@ -380,32 +451,31 @@ function KitChecklist({
             <Text style={styles.kitGroupLabel}>{g.name}</Text>
           </View>
           <View style={styles.kitRowWrap}>
-            {g.entries.map((e) => (
-              <Pressable
-                key={e.item.id}
-                onPress={() => onPress(e)}
-                style={({ pressed }) => [
-                  styles.kitChip,
-                  e.covered ? styles.kitChipCovered : styles.kitChipGap,
-                  pressed && { opacity: 0.7 },
-                ]}
-              >
-                <Icon
-                  sf={e.covered ? 'checkmark.circle.fill' : 'plus.circle'}
-                  size={14}
-                  color={e.covered ? colors.successText : colors.danger}
-                />
-                <Text
-                  style={[
-                    styles.kitChipText,
-                    { color: e.covered ? colors.successText : colors.dangerText },
-                    e.dismissed && styles.kitChipDismissed,
+            {g.entries.map((e) => {
+              const v = chipVisualFor(e);
+              return (
+                <Pressable
+                  key={e.item.id}
+                  onPress={() => onPress(e)}
+                  style={({ pressed }) => [
+                    styles.kitChip,
+                    { backgroundColor: v.bg, borderColor: v.border },
+                    pressed && { opacity: 0.7 },
                   ]}
                 >
-                  {e.item.label}
-                </Text>
-              </Pressable>
-            ))}
+                  <Icon sf={v.icon} size={14} color={v.fg} />
+                  <Text
+                    style={[
+                      styles.kitChipText,
+                      { color: v.fg },
+                      e.dismissed && styles.kitChipDismissed,
+                    ]}
+                  >
+                    {e.item.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
         </View>
         );

@@ -97,6 +97,18 @@ export function BoxEditSheet({ box, onClose, onSaved }: BoxEditSheetProps) {
             returnKeyType="done"
             onSubmitEditing={handleSave}
           />
+
+          <Pressable
+            style={[styles.savePrimaryBtn, saving && { opacity: 0.7 }]}
+            onPress={handleSave}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator color={colors.textOnPrimary} />
+            ) : (
+              <Text style={styles.savePrimaryBtnText}>Save changes</Text>
+            )}
+          </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -141,5 +153,17 @@ const styles = StyleSheet.create({
     color: colors.text,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  savePrimaryBtn: {
+    marginTop: spacing.xl,
+    paddingVertical: spacing.lg,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+  },
+  savePrimaryBtnText: {
+    ...typography.bodyStrong,
+    color: colors.textOnPrimary,
   },
 });

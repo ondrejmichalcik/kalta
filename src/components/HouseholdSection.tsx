@@ -354,6 +354,20 @@ function MemberSheet({
               placeholder="3"
               placeholderTextColor={colors.textSubtle}
             />
+
+            <Pressable
+              style={[styles.savePrimaryBtn, saving && { opacity: 0.7 }]}
+              onPress={handleSave}
+              disabled={saving}
+            >
+              {saving ? (
+                <ActivityIndicator color={colors.textOnPrimary} />
+              ) : (
+                <Text style={styles.savePrimaryBtnText}>
+                  {target === 'new' ? 'Add person' : 'Save changes'}
+                </Text>
+              )}
+            </Pressable>
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -455,5 +469,17 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  savePrimaryBtn: {
+    marginTop: spacing.xl,
+    paddingVertical: spacing.lg,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+  },
+  savePrimaryBtnText: {
+    ...typography.bodyStrong,
+    color: colors.textOnPrimary,
   },
 });

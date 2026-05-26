@@ -29,7 +29,7 @@ import { Icon } from '@/src/components/Icon';
 import { ResourceIcon } from '@/src/components/ResourceIcon';
 import { ListHeader } from '@/src/components/ListHeader';
 import { StatusDot } from '@/src/components/StatusDot';
-import { ReadinessCard } from '@/src/components/ReadinessCard';
+import { WarehouseAlertsBell } from '@/src/components/WarehouseAlertsBell';
 import {
   ActiveFilterChips,
   FilterSheet,
@@ -118,15 +118,6 @@ export default function BoxesScreen() {
     return result;
   }, [sortedBoxes, searchQuery, statusFilter]);
 
-  const criticalCount = useMemo(
-    () =>
-      boxes.filter((b) => {
-        const s = getExpiryStatus(b.nearest_expiry);
-        return s === 'critical' || s === 'expired';
-      }).length,
-    [boxes],
-  );
-
   const toggleSearch = () => {
     if (searchVisible) {
       setSearchQuery('');
@@ -204,6 +195,7 @@ export default function BoxesScreen() {
             active: activeFilterCount > 0,
           },
         ]}
+        trailing={<WarehouseAlertsBell warehouseId={warehouseId} />}
       />
 
       {/* Search bar */}
@@ -237,17 +229,6 @@ export default function BoxesScreen() {
         onClearCondition={() => {}}
         onClearCategory={() => {}}
       />
-
-      {!searchVisible && <ReadinessCard warehouseId={warehouseId} />}
-
-      {criticalCount > 0 && statusFilter === 'all' && !searchVisible && (
-        <View style={styles.alertBanner}>
-          <Icon sf="exclamationmark.triangle.fill" size={18} color={colors.danger} />
-          <Text style={styles.alertText}>
-            {criticalCount} {criticalCount === 1 ? 'box has' : 'boxes have'} critical expiry
-          </Text>
-        </View>
-      )}
 
       <FlatList
         data={filteredBoxes}
@@ -397,26 +378,6 @@ const styles = StyleSheet.create({
   retryText: {
     ...typography.bodyStrong,
     color: colors.textOnPrimary,
-  },
-
-  alertBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    backgroundColor: colors.dangerBg,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.dangerBgStrong,
-  },
-  alertText: {
-    ...typography.footnote,
-    color: colors.dangerText,
-    fontWeight: '600',
-    flex: 1,
   },
 
   listContent: {

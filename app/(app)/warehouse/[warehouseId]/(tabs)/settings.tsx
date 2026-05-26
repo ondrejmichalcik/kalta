@@ -42,6 +42,7 @@ import { colors, radius, spacing, typography } from '@/src/theme';
 import { Card } from '@/src/components/Card';
 import { Icon } from '@/src/components/Icon';
 import { ListHeader } from '@/src/components/ListHeader';
+import { WarehouseAlertsBell } from '@/src/components/WarehouseAlertsBell';
 import { HouseholdSection } from '@/src/components/HouseholdSection';
 
 const TAB_BAR_HEIGHT = 84;
@@ -381,6 +382,9 @@ export default function WarehouseSettingsScreen() {
               ]
             : undefined
         }
+        trailing={
+          <WarehouseAlertsBell warehouseId={warehouseId} actionsAfterBell={isOwner ? 2 : 0} />
+        }
       />
 
       <FlatList
@@ -390,6 +394,23 @@ export default function WarehouseSettingsScreen() {
         ListHeaderComponent={<Text style={styles.sectionHeader}>MEMBERS</Text>}
         ListFooterComponent={
           <View style={styles.dangerZone}>
+            <Text style={styles.sectionHeader}>READINESS</Text>
+            <Pressable
+              style={({ pressed }) => [styles.dataBtn, pressed && { opacity: 0.7 }]}
+              onPress={() => {
+                if (warehouseId) router.push(`/warehouse/${warehouseId}/readiness` as any);
+              }}
+            >
+              <Icon sf="shield.lefthalf.filled" size={18} color={colors.primary} />
+              <View style={styles.dataBtnBody}>
+                <Text style={styles.dataBtnTitle}>Readiness dashboard</Text>
+                <Text style={styles.dataBtnHint}>
+                  Coverage, kit checklist, daily needs
+                </Text>
+              </View>
+              <Icon sf="chevron.right" size={14} color={colors.textSubtle} />
+            </Pressable>
+
             {warehouseId ? <HouseholdSection warehouseId={warehouseId} /> : null}
 
             <Text style={styles.sectionHeader}>DATA</Text>

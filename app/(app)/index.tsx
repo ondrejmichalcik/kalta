@@ -31,6 +31,7 @@ import { Card } from '@/src/components/Card';
 import { FAB } from '@/src/components/FAB';
 import { Icon } from '@/src/components/Icon';
 import { ResourceIcon } from '@/src/components/ResourceIcon';
+import { GlobalAlertsBell } from '@/src/components/GlobalAlertsBell';
 
 export default function WarehousesListScreen() {
   const router = useRouter();
@@ -41,9 +42,6 @@ export default function WarehousesListScreen() {
   // Urgency buckets across all warehouses — drives the attention banner
   // and keeps the app icon badge in sync with live SQLite state every time
   // this screen focuses.
-  const [urgent1d, setUrgent1d] = useState(0);
-  const [urgent30d, setUrgent30d] = useState(0);
-  const [urgent60d, setUrgent60d] = useState(0);
 
   const load = useCallback(async () => {
     const uid = await getActiveUserId();
@@ -52,11 +50,9 @@ export default function WarehousesListScreen() {
     const list = await getMyWarehouses(uid);
     setWarehouses(list);
 
-    // Count items in ≤1 / ≤30 / ≤60 day urgency buckets across all warehouses
-    // (local read, cheap). Update the app badge to match ≤60d count so the
-    // home screen dot and the in-app banner agree.
-    let c1 = 0;
-    let c30 = 0;
+    // App icon badge mirrors the ≤60d count across all warehouses. The
+    // header bell loads the same data on its own — we just need the total
+    // here to keep the iOS home-screen badge accurate.
     let c60 = 0;
     for (const wh of list) {
       try {
@@ -65,17 +61,11 @@ export default function WarehousesListScreen() {
           if (!it.expiry_date || typeof it.expiry_date !== 'string') continue;
           try {
             const d = daysUntil(it.expiry_date);
-            if (!Number.isFinite(d)) continue;
-            if (d <= 1) c1++;
-            if (d <= 30) c30++;
-            if (d <= 60) c60++;
+            if (Number.isFinite(d) && d <= 60) c60++;
           } catch { /* malformed date — skip */ }
         }
       } catch { /* offline / db-not-ready — skip this warehouse */ }
     }
-    setUrgent1d(c1);
-    setUrgent30d(c30);
-    setUrgent60d(c60);
     setAppBadge(c60).catch(() => {});
   }, []);
 
@@ -123,9 +113,10 @@ export default function WarehousesListScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header: large title + profile icon */}
+      {/* Header: large title + alerts bell + profile icon */}
       <View style={styles.header}>
         <Text style={styles.title}>Warehouses</Text>
+        <GlobalAlertsBell actionsAfterBell={1} />
         <Pressable
           hitSlop={12}
           onPress={openProfile}
@@ -156,45 +147,6 @@ export default function WarehousesListScreen() {
         </View>
       ) : (
         <>
-          {/* Attention banner — shows when the app icon badge is non-zero so
-              the user can actually reach the items the badge is about.
-              Picks the most urgent tier present: ≤1d red → ≤30d yellow → ≤60d info.
-              Badge on app icon mirrors the ≤60d count. */}
-          {urgent1d > 0 ? (
-            <Pressable
-              style={({ pressed }) => [styles.bannerUrgent, pressed && { opacity: 0.8 }]}
-              onPress={() => router.push('/alerts/1' as any)}
-            >
-              <Icon sf="exclamationmark.triangle.fill" size={18} color={colors.dangerText} />
-              <Text style={styles.bannerUrgentText}>
-                {urgent1d} {urgent1d === 1 ? 'item expires within a day' : 'items expire within a day'}
-              </Text>
-              <Icon sf="chevron.right" size={14} color={colors.dangerText} />
-            </Pressable>
-          ) : urgent30d > 0 ? (
-            <Pressable
-              style={({ pressed }) => [styles.bannerWarn, pressed && { opacity: 0.8 }]}
-              onPress={() => router.push('/alerts/30' as any)}
-            >
-              <Icon sf="bell.fill" size={16} color={colors.warningText} />
-              <Text style={styles.bannerWarnText}>
-                {urgent30d} {urgent30d === 1 ? 'item' : 'items'} expiring within 30 days
-              </Text>
-              <Icon sf="chevron.right" size={14} color={colors.warningText} />
-            </Pressable>
-          ) : urgent60d > 0 ? (
-            <Pressable
-              style={({ pressed }) => [styles.bannerInfo, pressed && { opacity: 0.8 }]}
-              onPress={() => router.push('/alerts/60' as any)}
-            >
-              <Icon sf="clock" size={16} color={colors.primary} />
-              <Text style={styles.bannerInfoText}>
-                {urgent60d} {urgent60d === 1 ? 'item' : 'items'} expiring within 60 days
-              </Text>
-              <Icon sf="chevron.right" size={14} color={colors.primary} />
-            </Pressable>
-          ) : null}
-
           <FlatList
             data={warehouses}
             keyExtractor={(w) => w.id}
@@ -297,63 +249,6 @@ const styles = StyleSheet.create({
   },
 
   // Attention banners
-  bannerUrgent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    backgroundColor: colors.dangerBg,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.dangerBgStrong,
-  },
-  bannerUrgentText: {
-    ...typography.footnote,
-    color: colors.dangerText,
-    fontWeight: '600',
-    flex: 1,
-  },
-  bannerWarn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    backgroundColor: colors.warningBg,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.warningBgStrong,
-  },
-  bannerWarnText: {
-    ...typography.footnote,
-    color: colors.warningText,
-    fontWeight: '600',
-    flex: 1,
-  },
-  bannerInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    backgroundColor: colors.primaryTint,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.primaryTint,
-  },
-  bannerInfoText: {
-    ...typography.footnote,
-    color: colors.primary,
-    fontWeight: '600',
-    flex: 1,
-  },
   card: {
     paddingHorizontal: spacing.md + 2,
     paddingVertical: spacing.md + 2,

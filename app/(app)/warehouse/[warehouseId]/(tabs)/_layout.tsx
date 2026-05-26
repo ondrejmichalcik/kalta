@@ -1,8 +1,10 @@
 // ============================================================================
 // Kalta – (tabs) layout
-// 4-tab root for the main app: Boxes / Items / Scan / Settings.
-// Outer stack screens (box/[id], box/new, box/[id]/add-items) are pushed
-// over these tabs from the parent (app)/_layout Stack.
+// 5-tab root for the main app: Boxes / Items / Scan / Shopping / Settings.
+// Shopping list is a permanent tab so the user can reach it without going
+// through the notifications bell (the bell only surfaces when there are
+// active alerts). Outer stack screens (box/[id], box/new, readiness, ...)
+// are pushed over these tabs from the parent (app)/_layout Stack.
 // ============================================================================
 import { Tabs } from 'expo-router';
 import { Icon } from '@/src/components/Icon';
@@ -45,6 +47,15 @@ export default function TabsLayout() {
           title: 'Scan',
           tabBarIcon: ({ color, size }) => (
             <Icon sf="qrcode.viewfinder" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="shopping"
+        options={{
+          title: 'Shopping',
+          tabBarIcon: ({ color, size }) => (
+            <Icon sf="cart.fill" size={size} color={color} />
           ),
         }}
       />

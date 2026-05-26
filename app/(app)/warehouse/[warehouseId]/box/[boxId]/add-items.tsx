@@ -46,12 +46,14 @@ import { lookupByBarcode } from '@/src/lib/openFoodFacts';
 import {
   CATEGORIES,
   EXPIRY_COLORS,
+  NEVER_EXPIRES_DATE,
   UNITS,
   formatDate,
   formatExpiry,
   formatItemQuantity,
   fromIsoDate,
   getExpiryStatus,
+  isNeverExpires,
   toIsoDate,
 } from '@/src/types/database';
 import type { Category, Unit } from '@/src/types/database';
@@ -530,8 +532,10 @@ export default function AddItemsScreen() {
       Alert.alert('Quantity required', 'Enter a positive quantity.');
       return;
     }
+    // expiry_date may be either a YYYY-MM-DD picked from the calendar or the
+    // sentinel NEVER_EXPIRES_DATE when the user toggled "Never expires".
     if (!expiry_date || !/^\d{4}-\d{2}-\d{2}$/.test(expiry_date)) {
-      Alert.alert('Expiry date required', 'Pick a date from the calendar.');
+      Alert.alert('Expiry required', 'Pick a date or choose "Never expires".');
       return;
     }
 
@@ -696,6 +700,18 @@ export default function AddItemsScreen() {
           <View style={styles.topBarBtn} />
         </View>
 
+        {/* Shopping-list restock context: signals why the screen was opened,
+            and that the linked shopping row will clear once an item is saved. */}
+        {shoppingItemIdRef.current && prefillName && (
+          <View style={styles.restockBanner}>
+            <Icon sf="bag.fill" size={14} color={colors.success} />
+            <Text style={styles.restockBannerText} numberOfLines={1}>
+              Restocking: {prefillName}
+            </Text>
+            <Text style={styles.restockBannerHint}>row clears on first save</Text>
+          </View>
+        )}
+
       {mode === 'scan' && (
         <>
           <View style={styles.cameraWrap}>
@@ -849,26 +865,71 @@ export default function AddItemsScreen() {
               </>
             )}
 
-            <Text style={styles.label}>Expiry date</Text>
-            <Pressable
-              style={[styles.input, styles.dateField]}
-              onPress={() => setShowDatePicker((s) => !s)}
-            >
-              <Text style={[styles.dateText, !draft.expiry_date && styles.datePlaceholder]}>
-                {draft.expiry_date ? formatDate(draft.expiry_date) : 'Pick a date'}
-              </Text>
-              <Icon
-                sf={showDatePicker ? 'chevron.up' : 'chevron.down'}
-                size={14}
-                color={colors.textMuted}
-              />
-            </Pressable>
-            {shelfLifeDaysHint != null && !draft.expiry_date && (
+            <Text style={styles.label}>Expiry</Text>
+            <View style={styles.expirySegmented}>
+              <Pressable
+                style={[
+                  styles.expirySegment,
+                  !isNeverExpires(draft.expiry_date) && styles.expirySegmentActive,
+                ]}
+                onPress={() => {
+                  if (isNeverExpires(draft.expiry_date)) {
+                    setDraft({ ...draft, expiry_date: '' });
+                    setShowDatePicker(false);
+                  }
+                }}
+              >
+                <Text
+                  style={[
+                    styles.expirySegmentText,
+                    !isNeverExpires(draft.expiry_date) && styles.expirySegmentTextActive,
+                  ]}
+                >
+                  Has expiry
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.expirySegment,
+                  isNeverExpires(draft.expiry_date) && styles.expirySegmentActive,
+                ]}
+                onPress={() => {
+                  setDraft({ ...draft, expiry_date: NEVER_EXPIRES_DATE });
+                  setShowDatePicker(false);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.expirySegmentText,
+                    isNeverExpires(draft.expiry_date) && styles.expirySegmentTextActive,
+                  ]}
+                >
+                  Never expires
+                </Text>
+              </Pressable>
+            </View>
+
+            {!isNeverExpires(draft.expiry_date) && (
+              <Pressable
+                style={[styles.input, styles.dateField]}
+                onPress={() => setShowDatePicker((s) => !s)}
+              >
+                <Text style={[styles.dateText, !draft.expiry_date && styles.datePlaceholder]}>
+                  {draft.expiry_date ? formatDate(draft.expiry_date) : 'Pick a date'}
+                </Text>
+                <Icon
+                  sf={showDatePicker ? 'chevron.up' : 'chevron.down'}
+                  size={14}
+                  color={colors.textMuted}
+                />
+              </Pressable>
+            )}
+            {!isNeverExpires(draft.expiry_date) && shelfLifeDaysHint != null && !draft.expiry_date && (
               <Text style={styles.shelfLifeHint}>
                 Typical shelf life: ~{formatShelfLife(shelfLifeDaysHint)} — check the label.
               </Text>
             )}
-            {showDatePicker && (
+            {!isNeverExpires(draft.expiry_date) && showDatePicker && (
               <View style={styles.datePickerWrap}>
                 <DateTimePicker
                   value={fromIsoDate(draft.expiry_date ?? '') ?? new Date()}
@@ -1299,6 +1360,43 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginTop: spacing.xs,
     marginLeft: spacing.xs,
+  },
+  restockBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.successBg,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.successBgStrong,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xs + 2,
+  },
+  restockBannerText: { ...typography.footnote, color: colors.successText, fontWeight: '700', flex: 1 },
+  restockBannerHint: { ...typography.caption, color: colors.successText, opacity: 0.7 },
+  expirySegmented: {
+    flexDirection: 'row',
+    backgroundColor: colors.palette.neutral[100],
+    borderRadius: radius.md,
+    padding: 3,
+    marginBottom: spacing.sm,
+  },
+  expirySegment: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: spacing.sm + 1,
+    borderRadius: radius.md - 3,
+  },
+  expirySegmentActive: {
+    backgroundColor: colors.surface,
+    ...shadows.sm,
+  },
+  expirySegmentText: {
+    ...typography.footnote,
+    color: colors.textMuted,
+    fontWeight: '600',
+  },
+  expirySegmentTextActive: {
+    color: colors.text,
   },
   label: {
     ...typography.label,

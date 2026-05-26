@@ -26,9 +26,13 @@ export interface ListHeaderProps {
   /** Optional leading element — usually a back button on stack screens. */
   leading?: ReactNode;
   actions?: ListHeaderAction[];
+  /** Custom element rendered to the left of the SF-icon actions. Use for
+   *  things the standard ListHeaderAction can't express (e.g. a bell with a
+   *  colored dot overlay). */
+  trailing?: ReactNode;
 }
 
-export function ListHeader({ title, subtitle, leading, actions }: ListHeaderProps) {
+export function ListHeader({ title, subtitle, leading, actions, trailing }: ListHeaderProps) {
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
@@ -43,9 +47,10 @@ export function ListHeader({ title, subtitle, leading, actions }: ListHeaderProp
             </Text>
           ) : null}
         </View>
-        {actions && actions.length > 0 ? (
+        {trailing || (actions && actions.length > 0) ? (
           <View style={styles.actions}>
-            {actions.map((a, i) => (
+            {trailing}
+            {actions?.map((a, i) => (
               <Pressable
                 key={i}
                 hitSlop={12}

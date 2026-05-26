@@ -24,9 +24,11 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { getCachedUri } from '@/src/lib/imageCache';
 import {
+  addShoppingItem,
   deleteItem,
   findCustomProduct,
   getActiveUserId,
+  listShoppingList,
   markItemCondition,
   moveItemQuantity,
   openOneItem,
@@ -42,6 +44,7 @@ import {
   UNITS,
   formatDate,
   fromIsoDate,
+  getExpiryStatus,
   isNeverExpires,
   toIsoDate,
 } from '@/src/types/database';
@@ -395,6 +398,43 @@ export function ItemEditSheet({
     ]);
   };
 
+  // Add a row to the warehouse shopping list referencing this item, so the
+  // user can put it on the list directly from the edit sheet (without having
+  // to open Shopping → Refresh suggestions). Dedupes by case-insensitive
+  // label against existing rows so re-tapping doesn't pile up duplicates.
+  const handleAddToShopping = async () => {
+    const label = draft.name.trim() || item.name;
+    if (!label) return;
+    try {
+      const existing = await listShoppingList(warehouseId).catch(() => []);
+      const dupe = existing.find(
+        (r) => r.label.trim().toLowerCase() === label.toLowerCase() && !r.checked,
+      );
+      if (dupe) {
+        Alert.alert(
+          'Already on list',
+          `"${label}" is already on your shopping list as ${dupe.source.replace('_', ' ')}.`,
+        );
+        return;
+      }
+      // Source classification: expired wins (clear signal); otherwise treat as
+      // a manual add. Low-stock isn't determined from the sheet because the
+      // aggregate-across-boxes math lives on the warehouse-level scan.
+      const source = getExpiryStatus(item.expiry_date) === 'expired' ? 'expired' : 'manual';
+      await addShoppingItem({
+        warehouse_id: warehouseId,
+        label,
+        category: draft.category,
+        source,
+        source_ref: item.barcode ?? item.id,
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      Alert.alert('Added to shopping list', `"${label}" was added.`);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Cannot add to shopping list.');
+    }
+  };
+
   const handleSave = async () => {
     const name = draft.name.trim();
     if (!name) {
@@ -685,6 +725,18 @@ export function ItemEditSheet({
             </Text>
           )}
 
+          <Pressable
+            style={[styles.savePrimaryBtn, saving && { opacity: 0.7 }]}
+            onPress={handleSave}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator color={colors.textOnPrimary} />
+            ) : (
+              <Text style={styles.savePrimaryBtnText}>Save changes</Text>
+            )}
+          </Pressable>
+
           {canMarkCondition && (
             <Pressable
               style={[styles.openBtn, saving && { opacity: 0.5 }]}
@@ -699,6 +751,17 @@ export function ItemEditSheet({
               </View>
             </Pressable>
           )}
+
+          <Pressable
+            style={[styles.shoppingBtn, saving && { opacity: 0.5 }]}
+            onPress={handleAddToShopping}
+            disabled={saving}
+          >
+            <View style={styles.shoppingBtnContent}>
+              <Icon sf="cart.badge.plus" size={18} color={colors.primary} />
+              <Text style={styles.shoppingBtnText}>Add to shopping list</Text>
+            </View>
+          </Pressable>
 
           <Pressable
             style={[styles.moveBtn, saving && { opacity: 0.5 }]}
@@ -1050,6 +1113,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   chipTextActive: { color: colors.textOnPrimary },
+  savePrimaryBtn: {
+    marginTop: spacing.xl,
+    paddingVertical: spacing.lg,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+  },
+  savePrimaryBtnText: {
+    ...typography.bodyStrong,
+    color: colors.textOnPrimary,
+  },
   openBtn: {
     marginTop: spacing.xl,
     paddingVertical: spacing.md + 2,
@@ -1122,7 +1197,7 @@ const styles = StyleSheet.create({
   condConfirmText: { ...typography.bodyStrong, color: colors.textOnPrimary },
 
   moveBtn: {
-    marginTop: spacing.lg,
+    marginTop: spacing.sm,
     paddingVertical: spacing.md + 2,
     borderRadius: radius.md,
     backgroundColor: colors.primaryTint,
@@ -1136,6 +1211,25 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   moveBtnText: {
+    ...typography.subhead,
+    color: colors.primary,
+    fontWeight: '700',
+  },
+  shoppingBtn: {
+    marginTop: spacing.lg,
+    paddingVertical: spacing.md + 2,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.primarySubtle,
+    alignItems: 'center',
+  },
+  shoppingBtnContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  shoppingBtnText: {
     ...typography.subhead,
     color: colors.primary,
     fontWeight: '700',

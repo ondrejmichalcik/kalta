@@ -48,7 +48,15 @@ function formatDays(days: number): string {
   return `${d} ${d === 1 ? 'day' : 'days'}`;
 }
 
-export function ReadinessCard({ warehouseId }: { warehouseId: string }) {
+export function ReadinessCard({
+  warehouseId,
+  onPress,
+}: {
+  warehouseId: string;
+  /** Override the default tap-to-readiness navigation (used by callers that
+   *  embed the card inside a modal and need to close it first). */
+  onPress?: () => void;
+}) {
   const router = useRouter();
   const [result, setResult] = useState<ReadinessResult | null>(null);
   const [goalDays, setGoalDays] = useState(14);
@@ -80,7 +88,8 @@ export function ReadinessCard({ warehouseId }: { warehouseId: string }) {
   // Nothing to show until first load completes.
   if (!loaded || !result) return null;
 
-  const goTo = () => router.push(`/warehouse/${warehouseId}/readiness` as any);
+  const goTo =
+    onPress ?? (() => router.push(`/warehouse/${warehouseId}/readiness` as any));
 
   // No household configured → prompt to set one up.
   if (result.weakestLink == null) {

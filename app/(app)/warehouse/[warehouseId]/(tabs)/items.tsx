@@ -36,6 +36,7 @@ import { Card } from '@/src/components/Card';
 import { Icon } from '@/src/components/Icon';
 import { ResourceIcon } from '@/src/components/ResourceIcon';
 import { ListHeader } from '@/src/components/ListHeader';
+import { WarehouseAlertsBell } from '@/src/components/WarehouseAlertsBell';
 import { StatusDot } from '@/src/components/StatusDot';
 import { ItemEditSheet } from '@/src/components/ItemEditSheet';
 import {
@@ -252,6 +253,7 @@ export default function ItemsScreen() {
             active: activeFilterCount > 0,
           },
         ]}
+        trailing={<WarehouseAlertsBell warehouseId={warehouseId} actionsAfterBell={3} />}
       />
 
       {/* Search bar */}
