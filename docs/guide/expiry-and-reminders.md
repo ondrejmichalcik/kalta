@@ -68,6 +68,23 @@ The first time you enable notifications, Kalta schedules reminders for all exist
 
 Tap a notification → the app opens directly to the **box containing the expiring item**. No hunting through warehouses.
 
+## The notifications bell
+
+Inside the app, the header on every list screen carries a **bell icon** that consolidates open issues into one tap. The bell appears with a colored dot only when there's something worth your attention; the colour matches the worst signal:
+
+- **Red** — readiness is critical (less than 25% of your goal), or items expire within a day
+- **Amber** — readiness is below goal, items expire within 30 days, or there are purchases waiting to be restocked
+- **Sage** — items expire within 60 days, or you have a shopping list with items to buy
+
+Tap the bell and a panel slides out of the icon containing the matching cards (Readiness, Expiry tier, Shopping). Each card is tappable and takes you straight to the relevant screen.
+
+Two flavours of bell:
+
+- **Per-warehouse** (Boxes / Items / Settings / Shopping tabs of a warehouse) — alerts scoped to that warehouse
+- **Global** (Warehouses root screen) — cross-warehouse expiry summary
+
+The bell is intentionally **alert-only** — when nothing's wrong, it's not in the header. The Shopping list and Readiness dashboard have their own permanent entry points (Shopping is a tab, Readiness lives in Settings) so the bell never has to double as navigation.
+
 ## Badge count
 
 When **notifications** are enabled, Kalta's app icon shows a **red badge with the count of expired items** across all your warehouses. Items in the "critical" state (0–30 days) are *not* counted by default — only items that are already past their expiry date.
@@ -94,5 +111,7 @@ If notifications aren't showing up:
 
 ## What's next
 
+- See how the bell's signals are computed in [Readiness dashboard](/docs/readiness).
+- Use [Shopping list & restock](/docs/shopping-and-restock) to close the loop when something's low.
 - If you want a family member to help you keep track, read [Sharing & P2P sync](/docs/collaboration).
 - For printing the QR labels you've generated, see [Printing QR labels](/docs/printing).

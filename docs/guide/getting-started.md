@@ -74,6 +74,8 @@ After a successful scan, Kalta fills in the product fields. All you need to add 
 - **Expiration date** — check the packaging. Tap the date field to pick.
 - **Notes** (optional) — anything useful, like "rotated from pantry 2026-04".
 
+Tap **More details** if you want to verify or set the calories per 100g, content per item, or a low-stock threshold. For products scanned from the database these are usually pre-filled — they feed the [Readiness dashboard](/docs/readiness) so you can see how many days of supply you actually have.
+
 Tap **Save**. The item appears in the box.
 
 ## 5. That's it — you have a working inventory
@@ -83,6 +85,7 @@ From here:
 - **Scan more items** to fill the box.
 - **Create more boxes** for other categories.
 - **Check the main dashboard** — boxes and items are sorted by expiry urgency. The most critical stuff is at the top.
+- **Set up your household** in Settings → READINESS → Household. Once Kalta knows how many people you feed and their daily calorie / water needs, the [Readiness dashboard](/docs/readiness) tells you how many days of supply you actually have.
 - **Enable notifications** in Settings to get reminders before items expire.
 
 For the full picture of what else Kalta can do, read through the rest of the docs.
@@ -90,5 +93,7 @@ For the full picture of what else Kalta can do, read through the rest of the doc
 ## What's next
 
 Most people's next step is understanding how warehouses, boxes, and items fit together — including when to create multiple warehouses and how to share them with your family. That's covered in [Warehouses, boxes & items](/docs/organizing).
+
+If you'd rather see your inventory turn into something actionable — *"how many days am I covered for?"* — jump to [Readiness dashboard](/docs/readiness) and its companion [Shopping list & restock](/docs/shopping-and-restock).
 
 If you want to set up the AI feature that identifies unknown products from photos, jump straight to [Scanning and AI](/docs/scanning-and-ai).

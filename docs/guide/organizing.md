@@ -61,12 +61,19 @@ Within a box, items are sorted the same way.
 An item represents one product in one box. It has the following fields:
 
 - **Name** — required. Usually filled in by barcode scan.
-- **Quantity** — how many units of this exact product are in the box.
+- **Quantity** — how many units of this exact product are in the box. Always a whole number; the unit picker chooses between **pcs** (loose pieces or single packages) and **pack** (a package that itself contains multiple smaller pieces — tablets in a blister, sachets in a box, cans in a multipack).
+- **Pcs inside one package** — only when Unit is `pack`. The count of inner pieces, used for display ("Ibuprofen pack of 24").
 - **Barcode** — filled in automatically when you scan, optional if added manually.
-- **Category** — e.g., "Canned food", "Medical", "Battery". Used for filtering later.
-- **Expiration date** — optional but recommended for anything perishable.
+- **Category** — one of: Water, Food, First aid, Light & power, Tools & safety, Sanitation, Documents, Other. The picker is a modal sheet with icons; categories match the emergency kit checklist on the readiness dashboard.
+- **Expiration date** — optional but recommended for anything perishable. Pick "Never expires" for things like batteries or tools.
 - **Notes** — free-text for anything useful ("rotated from main pantry 2026-03", "opened on ...").
 - **Photo** — optional. Attach a product photo or a receipt.
+
+Behind a **More details** expander (auto-opened when the item already has any of these set):
+
+- **Calories per 100 g** — food only. Drives the readiness math.
+- **Content per item** — grams for food, ml for water. Multiplied by quantity to give total content; the [readiness dashboard](/docs/readiness) uses this to compute days of supply.
+- **Low-stock alert below** — when total drops below this number, the item shows up as a "Low stock" suggestion on the shopping list.
 
 <div class="screenshot">[Screenshot: Item edit sheet with all fields visible]</div>
 
@@ -99,7 +106,14 @@ Custom products are tied to your account and shared across warehouses.
 
 There's no trash can — be intentional about deletion. If you think you might want something back, archive it (mark it as deleted) rather than waiting for the background purge.
 
+## How items roll up to readiness
+
+Each warehouse has a [Readiness dashboard](/docs/readiness) that **aggregates non-expired items across every box** into food/water days for your household. You don't tag boxes as "supplies" vs not — Kalta computes coverage from the `Food` and `Water` categories on items, no matter which box they're in. Move things between boxes, delete things, mark things expired — the dashboard reflects the new totals immediately.
+
+Same for the [Shopping list](/docs/shopping-and-restock): low-stock alerts and emergency-kit gaps are evaluated across the whole warehouse, not per box.
+
 ## What's next
 
 - If you haven't started scanning yet, read [Scanning and AI](/docs/scanning-and-ai).
 - If you plan to share your warehouse with a family member, jump to [Sharing & P2P sync](/docs/collaboration).
+- To turn this inventory structure into actionable "days of supply" numbers, set up the [Readiness dashboard](/docs/readiness).

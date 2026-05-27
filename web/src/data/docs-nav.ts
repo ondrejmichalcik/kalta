@@ -25,6 +25,13 @@ export const docsNav: DocsNavSection[] = [
     ],
   },
   {
+    title: 'Readiness loop',
+    items: [
+      { href: '/docs/readiness', title: 'Readiness dashboard' },
+      { href: '/docs/shopping-and-restock', title: 'Shopping list & restock' },
+    ],
+  },
+  {
     title: 'Working with others',
     items: [
       { href: '/docs/collaboration', title: 'Sharing & P2P sync' },

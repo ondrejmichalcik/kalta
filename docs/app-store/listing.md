@@ -35,10 +35,10 @@ Alternative options to pick from:
 Shown above the description, editable anytime without a new app review. Use for announcements.
 
 ```
-Scan, label, and track every emergency supply in one place. Get reminders before items expire. Share a warehouse with your family.
+Scan, label, and track every emergency supply. See how many days of food and water your household actually has. Auto-fills a shopping list when stock runs low.
 ```
 
-(132 chars)
+(160 chars)
 
 ---
 
@@ -47,17 +47,21 @@ Scan, label, and track every emergency supply in one place. Get reminders before
 ```
 Kalta is a simple, private home inventory app for tracking emergency supplies in real boxes in your home.
 
-Create a warehouse. Print QR labels for your boxes. Scan barcodes to fill in product info automatically. Add expiration dates. Kalta sorts everything by urgency and reminds you before items expire.
+Create a warehouse. Print QR labels for your boxes. Scan barcodes to fill in product info automatically. Add expiration dates. Kalta sorts everything by urgency, reminds you before items expire, and tells you how many days of food and water your household actually has.
 
 Built for people who actually rotate their stock.
 
 KEY FEATURES
 
 • Boxes with QR labels — Stick a QR label on each physical box. Scan it to jump straight to its contents.
-• Barcode scanning — Fills in product name and category from the Open Food Facts database. Custom entries for anything not in the database.
-• Expiration tracking — 4-level color coding (expired, soon, OK, good). Items and boxes are sorted by urgency on the main screen.
+• Barcode scanning — Fills in product name, category, calories, and weight from the Open Food Facts database. Custom entries for anything not in the database.
+• Expiration tracking — Color coding by urgency (expired, critical, soon, OK). Items and boxes are sorted by urgency on the main screen.
 • Local reminders — Configurable notifications 30 days, 7 days, 1 day before, and on the expiry day. No servers involved — notifications are scheduled on your device.
-• Share with family — Invite your partner or family members to a warehouse. Everyone sees updates in real time.
+• Readiness dashboard — Tell Kalta who you're feeding (kcal and water per person, per day). Kalta computes how many days of food and water your inventory actually covers, against the goal you set.
+• Emergency kit checklist — A curated FEMA-style 24-item kit (water, food, first aid, light & power, tools, sanitation, documents). Tracks lifecycle from missing → on shopping list → purchased → stocked.
+• Shopping list with restock — Add items manually or let Kalta auto-suggest from what's expired, low on stock, or missing from your emergency kit. Check items off in the store; restock them into a box in two taps.
+• Notifications bell — One in-app alerts surface in every screen header. Lights up only when readiness is below goal, items are expiring, or purchases are waiting to be restocked.
+• Share with family — Invite your partner or family members to a warehouse. Everyone sees updates in real time, including the shopping list and readiness.
 • Offline-first — Everything works without internet. Changes sync when you're back online.
 • Peer-to-peer sync — Two iPhones can exchange data directly over Bluetooth and WiFi, no network required.
 • AI-assisted product recognition — Optional. Bring your own Anthropic API key and let Claude identify products from a photo. You're in control of cost and privacy.
@@ -83,7 +87,7 @@ Privacy Policy: https://kalta.app/privacy
 Terms of Service: https://kalta.app/terms
 ```
 
-(Approximately 2080 chars, well within limit.)
+(Approximately 2700 chars, well within limit.)
 
 ---
 
@@ -97,17 +101,23 @@ inventory,pantry,prepper,emergency,supplies,expiry,barcode,stock,food,qr,family,
 
 Trimmed to 99 chars:
 ```
-inventory,pantry,prepper,emergency,supplies,expiry,barcode,stock,food,qr,family,household,home
+inventory,pantry,prepper,emergency,supplies,expiry,barcode,readiness,stock,food,family,household
 ```
+
+(98 chars)
 
 Reasoning:
 
 - **inventory / stock / supplies** — primary category signals
-- **pantry / household / home** — casual user signals
-- **prepper / emergency** — niche enthusiast signals
-- **expiry / barcode / qr** — feature signals
+- **pantry / household** — casual user signals
+- **prepper / emergency / readiness** — niche enthusiast signals (readiness added in v1, captures preparedness intent)
+- **expiry / barcode** — feature signals
 - **food** — expands from prepper-only to general pantry users
 - **family** — shared-warehouse signal
+
+Dropped `qr` and `home` to make room for `readiness` — both were marginal:
+- `qr` is implicit in barcode searches and Apple indexes app name separately
+- `home` overlaps with `household`
 
 Kalta's name does not need to appear in keywords (Apple indexes app name separately).
 
@@ -122,15 +132,17 @@ Welcome to Kalta.
 
 This is our first App Store release. Thank you for trying the app!
 
-Highlights:
+What's in v1:
 
-• Create warehouses, boxes, and items.
-• Scan barcodes and pull product info automatically.
-• Track expirations with color-coded urgency.
-• Share a warehouse with family via invite link.
-• Sync across devices online or peer-to-peer via Bluetooth and WiFi.
+• Create warehouses, boxes, and items. Print QR labels and stick them on real boxes.
+• Scan barcodes — name, category, calories, and weight fill in automatically.
+• Track expirations with color-coded urgency and local reminders 30/7/1 day before.
+• Readiness dashboard — see how many days of food and water your household has.
+• Emergency kit checklist — FEMA-style 24 items, tracked from missing through restocked.
+• Shopping list with auto-suggestions and a one-tap restock flow back into your boxes.
+• Share warehouses with family via invite link. Sync across devices online, or peer-to-peer between two iPhones via Bluetooth and WiFi when offline.
 • Optional AI-assisted product recognition (bring your own Anthropic API key).
-• Print QR labels to Brother Bluetooth printers, or share as image.
+• Brother Bluetooth label-printer support for QR labels.
 
 Found a bug or have a suggestion? Email us at ondrej.michalcik@gmail.com. We read every message.
 ```
