@@ -1,6 +1,6 @@
 // ============================================================================
 // Kalta – (auth) group layout
-// Bez header baru, bez back gesta — auth obrazovky jsou "terminální" před loginem
+// No header bar, no back gesture — auth screens are "terminal" before login
 // ============================================================================
 import { Stack } from 'expo-router';
 

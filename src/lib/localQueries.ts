@@ -7,6 +7,9 @@
 import { getDb } from './localDb';
 import type {
   Box,
+  Checklist,
+  ChecklistEntry,
+  ChecklistSatisfaction,
   CustomProduct,
   HouseholdMember,
   InventoryLine,
@@ -16,9 +19,23 @@ import type {
   Role,
   ShoppingListItem,
   Warehouse,
+  WarehouseChecklist,
   WarehouseMember,
   WarehouseWithRole,
 } from '@/src/types/database';
+
+// Parse a stored keywords JSON string back into a string[] (empty on null /
+// malformed). Keywords live as text in both SQLite and Postgres to keep the
+// generic sync push simple (no text[] marshalling).
+function parseKeywords(raw: unknown): string[] {
+  if (typeof raw !== 'string' || !raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((k) => typeof k === 'string') : [];
+  } catch {
+    return [];
+  }
+}
 
 // ---- Warehouses -----------------------------------------------------------
 
@@ -178,7 +195,7 @@ export function listCustomProductsLocal(warehouseId: string): CustomProduct[] {
 export function listHouseholdMembersLocal(warehouseId: string): HouseholdMember[] {
   const db = getDb();
   return db.getAllSync<HouseholdMember>(
-    `SELECT id, warehouse_id, name, daily_kcal, daily_water_l, created_at
+    `SELECT id, warehouse_id, name, daily_kcal, daily_water_l, kind, created_at
      FROM household_members
      WHERE warehouse_id = ? AND _deleted_at IS NULL
      ORDER BY created_at ASC`,
@@ -198,6 +215,52 @@ export function listShoppingListLocal(warehouseId: string): ShoppingListItem[] {
     [warehouseId],
   );
   return rows.map((r) => ({ ...r, checked: !!r.checked }));
+}
+
+// ---- Custom checklists (Sprint 7) -----------------------------------------
+
+export function listChecklistsLocal(warehouseId: string): Checklist[] {
+  const db = getDb();
+  const rows = db.getAllSync<any>(
+    `SELECT id, warehouse_id, name, is_seed, goal_days, created_at, updated_at
+     FROM checklists
+     WHERE warehouse_id = ? AND _deleted_at IS NULL
+     ORDER BY is_seed DESC, created_at ASC`,
+    [warehouseId],
+  );
+  return rows.map((r) => ({ ...r, is_seed: !!r.is_seed }));
+}
+
+export function listChecklistEntriesLocal(checklistId: string): ChecklistEntry[] {
+  const db = getDb();
+  const rows = db.getAllSync<any>(
+    `SELECT id, checklist_id, warehouse_id, seed_key, label, group_name, category, keywords, quantified, rationale, sort_order, created_at, updated_at
+     FROM checklist_entries
+     WHERE checklist_id = ? AND _deleted_at IS NULL
+     ORDER BY sort_order ASC, created_at ASC`,
+    [checklistId],
+  );
+  return rows.map((r) => ({ ...r, keywords: parseKeywords(r.keywords) }));
+}
+
+export function listChecklistSatisfactionsLocal(warehouseId: string): ChecklistSatisfaction[] {
+  const db = getDb();
+  return db.getAllSync<ChecklistSatisfaction>(
+    `SELECT id, checklist_entry_id, warehouse_id, item_id, mode, created_at
+     FROM checklist_satisfactions
+     WHERE warehouse_id = ? AND _deleted_at IS NULL`,
+    [warehouseId],
+  );
+}
+
+export function listWarehouseChecklistsLocal(warehouseId: string): WarehouseChecklist[] {
+  const db = getDb();
+  return db.getAllSync<WarehouseChecklist>(
+    `SELECT id, warehouse_id, checklist_id, created_at
+     FROM warehouse_checklists
+     WHERE warehouse_id = ? AND _deleted_at IS NULL`,
+    [warehouseId],
+  );
 }
 
 // ---- Inventory ------------------------------------------------------------

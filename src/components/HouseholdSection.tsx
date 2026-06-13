@@ -24,10 +24,18 @@ import {
   addHouseholdMember,
   deleteHouseholdMember,
   getWarehouseById,
+  listChecklistEntries,
   listHouseholdMembers,
   setReadinessGoal,
+  subscribeHousehold,
   updateHouseholdMember,
 } from '@/src/lib/supabase';
+import {
+  addAddonToChecklist,
+  ensureSeededChecklists,
+  suggestedAddons,
+} from '@/src/lib/checklists';
+import type { KitAddon } from '@/src/data/emergencyKit';
 import {
   DAILY_NEED_PRESETS,
   type HouseholdMember,
@@ -47,6 +55,8 @@ export function HouseholdSection({ warehouseId }: { warehouseId: string }) {
   const [goalDays, setGoalDays] = useState(14);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<HouseholdMember | 'new' | null>(null);
+  const [suggested, setSuggested] = useState<KitAddon[]>([]);
+  const [seedChecklistId, setSeedChecklistId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -56,14 +66,41 @@ export function HouseholdSection({ warehouseId }: { warehouseId: string }) {
       ]);
       setMembers(m);
       if (wh) setGoalDays(wh.readiness_goal_days ?? 14);
+
+      // Compute kit add-ons the household composition suggests but the seed
+      // checklist doesn't have yet (e.g. a woman → feminine hygiene).
+      try {
+        const checklists = await ensureSeededChecklists(warehouseId);
+        const seed = checklists.find((c) => c.is_seed) ?? checklists[0];
+        if (seed) {
+          setSeedChecklistId(seed.id);
+          const entries = await listChecklistEntries(seed.id);
+          setSuggested(suggestedAddons(m, entries));
+        }
+      } catch {
+        /* non-fatal — suggestions just won't show */
+      }
     } catch {
       // non-fatal
     }
   }, [warehouseId]);
 
+  const addSuggested = (addon: KitAddon) => {
+    if (!seedChecklistId) return;
+    addAddonToChecklist(warehouseId, seedChecklistId, addon)
+      .then(load)
+      .catch((e: any) => Alert.alert('Error', e?.message ?? 'Could not add.'));
+  };
+
   useEffect(() => {
     load().finally(() => setLoading(false));
   }, [load]);
+
+  // Live-update when a peer edits household members on another device.
+  useEffect(() => {
+    if (!warehouseId) return;
+    return subscribeHousehold(warehouseId, () => load());
+  }, [warehouseId, load]);
 
   const totalKcal = members.reduce((s, m) => s + m.daily_kcal, 0);
   const totalWater = members.reduce((s, m) => s + m.daily_water_l, 0);
@@ -142,6 +179,33 @@ export function HouseholdSection({ warehouseId }: { warehouseId: string }) {
           Total: {totalKcal} kcal · {totalWater.toFixed(1)} L / day
         </Text>
       ) : null}
+
+      {/* Household-aware kit suggestions */}
+      {suggested.length > 0 && (
+        <View style={styles.suggestBox}>
+          <View style={styles.suggestHead}>
+            <Icon sf="sparkles" size={14} color={colors.primary} />
+            <Text style={styles.suggestTitle}>Suggested for your household</Text>
+          </View>
+          {suggested.map((a) => (
+            <View key={a.key} style={styles.suggestRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.suggestLabel}>{a.label}</Text>
+                <Text style={styles.suggestSub}>
+                  {a.entries.map((e) => e.label).join(', ')}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => addSuggested(a)}
+                style={({ pressed }) => [styles.suggestAddBtn, pressed && { opacity: 0.7 }]}
+              >
+                <Icon sf="plus" size={13} color={colors.primary} />
+                <Text style={styles.suggestAddText}>Add to kit</Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* Readiness goal */}
       <Text style={[styles.sectionHeader, { marginTop: spacing.lg }]}>
@@ -248,6 +312,12 @@ function MemberSheet({
       Alert.alert('Invalid water', 'Enter a positive number.');
       return;
     }
+    // Derive the member "kind" from the matching preset (drives kit add-on
+    // suggestions). Custom values that match no preset → null.
+    const matchedPreset = DAILY_NEED_PRESETS.find(
+      (p) => p.daily_kcal === kcalN && p.daily_water_l === waterN,
+    );
+    const kind = matchedPreset?.kind ?? null;
     try {
       setSaving(true);
       if (target === 'new') {
@@ -256,12 +326,14 @@ function MemberSheet({
           name: trimmed,
           daily_kcal: kcalN,
           daily_water_l: waterN,
+          kind,
         });
       } else {
         await updateHouseholdMember(target.id, {
           name: trimmed,
           daily_kcal: kcalN,
           daily_water_l: waterN,
+          kind,
         });
       }
       onSaved();
@@ -425,6 +497,32 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: spacing.sm,
   },
+  suggestBox: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.primarySubtle,
+    backgroundColor: colors.primaryTint,
+    gap: spacing.sm,
+  },
+  suggestHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  suggestTitle: { ...typography.label, color: colors.primary },
+  suggestRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  suggestLabel: { ...typography.body, color: colors.text, fontWeight: '600' },
+  suggestSub: { ...typography.caption, color: colors.textMuted, marginTop: 1 },
+  suggestAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.primarySubtle,
+    backgroundColor: colors.surface,
+  },
+  suggestAddText: { ...typography.caption, color: colors.primary, fontWeight: '700' },
   chipRow: { flexDirection: 'row', gap: 6, paddingVertical: 2 },
   chip: {
     paddingHorizontal: spacing.md,

@@ -56,23 +56,17 @@ const BRAND_ICONS = {
 
 export type BrandIconName = keyof typeof BRAND_ICONS;
 
-/** @deprecated Use `BrandIconName`. Kept during Sprint 2.6 migration. */
-export type IconName = BrandIconName;
-
 // SF Symbols are typed as string by expo-symbols — we keep it wide open.
 // See https://developer.apple.com/sf-symbols/ for available names.
 export type SFSymbolName = NonNullable<SymbolViewProps['name']>;
 
-// IconProps is intentionally loose (no discriminated union) so that call
-// sites migrating from Sprint 2.5 `name=` usage keep compiling. After all
-// sites are switched to `sf=` or `brand=` in Task #13, remove `name`.
+// Exactly one of `sf` / `brand` is provided (loose typing, not a discriminated
+// union, to keep call sites simple).
 export interface IconProps {
   /** SF Symbol name (preferred for utility chrome — buttons, nav, lists) */
   sf?: SFSymbolName;
   /** Brand 3D PNG name (hero moments only — login/splash/empty states) */
   brand?: BrandIconName;
-  /** Deprecated: use `brand` instead. Kept during Sprint 2.6 migration. */
-  name?: BrandIconName;
   size?: number;
   color?: string;
   weight?: SymbolViewProps['weight'];
@@ -83,7 +77,6 @@ export interface IconProps {
 export function Icon({
   sf,
   brand,
-  name,
   size = 24,
   color,
   weight,
@@ -104,11 +97,10 @@ export function Icon({
     );
   }
 
-  const brandKey = brand ?? name;
-  if (brandKey) {
+  if (brand) {
     return (
       <Image
-        source={BRAND_ICONS[brandKey]}
+        source={BRAND_ICONS[brand]}
         style={[{ width: size, height: size }, style as StyleProp<ImageStyle>]}
         resizeMode="contain"
       />

@@ -5,10 +5,10 @@
 // readiness. Hidden when the list is empty — no visual noise when nothing
 // is in flight.
 // ============================================================================
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { listShoppingList } from '@/src/lib/supabase';
+import { listShoppingList, subscribeShopping } from '@/src/lib/supabase';
 import type { ShoppingListItem } from '@/src/types/database';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
@@ -42,6 +42,12 @@ export function ShoppingCard({
       load();
     }, [load]),
   );
+
+  // Live-update when a peer checks off / adds shopping items on another device.
+  useEffect(() => {
+    if (!warehouseId) return;
+    return subscribeShopping(warehouseId, () => load());
+  }, [warehouseId, load]);
 
   if (!loaded || list.length === 0) return null;
 

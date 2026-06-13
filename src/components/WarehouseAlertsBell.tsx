@@ -10,15 +10,19 @@
 // the user gets the same rich preview that used to live as banners at the
 // top of the boxes list.
 // ============================================================================
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
   getWarehouseById,
   listAllItemsInWarehouse,
   listHouseholdMembers,
   listShoppingList,
+  subscribeChecklists,
+  subscribeHousehold,
+  subscribeShopping,
 } from '@/src/lib/supabase';
 import { computeReadiness } from '@/src/lib/readiness';
+import { warehouseTracksSupplies } from '@/src/lib/checklists';
 import { daysUntil } from '@/src/types/database';
 import { AlertsBellShell, delayedRoute, worstTone, type AlertTone } from './AlertsBellShell';
 import { ExpiryAlertCard, pickExpiryTier } from './ExpiryAlertCard';
@@ -46,18 +50,21 @@ export function WarehouseAlertsBell({
   const load = useCallback(async () => {
     if (!warehouseId) return;
     try {
-      const [items, members, wh, shopping] = await Promise.all([
+      const [items, members, wh, shopping, tracks] = await Promise.all([
         listAllItemsInWarehouse(warehouseId),
         listHouseholdMembers(warehouseId),
         getWarehouseById(warehouseId),
         listShoppingList(warehouseId).catch(() => []),
+        warehouseTracksSupplies(warehouseId).catch(() => true),
       ]);
       const goalDays = wh?.readiness_goal_days ?? 14;
       const result = computeReadiness(items, members);
       const tones: AlertTone[] = [];
 
-      // Readiness alert — only when the weakest link falls below the goal.
-      if (result.weakestLink) {
+      // Readiness alert — only when the warehouse tracks supplies and the
+      // weakest link falls below the goal. Non-supply warehouses (e.g. a
+      // workshop kit) don't surface a survival-days alert.
+      if (tracks && result.weakestLink) {
         const ratio = goalDays > 0 ? result.weakestLink.days / goalDays : 0;
         if (ratio < 1) tones.push(ratio >= 0.25 ? 'amber' : 'red');
       }
@@ -99,6 +106,21 @@ export function WarehouseAlertsBell({
       load();
     }, [load]),
   );
+
+  // Live-update the badge when a peer changes the shared signals on another
+  // device (household members, shopping list, checklists). Item/expiry changes
+  // are same-device and refresh on focus.
+  useEffect(() => {
+    if (!warehouseId) return;
+    const unsubHh = subscribeHousehold(warehouseId, () => load());
+    const unsubShop = subscribeShopping(warehouseId, () => load());
+    const unsubKit = subscribeChecklists(warehouseId, () => load());
+    return () => {
+      unsubHh();
+      unsubShop();
+      unsubKit();
+    };
+  }, [warehouseId, load]);
 
   const tone = state && state.tones.length > 0 ? worstTone(state.tones) : null;
   const alertCount = state?.tones.length ?? 0;

@@ -20,8 +20,14 @@ import type {
   WarehouseWithRole,
   Category,
   HouseholdMember,
+  MemberKind,
   ShoppingListItem,
   ShoppingSource,
+  Checklist,
+  ChecklistEntry,
+  ChecklistSatisfaction,
+  SatisfactionMode,
+  WarehouseChecklist,
 } from '@/src/types/database';
 
 import { hasInitialSync } from './sync';
@@ -52,6 +58,15 @@ import {
   addShoppingItemLocal,
   setShoppingItemCheckedLocal,
   deleteShoppingItemLocal,
+  createChecklistLocal,
+  updateChecklistLocal,
+  deleteChecklistLocal,
+  createChecklistEntryLocal,
+  updateChecklistEntryLocal,
+  deleteChecklistEntryLocal,
+  setChecklistSatisfactionLocal,
+  addWarehouseChecklistLocal,
+  removeWarehouseChecklistLocal,
 } from './localWrites';
 import {
   findCustomProductLocal,
@@ -64,6 +79,10 @@ import {
   listCustomProductsLocal,
   listHouseholdMembersLocal,
   listShoppingListLocal,
+  listChecklistsLocal,
+  listChecklistEntriesLocal,
+  listChecklistSatisfactionsLocal,
+  listWarehouseChecklistsLocal,
   listItemsLocal,
   listMembersLocal,
   listInventorySessionsLocal,
@@ -71,7 +90,7 @@ import {
 } from './localQueries';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
-// Nový publishable key (sb_publishable_...), nahrazuje legacy anon key
+// New publishable key (sb_publishable_...), replaces the legacy anon key
 const SUPABASE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
@@ -222,11 +241,11 @@ export async function getMyWarehouses(userId: string): Promise<WarehouseWithRole
 }
 
 /**
- * Vytvoří nový sklad a automaticky přidá zakladatele jako ownera.
- * Používá SECURITY DEFINER RPC funkci create_warehouse_for_me, která
- * bypassne RLS a udělá oba inserty atomicky. Viz schema.sql.
+ * Create a new warehouse and add the creator as an owner. Uses the
+ * SECURITY DEFINER RPC `create_warehouse_for_me`, which bypasses RLS and
+ * does both inserts atomically. See schema.sql.
  *
- * Parametr `userId` zůstává pro API kompatibilitu — RPC používá auth.uid() uvnitř.
+ * `userId` is kept for API compatibility — the RPC uses auth.uid() internally.
  */
 export async function createWarehouse(userId: string, name: string): Promise<Warehouse> {
   // createWarehouse uses an RPC that atomically creates warehouse +
@@ -533,14 +552,14 @@ export async function deleteBox(id: string) {
 }
 
 /**
- * Realtime subscription na změny beden v daném skladu.
- * Vrací cleanup fn, kterou volající zavolá v useEffect return (plně odstraní
- * channel z klienta, ne jen unsubscribe — jinak Strict Mode re-mount narazí na
- * "cannot add callbacks after subscribe").
+ * Realtime subscription to box changes in a warehouse. Returns a cleanup fn
+ * to call in the useEffect return — it fully removes the channel from the
+ * client (not just unsubscribe), otherwise a Strict Mode re-mount hits
+ * "cannot add callbacks after subscribe".
  */
 export function subscribeBoxes(warehouseId: string, onChange: () => void): () => void {
   const channel = supabase
-    // Unique name per call — zabrání cached channel re-use
+    // Unique name per call — prevents cached channel re-use
     .channel(`boxes:${warehouseId}:${Math.random().toString(36).slice(2)}`)
     .on(
       'postgres_changes',
@@ -552,6 +571,74 @@ export function subscribeBoxes(warehouseId: string, onChange: () => void): () =>
       },
       (payload) => {
         if (isOwnEcho('boxes', payload)) return;
+        onChange();
+      },
+    )
+    .subscribe();
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
+/**
+ * Realtime subscription on the custom-checklist tables for a warehouse
+ * (checklists / entries / satisfactions / warehouse links). Fires onChange
+ * when a peer edits a list so the readiness + checklist screens live-update
+ * instead of waiting for a focus-reload. Suppresses our own optimistic echoes.
+ */
+export function subscribeChecklists(warehouseId: string, onChange: () => void): () => void {
+  const tables = [
+    'checklists',
+    'checklist_entries',
+    'checklist_satisfactions',
+    'warehouse_checklists',
+  ] as const;
+  let channel = supabase.channel(`checklists:${warehouseId}:${Math.random().toString(36).slice(2)}`);
+  for (const table of tables) {
+    channel = channel.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table, filter: `warehouse_id=eq.${warehouseId}` },
+      (payload) => {
+        if (isOwnEcho(table, payload)) return;
+        onChange();
+      },
+    );
+  }
+  channel.subscribe();
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
+/** Realtime subscription on household_members for a warehouse — keeps the
+ *  readiness days + household editor in sync when a peer edits members. */
+export function subscribeHousehold(warehouseId: string, onChange: () => void): () => void {
+  const channel = supabase
+    .channel(`household:${warehouseId}:${Math.random().toString(36).slice(2)}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'household_members', filter: `warehouse_id=eq.${warehouseId}` },
+      (payload) => {
+        if (isOwnEcho('household_members', payload)) return;
+        onChange();
+      },
+    )
+    .subscribe();
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
+/** Realtime subscription on shopping_list_items for a warehouse — the shared
+ *  list updates live when a peer checks off / adds items in the store. */
+export function subscribeShopping(warehouseId: string, onChange: () => void): () => void {
+  const channel = supabase
+    .channel(`shopping:${warehouseId}:${Math.random().toString(36).slice(2)}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'shopping_list_items', filter: `warehouse_id=eq.${warehouseId}` },
+      (payload) => {
+        if (isOwnEcho('shopping_list_items', payload)) return;
         onChange();
       },
     )
@@ -641,7 +728,7 @@ export async function addItem(
 }
 
 /**
- * Batch INSERT z naskladňovací session.
+ * Batch INSERT from an add-items session.
  */
 export async function addItemsBatch(
   boxId: string,
@@ -934,8 +1021,8 @@ export async function deleteItem(id: string) {
 }
 
 /**
- * Realtime subscription na items v dané bedně.
- * Vrací cleanup fn — viz `subscribeBoxes` pro vysvětlení.
+ * Realtime subscription to items in a box. Returns a cleanup fn — see
+ * `subscribeBoxes` for the rationale.
  */
 export function subscribeItems(boxId: string, onChange: () => void): () => void {
   const channel = supabase
@@ -1376,6 +1463,7 @@ export async function addHouseholdMember(input: {
   name: string;
   daily_kcal: number;
   daily_water_l: number;
+  kind?: MemberKind | null;
 }): Promise<HouseholdMember> {
   if (hasInitialSync()) return addHouseholdMemberLocal(input);
   const { data, error } = await supabase
@@ -1389,7 +1477,7 @@ export async function addHouseholdMember(input: {
 
 export async function updateHouseholdMember(
   id: string,
-  patch: Partial<Pick<HouseholdMember, 'name' | 'daily_kcal' | 'daily_water_l'>>,
+  patch: Partial<Pick<HouseholdMember, 'name' | 'daily_kcal' | 'daily_water_l' | 'kind'>>,
 ): Promise<void> {
   if (hasInitialSync()) {
     updateHouseholdMemberLocal(id, patch);
@@ -1470,5 +1558,179 @@ export async function deleteShoppingItem(id: string): Promise<void> {
     return;
   }
   const { error } = await supabase.from('shopping_list_items').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ============================================================================
+// CUSTOM CHECKLISTS (Sprint 7) — SQLite-first
+// ============================================================================
+
+function parseKeywordsField(raw: unknown): string[] {
+  if (typeof raw !== 'string' || !raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((k) => typeof k === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function listChecklists(warehouseId: string): Promise<Checklist[]> {
+  try {
+    if (hasInitialSync()) return listChecklistsLocal(warehouseId);
+  } catch { /* fallback */ }
+  const { data, error } = await supabase
+    .from('checklists').select('*').eq('warehouse_id', warehouseId).order('created_at');
+  if (error) throw error;
+  return (data as Checklist[]) ?? [];
+}
+
+export async function listChecklistEntries(checklistId: string): Promise<ChecklistEntry[]> {
+  try {
+    if (hasInitialSync()) return listChecklistEntriesLocal(checklistId);
+  } catch { /* fallback */ }
+  const { data, error } = await supabase
+    .from('checklist_entries').select('*').eq('checklist_id', checklistId).order('sort_order');
+  if (error) throw error;
+  return ((data as any[]) ?? []).map((e) => ({ ...e, keywords: parseKeywordsField(e.keywords) }));
+}
+
+export async function listChecklistSatisfactions(warehouseId: string): Promise<ChecklistSatisfaction[]> {
+  try {
+    if (hasInitialSync()) return listChecklistSatisfactionsLocal(warehouseId);
+  } catch { /* fallback */ }
+  const { data, error } = await supabase
+    .from('checklist_satisfactions').select('*').eq('warehouse_id', warehouseId);
+  if (error) throw error;
+  return (data as ChecklistSatisfaction[]) ?? [];
+}
+
+export async function listWarehouseChecklists(warehouseId: string): Promise<WarehouseChecklist[]> {
+  try {
+    if (hasInitialSync()) return listWarehouseChecklistsLocal(warehouseId);
+  } catch { /* fallback */ }
+  const { data, error } = await supabase
+    .from('warehouse_checklists').select('*').eq('warehouse_id', warehouseId);
+  if (error) throw error;
+  return (data as WarehouseChecklist[]) ?? [];
+}
+
+export async function createChecklist(input: {
+  warehouse_id: string;
+  name: string;
+  is_seed?: boolean;
+  goal_days?: number | null;
+}): Promise<Checklist> {
+  if (hasInitialSync()) return createChecklistLocal(input);
+  const { data, error } = await supabase
+    .from('checklists')
+    .insert({ warehouse_id: input.warehouse_id, name: input.name, is_seed: input.is_seed ?? false, goal_days: input.goal_days ?? null })
+    .select().single();
+  if (error) throw error;
+  return data as Checklist;
+}
+
+export async function updateChecklist(
+  id: string,
+  patch: Partial<Pick<Checklist, 'name' | 'goal_days'>>,
+): Promise<void> {
+  if (hasInitialSync()) { updateChecklistLocal(id, patch); return; }
+  const { error } = await supabase.from('checklists').update(patch).eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteChecklist(id: string): Promise<void> {
+  if (hasInitialSync()) { deleteChecklistLocal(id); return; }
+  const { error } = await supabase.from('checklists').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function createChecklistEntry(input: {
+  checklist_id: string;
+  warehouse_id: string;
+  label: string;
+  group_name?: string | null;
+  category?: Category | null;
+  keywords?: string[];
+  quantified?: 'food' | 'water' | null;
+  rationale?: string | null;
+  sort_order?: number;
+  seed_key?: string | null;
+}): Promise<ChecklistEntry> {
+  if (hasInitialSync()) return createChecklistEntryLocal(input);
+  const { data, error } = await supabase
+    .from('checklist_entries')
+    .insert({
+      checklist_id: input.checklist_id, warehouse_id: input.warehouse_id, label: input.label,
+      group_name: input.group_name ?? null, category: input.category ?? null,
+      keywords: JSON.stringify(input.keywords ?? []), quantified: input.quantified ?? null,
+      rationale: input.rationale ?? null, sort_order: input.sort_order ?? 0, seed_key: input.seed_key ?? null,
+    })
+    .select().single();
+  if (error) throw error;
+  return { ...(data as any), keywords: parseKeywordsField((data as any).keywords) };
+}
+
+export async function updateChecklistEntry(
+  id: string,
+  patch: Partial<{
+    label: string;
+    group_name: string | null;
+    category: Category | null;
+    keywords: string[];
+    quantified: 'food' | 'water' | null;
+    rationale: string | null;
+    sort_order: number;
+  }>,
+): Promise<void> {
+  if (hasInitialSync()) { updateChecklistEntryLocal(id, patch); return; }
+  const serverPatch: Record<string, any> = { ...patch };
+  if ('keywords' in serverPatch) serverPatch.keywords = JSON.stringify(patch.keywords ?? []);
+  const { error } = await supabase.from('checklist_entries').update(serverPatch).eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteChecklistEntry(id: string): Promise<void> {
+  if (hasInitialSync()) { deleteChecklistEntryLocal(id); return; }
+  const { error } = await supabase.from('checklist_entries').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function setChecklistSatisfaction(input: {
+  checklist_entry_id: string;
+  warehouse_id: string;
+  mode: SatisfactionMode | null;
+  item_id?: string | null;
+}): Promise<void> {
+  if (hasInitialSync()) { setChecklistSatisfactionLocal(input); return; }
+  await supabase
+    .from('checklist_satisfactions')
+    .delete()
+    .eq('checklist_entry_id', input.checklist_entry_id);
+  if (input.mode != null) {
+    const { error } = await supabase.from('checklist_satisfactions').insert({
+      checklist_entry_id: input.checklist_entry_id, warehouse_id: input.warehouse_id,
+      item_id: input.item_id ?? null, mode: input.mode,
+    });
+    if (error) throw error;
+  }
+}
+
+export async function addWarehouseChecklist(input: {
+  warehouse_id: string;
+  checklist_id: string;
+}): Promise<void> {
+  if (hasInitialSync()) { addWarehouseChecklistLocal(input); return; }
+  const { error } = await supabase
+    .from('warehouse_checklists')
+    .upsert(input, { onConflict: 'warehouse_id,checklist_id' });
+  if (error) throw error;
+}
+
+export async function removeWarehouseChecklist(warehouseId: string, checklistId: string): Promise<void> {
+  if (hasInitialSync()) { removeWarehouseChecklistLocal(warehouseId, checklistId); return; }
+  const { error } = await supabase
+    .from('warehouse_checklists').delete()
+    .eq('warehouse_id', warehouseId).eq('checklist_id', checklistId);
   if (error) throw error;
 }

@@ -150,6 +150,7 @@ export function initLocalDb(): void {
       name TEXT NOT NULL,
       daily_kcal INTEGER NOT NULL DEFAULT 2000,
       daily_water_l REAL NOT NULL DEFAULT 3,
+      kind TEXT,
       created_at TEXT NOT NULL,
       _synced INTEGER NOT NULL DEFAULT 1,
       _changed_fields TEXT,
@@ -172,6 +173,58 @@ export function initLocalDb(): void {
       _changed_fields TEXT,
       _deleted_at TEXT,
       _local_updated_at TEXT
+    );
+
+    -- Custom readiness checklists (Sprint 7). LWW sync like custom_products
+    -- (just _synced / _deleted_at — small, low-conflict tables).
+    CREATE TABLE IF NOT EXISTS checklists (
+      id TEXT PRIMARY KEY,
+      warehouse_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      is_seed INTEGER NOT NULL DEFAULT 0,
+      goal_days INTEGER,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      _synced INTEGER NOT NULL DEFAULT 1,
+      _deleted_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS checklist_entries (
+      id TEXT PRIMARY KEY,
+      checklist_id TEXT NOT NULL,
+      warehouse_id TEXT NOT NULL,
+      seed_key TEXT,
+      label TEXT NOT NULL,
+      group_name TEXT,
+      category TEXT,
+      keywords TEXT,
+      quantified TEXT,
+      rationale TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      _synced INTEGER NOT NULL DEFAULT 1,
+      _deleted_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS checklist_satisfactions (
+      id TEXT PRIMARY KEY,
+      checklist_entry_id TEXT NOT NULL,
+      warehouse_id TEXT NOT NULL,
+      item_id TEXT,
+      mode TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      _synced INTEGER NOT NULL DEFAULT 1,
+      _deleted_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS warehouse_checklists (
+      id TEXT PRIMARY KEY,
+      warehouse_id TEXT NOT NULL,
+      checklist_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      _synced INTEGER NOT NULL DEFAULT 1,
+      _deleted_at TEXT
     );
 
     -- Invitations
@@ -250,6 +303,11 @@ export function initLocalDb(): void {
     CREATE INDEX IF NOT EXISTS idx_boxes_warehouse ON boxes(warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_household_members_warehouse ON household_members(warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_shopping_list_warehouse ON shopping_list_items(warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_checklists_warehouse ON checklists(warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_checklist_entries_checklist ON checklist_entries(checklist_id);
+    CREATE INDEX IF NOT EXISTS idx_checklist_entries_warehouse ON checklist_entries(warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_checklist_sat_warehouse ON checklist_satisfactions(warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_warehouse_checklists_warehouse ON warehouse_checklists(warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_sync_queue_pending ON _sync_queue(pushed_at) WHERE pushed_at IS NULL;
   `);
 
@@ -261,6 +319,7 @@ export function initLocalDb(): void {
   addColumnIfMissing(db, 'items', 'net_weight_g', 'REAL');
   addColumnIfMissing(db, 'items', 'min_quantity', 'REAL');
   addColumnIfMissing(db, 'custom_products', 'min_quantity', 'REAL');
+  addColumnIfMissing(db, 'household_members', 'kind', 'TEXT');
 }
 
 /**

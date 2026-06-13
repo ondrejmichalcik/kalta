@@ -160,6 +160,7 @@ create table if not exists public.household_members (
   name          text not null,
   daily_kcal    int not null default 2000,
   daily_water_l numeric not null default 3,
+  kind          text,
   created_at    timestamptz not null default now()
 );
 
@@ -180,6 +181,69 @@ create table if not exists public.shopping_list_items (
 );
 
 create index if not exists idx_shopping_list_warehouse on public.shopping_list_items(warehouse_id);
+
+-- ============================================================================
+-- CUSTOM READINESS CHECKLISTS (Sprint 7)
+-- ============================================================================
+-- checklists – readiness seznamy per sklad. FEMA = seed (is_seed=true,
+-- klonovaný do warehousu), plus user-defined custom seznamy. Definuje, co
+-- warehouse "chce mít ready".
+create table if not exists public.checklists (
+  id            uuid primary key default gen_random_uuid(),
+  warehouse_id  uuid not null references public.warehouses(id) on delete cascade,
+  name          text not null,
+  is_seed       boolean not null default false,
+  goal_days     int,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+create index if not exists idx_checklists_warehouse on public.checklists(warehouse_id);
+
+-- checklist_entries – jednotlivé položky seznamu (co chce mít). warehouse_id
+-- denormalizováno kvůli přímému is_member() v RLS (bez rekurzivních subselectů).
+-- seed_key drží původní hardcoded kit.id u FEMA seed entries (null pro custom),
+-- aby šly migrovat AsyncStorage overridy + detekovat water filter / quantified.
+create table if not exists public.checklist_entries (
+  id            uuid primary key default gen_random_uuid(),
+  checklist_id  uuid not null references public.checklists(id) on delete cascade,
+  warehouse_id  uuid not null references public.warehouses(id) on delete cascade,
+  seed_key      text,
+  label         text not null,
+  group_name    text,
+  category      text,
+  keywords      text,
+  quantified    text,
+  rationale     text,
+  sort_order    int not null default 0,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+create index if not exists idx_checklist_entries_checklist on public.checklist_entries(checklist_id);
+create index if not exists idx_checklist_entries_warehouse on public.checklist_entries(warehouse_id);
+
+-- checklist_satisfactions – jak je entry uspokojena: ruční pin na konkrétní
+-- položku z boxu, nebo override (force_stocked / force_missing / not_applicable).
+create table if not exists public.checklist_satisfactions (
+  id                 uuid primary key default gen_random_uuid(),
+  checklist_entry_id uuid not null references public.checklist_entries(id) on delete cascade,
+  warehouse_id       uuid not null references public.warehouses(id) on delete cascade,
+  item_id            uuid references public.items(id) on delete cascade,
+  mode               text not null check (mode in ('pin','force_stocked','force_missing','not_applicable')),
+  created_at         timestamptz not null default now()
+);
+create index if not exists idx_checklist_satisfactions_entry on public.checklist_satisfactions(checklist_entry_id);
+create index if not exists idx_checklist_satisfactions_warehouse on public.checklist_satisfactions(warehouse_id);
+
+-- warehouse_checklists – které seznamy na warehouse platí (úroveň B). Warehouse
+-- bez záznamu = readiness se neaplikuje (např. "dílna"). Má vlastní `id` PK
+-- (kvůli generic queue push delete-by-id) + unique na páru.
+create table if not exists public.warehouse_checklists (
+  id            uuid primary key default gen_random_uuid(),
+  warehouse_id  uuid not null references public.warehouses(id) on delete cascade,
+  checklist_id  uuid not null references public.checklists(id) on delete cascade,
+  created_at    timestamptz not null default now(),
+  unique (warehouse_id, checklist_id)
+);
 
 -- ============================================================================
 -- MIGRATIONS (idempotent ALTERs for existing DBs)
@@ -313,6 +377,9 @@ alter table public.items
 -- custom_products: aggregate par level per barcode produkt.
 alter table public.custom_products
   add column if not exists min_quantity numeric;
+-- household_members: member "kind" (drives auto-suggested kit add-ons).
+alter table public.household_members
+  add column if not exists kind text;
 
 -- ============================================================================
 -- FUNCTIONS + TRIGGERS
@@ -666,6 +733,10 @@ alter table public.inventory_sessions enable row level security;
 alter table public.inventory_lines enable row level security;
 alter table public.household_members enable row level security;
 alter table public.shopping_list_items enable row level security;
+alter table public.checklists enable row level security;
+alter table public.checklist_entries enable row level security;
+alter table public.checklist_satisfactions enable row level security;
+alter table public.warehouse_checklists enable row level security;
 
 -- users: každý vidí sám sebe a členy svých skladů
 drop policy if exists users_self on public.users;
@@ -872,6 +943,56 @@ drop policy if exists shopping_list_delete on public.shopping_list_items;
 create policy shopping_list_delete on public.shopping_list_items for delete
   using (public.is_member(warehouse_id));
 
+-- checklists / entries / satisfactions / warehouse_checklists: členové CRUD
+drop policy if exists checklists_select on public.checklists;
+create policy checklists_select on public.checklists for select
+  using (public.is_member(warehouse_id));
+drop policy if exists checklists_insert on public.checklists;
+create policy checklists_insert on public.checklists for insert
+  with check (public.is_member(warehouse_id));
+drop policy if exists checklists_update on public.checklists;
+create policy checklists_update on public.checklists for update
+  using (public.is_member(warehouse_id)) with check (public.is_member(warehouse_id));
+drop policy if exists checklists_delete on public.checklists;
+create policy checklists_delete on public.checklists for delete
+  using (public.is_member(warehouse_id));
+
+drop policy if exists checklist_entries_select on public.checklist_entries;
+create policy checklist_entries_select on public.checklist_entries for select
+  using (public.is_member(warehouse_id));
+drop policy if exists checklist_entries_insert on public.checklist_entries;
+create policy checklist_entries_insert on public.checklist_entries for insert
+  with check (public.is_member(warehouse_id));
+drop policy if exists checklist_entries_update on public.checklist_entries;
+create policy checklist_entries_update on public.checklist_entries for update
+  using (public.is_member(warehouse_id)) with check (public.is_member(warehouse_id));
+drop policy if exists checklist_entries_delete on public.checklist_entries;
+create policy checklist_entries_delete on public.checklist_entries for delete
+  using (public.is_member(warehouse_id));
+
+drop policy if exists checklist_satisfactions_select on public.checklist_satisfactions;
+create policy checklist_satisfactions_select on public.checklist_satisfactions for select
+  using (public.is_member(warehouse_id));
+drop policy if exists checklist_satisfactions_insert on public.checklist_satisfactions;
+create policy checklist_satisfactions_insert on public.checklist_satisfactions for insert
+  with check (public.is_member(warehouse_id));
+drop policy if exists checklist_satisfactions_update on public.checklist_satisfactions;
+create policy checklist_satisfactions_update on public.checklist_satisfactions for update
+  using (public.is_member(warehouse_id)) with check (public.is_member(warehouse_id));
+drop policy if exists checklist_satisfactions_delete on public.checklist_satisfactions;
+create policy checklist_satisfactions_delete on public.checklist_satisfactions for delete
+  using (public.is_member(warehouse_id));
+
+drop policy if exists warehouse_checklists_select on public.warehouse_checklists;
+create policy warehouse_checklists_select on public.warehouse_checklists for select
+  using (public.is_member(warehouse_id));
+drop policy if exists warehouse_checklists_insert on public.warehouse_checklists;
+create policy warehouse_checklists_insert on public.warehouse_checklists for insert
+  with check (public.is_member(warehouse_id));
+drop policy if exists warehouse_checklists_delete on public.warehouse_checklists;
+create policy warehouse_checklists_delete on public.warehouse_checklists for delete
+  using (public.is_member(warehouse_id));
+
 -- ============================================================================
 -- REALTIME PUBLICATION
 -- ============================================================================
@@ -909,6 +1030,26 @@ end $$;
 
 do $$ begin
   alter publication supabase_realtime add table public.shopping_list_items;
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter publication supabase_realtime add table public.checklists;
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter publication supabase_realtime add table public.checklist_entries;
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter publication supabase_realtime add table public.checklist_satisfactions;
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter publication supabase_realtime add table public.warehouse_checklists;
 exception when duplicate_object then null;
 end $$;
 

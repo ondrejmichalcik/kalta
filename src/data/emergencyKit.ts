@@ -5,7 +5,7 @@
 // negatives are handled by local manual dismiss. `category` is used when a
 // gap is pushed to the shopping list.
 // ============================================================================
-import type { Category } from '@/src/types/database';
+import type { Category, MemberKind } from '@/src/types/database';
 
 export interface KitItem {
   id: string;
@@ -14,6 +14,12 @@ export interface KitItem {
   category: Category | null;
   keywords: string[];
   rationale: string;
+  /**
+   * When set, the entry's coverage is driven by the readiness days engine for
+   * that category rather than a binary have/don't-have keyword match. Lets the
+   * checklist show "4 of 14 days" instead of a misleading ✓ on a single bottle.
+   */
+  quantified?: 'food' | 'water';
 }
 
 export const EMERGENCY_KIT: KitItem[] = [
@@ -25,6 +31,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     category: 'water',
     keywords: ['water', 'voda', 'mineral'],
     rationale: 'At least 3 litres per person per day for several days.',
+    quantified: 'water',
   },
 
   {
@@ -54,6 +61,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     category: 'food',
     keywords: ['food', 'jídlo', 'konzerv*', 'canned', 'rice', 'rýže', 'pasta', 'těstovin*', 'beans', 'luštěnin*'],
     rationale: 'Several days of shelf-stable food that needs no cooking.',
+    quantified: 'food',
   },
   {
     id: 'can-opener',
@@ -62,6 +70,14 @@ export const EMERGENCY_KIT: KitItem[] = [
     category: 'tools_safety',
     keywords: ['opener*', 'otvírák*'],
     rationale: 'Canned food is useless without a way to open it.',
+  },
+  {
+    id: 'stove',
+    label: 'Camping stove & fuel',
+    group: 'Food',
+    category: 'tools_safety',
+    keywords: ['camping stove', 'stove*', 'vařič*', 'kartuš*', 'butan*', 'propan*', 'gas canister'],
+    rationale: 'A way to cook or boil water when the power is out.',
   },
 
   // --- First aid & medicine --------------------------------------------------
@@ -104,7 +120,7 @@ export const EMERGENCY_KIT: KitItem[] = [
     label: 'Spare batteries',
     group: 'Light & power',
     category: 'light_power',
-    keywords: ['batter*', 'bateri*', 'aa', 'aaa'],
+    keywords: ['batter*', 'bateri*', 'tužkov*', 'monočlán*'],
     rationale: 'Power for flashlights and radio.',
   },
   {
@@ -130,6 +146,24 @@ export const EMERGENCY_KIT: KitItem[] = [
     category: 'light_power',
     keywords: ['radio', 'rádio'],
     rationale: 'Receive emergency broadcasts without internet.',
+  },
+
+  // --- Warmth & shelter ------------------------------------------------------
+  {
+    id: 'warmth',
+    label: 'Blankets & warm layers',
+    group: 'Warmth & shelter',
+    category: 'tools_safety',
+    keywords: [
+      'blanket*',
+      'dek*',
+      'spacák*',
+      'sleeping bag',
+      'izofóli*',
+      'termofóli*',
+      'emergency blanket',
+    ],
+    rationale: 'Stay warm if heating fails — critical in winter.',
   },
 
   // --- Tools & safety --------------------------------------------------------
@@ -173,6 +207,14 @@ export const EMERGENCY_KIT: KitItem[] = [
     keywords: ['glove*', 'rukavic*'],
     rationale: 'Protect hands during cleanup.',
   },
+  {
+    id: 'fire-extinguisher',
+    label: 'Fire extinguisher',
+    group: 'Tools & safety',
+    category: 'tools_safety',
+    keywords: ['extinguisher*', 'hasic*', 'hasící', 'hasící přístroj'],
+    rationale: 'Put out small fires before they spread.',
+  },
 
   // --- Sanitation ------------------------------------------------------------
   {
@@ -207,6 +249,14 @@ export const EMERGENCY_KIT: KitItem[] = [
     keywords: ['garbage', 'pytel', 'pytl*', 'sáček', 'sáčk*', 'odpad*', 'trash bag'],
     rationale: 'Waste containment and sanitation.',
   },
+  {
+    id: 'toilet-paper',
+    label: 'Toilet paper',
+    group: 'Sanitation',
+    category: 'sanitation',
+    keywords: ['toilet paper', 'toaletní papír', 'toaletní', 'toaleťák*'],
+    rationale: 'Basic sanitation that runs out fast.',
+  },
 
   // --- Documents & money -----------------------------------------------------
   {
@@ -234,3 +284,99 @@ export const EMERGENCY_KIT: KitItem[] = [
     rationale: 'A written list in case your phone dies.',
   },
 ];
+
+// ============================================================================
+// Household-aware add-on packs (Sprint 7+). Suggested for the warehouse's seed
+// checklist when the household composition implies them — e.g. an adult female
+// → feminine hygiene, an infant/toddler → baby supplies. Each entry's `id`
+// becomes its `seed_key` so the pack can be detected / removed later.
+// ============================================================================
+export interface KitAddon {
+  key: string;
+  label: string;
+  /** Member kinds whose presence suggests this pack. */
+  triggerKinds: MemberKind[];
+  entries: KitItem[];
+}
+
+// FEMA groups exposed as reusable packs (built from EMERGENCY_KIT so there's
+// no duplicated data). Lets a custom checklist pull in whole prepared groups
+// like "First aid" or "Light & power" instead of adding items one by one.
+const FEMA_GROUP_PACKS: KitAddon[] = (() => {
+  const order: string[] = [];
+  const byGroup = new Map<string, KitItem[]>();
+  for (const item of EMERGENCY_KIT) {
+    if (!byGroup.has(item.group)) {
+      byGroup.set(item.group, []);
+      order.push(item.group);
+    }
+    byGroup.get(item.group)!.push(item);
+  }
+  return order.map((g) => ({
+    key: `fema:${g}`,
+    label: g,
+    triggerKinds: [] as MemberKind[],
+    entries: byGroup.get(g)!,
+  }));
+})();
+
+export const KIT_ADDONS: KitAddon[] = [
+  {
+    key: 'feminine-hygiene',
+    label: 'Feminine hygiene',
+    triggerKinds: ['adult_female'],
+    entries: [
+      {
+        id: 'fem-pads',
+        label: 'Pads / tampons',
+        group: 'Personal care',
+        category: 'sanitation',
+        keywords: ['pad*', 'tampon*', 'vložk*', 'menstruač*', 'hygienic*'],
+        rationale: 'A monthly necessity that runs out — keep a buffer.',
+      },
+    ],
+  },
+  {
+    key: 'baby',
+    label: 'Baby supplies',
+    triggerKinds: ['infant', 'toddler'],
+    entries: [
+      {
+        id: 'baby-diapers',
+        label: 'Diapers',
+        group: 'Baby',
+        category: 'sanitation',
+        keywords: ['diaper*', 'plen*', 'nappy', 'nappies', 'plín*'],
+        rationale: 'Days of diapers per child.',
+      },
+      {
+        id: 'baby-formula',
+        label: 'Infant formula',
+        group: 'Baby',
+        category: 'food',
+        keywords: ['formula', 'sunar', 'kojeneck*', 'počáteční mléko', 'sušené mléko'],
+        rationale: 'Feeding backup if breastfeeding is interrupted.',
+      },
+      {
+        id: 'baby-wipes',
+        label: 'Baby wipes',
+        group: 'Baby',
+        category: 'sanitation',
+        keywords: ['wipe*', 'ubrousk*', 'vlhčen*'],
+        rationale: 'Cleaning without running water.',
+      },
+      {
+        id: 'baby-food',
+        label: 'Baby food',
+        group: 'Baby',
+        category: 'food',
+        keywords: ['baby food', 'příkrm*', 'dětsk* výživ*', 'přesnídávk*'],
+        rationale: 'Shelf-stable jars / pouches.',
+      },
+    ],
+  },
+];
+
+// Full library of packs a user can drop into any (custom) checklist as a
+// pre-prepared group: the FEMA groups + the household add-ons.
+export const KIT_PACKS: KitAddon[] = [...FEMA_GROUP_PACKS, ...KIT_ADDONS];

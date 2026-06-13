@@ -3,15 +3,18 @@
 // Glanceable banner on the Boxes dashboard. Headline = weakest link days,
 // colored by progress toward the warehouse's readiness goal. Tap → detail.
 // ============================================================================
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
   getWarehouseById,
   listAllItemsInWarehouse,
   listHouseholdMembers,
+  subscribeChecklists,
+  subscribeHousehold,
 } from '@/src/lib/supabase';
 import { computeReadiness, type ReadinessResult } from '@/src/lib/readiness';
+import { warehouseTracksSupplies } from '@/src/lib/checklists';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
 import type { SFSymbolName } from '@/src/components/Icon';
@@ -60,18 +63,21 @@ export function ReadinessCard({
   const router = useRouter();
   const [result, setResult] = useState<ReadinessResult | null>(null);
   const [goalDays, setGoalDays] = useState(14);
+  const [tracks, setTracks] = useState(true);
   const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     if (!warehouseId) return;
     try {
-      const [items, members, wh] = await Promise.all([
+      const [items, members, wh, tracksSupplies] = await Promise.all([
         listAllItemsInWarehouse(warehouseId),
         listHouseholdMembers(warehouseId),
         getWarehouseById(warehouseId),
+        warehouseTracksSupplies(warehouseId).catch(() => true),
       ]);
       setGoalDays(wh?.readiness_goal_days ?? 14);
       setResult(computeReadiness(items, members));
+      setTracks(tracksSupplies);
     } catch {
       /* non-fatal — card just stays hidden */
     } finally {
@@ -85,8 +91,22 @@ export function ReadinessCard({
     }, [load]),
   );
 
+  // Live-update when a peer edits household members or checklists.
+  useEffect(() => {
+    if (!warehouseId) return;
+    const unsubHh = subscribeHousehold(warehouseId, () => load());
+    const unsubKit = subscribeChecklists(warehouseId, () => load());
+    return () => {
+      unsubHh();
+      unsubKit();
+    };
+  }, [warehouseId, load]);
+
   // Nothing to show until first load completes.
   if (!loaded || !result) return null;
+  // Warehouse's active checklists aren't supply-oriented (e.g. a workshop) →
+  // survival days are irrelevant here, hide the card entirely.
+  if (!tracks) return null;
 
   const goTo =
     onPress ?? (() => router.push(`/warehouse/${warehouseId}/readiness` as any));

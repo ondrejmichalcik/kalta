@@ -39,6 +39,11 @@ interface SyncBundle {
   custom_products: any[];
   inventory_sessions: any[];
   inventory_lines: any[];
+  // Sprint 7 — custom checklists (optional so older-version bundles still parse)
+  checklists?: any[];
+  checklist_entries?: any[];
+  checklist_satisfactions?: any[];
+  warehouse_checklists?: any[];
 }
 
 // Per-table user-mutable fields. Must match the lists used by the cloud
@@ -67,6 +72,11 @@ const MERGE_FIELDS: Record<string, string[]> = {
   ],
   custom_products: ['name', 'category', 'image_url', 'typical_expiry_days'],
   inventory_sessions: ['notes', 'completed_at', 'missing_count', 'found_count'],
+  checklists: ['name', 'goal_days'],
+  checklist_entries: ['label', 'group_name', 'category', 'keywords', 'quantified', 'rationale', 'sort_order'],
+  // Insert/delete-only join-ish tables — no in-place mutable fields.
+  checklist_satisfactions: [],
+  warehouse_checklists: [],
 };
 
 // Fields stored as 0/1 in SQLite but boolean in JS payloads. We normalize
@@ -144,6 +154,10 @@ export function exportSyncBundle(userId: string): string {
     custom_products: db.getAllSync('SELECT * FROM custom_products'),
     inventory_sessions: db.getAllSync('SELECT * FROM inventory_sessions'),
     inventory_lines: db.getAllSync('SELECT * FROM inventory_lines'),
+    checklists: db.getAllSync('SELECT * FROM checklists'),
+    checklist_entries: db.getAllSync('SELECT * FROM checklist_entries'),
+    checklist_satisfactions: db.getAllSync('SELECT * FROM checklist_satisfactions'),
+    warehouse_checklists: db.getAllSync('SELECT * FROM warehouse_checklists'),
   };
 
   return JSON.stringify(bundle);
@@ -196,6 +210,10 @@ export function previewSyncBundle(jsonString: string): P2PPreviewEntry[] {
     { table: 'items', rows: bundle.items, mergeFields: MERGE_FIELDS.items },
     { table: 'custom_products', rows: bundle.custom_products, mergeFields: MERGE_FIELDS.custom_products },
     { table: 'inventory_sessions', rows: bundle.inventory_sessions, mergeFields: MERGE_FIELDS.inventory_sessions },
+    { table: 'checklists', rows: bundle.checklists ?? [], mergeFields: MERGE_FIELDS.checklists },
+    { table: 'checklist_entries', rows: bundle.checklist_entries ?? [], mergeFields: MERGE_FIELDS.checklist_entries },
+    { table: 'checklist_satisfactions', rows: bundle.checklist_satisfactions ?? [], mergeFields: MERGE_FIELDS.checklist_satisfactions },
+    { table: 'warehouse_checklists', rows: bundle.warehouse_checklists ?? [], mergeFields: MERGE_FIELDS.warehouse_checklists },
   ];
 
   for (const { table, rows, mergeFields } of tables) {
@@ -383,6 +401,11 @@ function lookupPreviewDisplay(
     };
   }
 
+  if (table === 'checklist_entries') {
+    const label = (remote.label ?? local?.label ?? name) as string;
+    return { display_name: label, context: remote.group_name ?? local?.group_name ?? null, category: null, nav: null };
+  }
+
   return { display_name: name, context: null, category: null, nav: null };
 }
 
@@ -459,6 +482,21 @@ export function importSyncBundle(
     // Inventory sessions
     for (const row of bundle.inventory_sessions) {
       mergeRowPerField(db, 'inventory_sessions', row, MERGE_FIELDS.inventory_sessions, stats, resolutionMap);
+    }
+
+    // Custom checklists (Sprint 7) — checklists/entries per-field merge,
+    // satisfactions + warehouse links are insert/delete-only.
+    for (const row of bundle.checklists ?? []) {
+      mergeRowPerField(db, 'checklists', row, MERGE_FIELDS.checklists, stats, resolutionMap);
+    }
+    for (const row of bundle.checklist_entries ?? []) {
+      mergeRowPerField(db, 'checklist_entries', row, MERGE_FIELDS.checklist_entries, stats, resolutionMap);
+    }
+    for (const row of bundle.checklist_satisfactions ?? []) {
+      mergeRowPerField(db, 'checklist_satisfactions', row, MERGE_FIELDS.checklist_satisfactions, stats, resolutionMap);
+    }
+    for (const row of bundle.warehouse_checklists ?? []) {
+      mergeRowPerField(db, 'warehouse_checklists', row, MERGE_FIELDS.warehouse_checklists, stats, resolutionMap);
     }
 
     // Inventory lines (append-only, no merge — just insert if missing)

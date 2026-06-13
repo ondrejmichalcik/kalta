@@ -5,7 +5,7 @@
 // household needs that drive the math. Goal + members are managed in
 // warehouse settings (HOUSEHOLD section).
 // ============================================================================
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -17,27 +17,30 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   addShoppingItem,
   getWarehouseById,
   listAllItemsInWarehouse,
+  listChecklistEntries,
+  listChecklistSatisfactions,
   listHouseholdMembers,
   listShoppingList,
+  listWarehouseChecklists,
+  setChecklistSatisfaction,
+  subscribeChecklists,
+  subscribeHousehold,
 } from '@/src/lib/supabase';
 import { computeReadiness, type ReadinessResult } from '@/src/lib/readiness';
-import {
-  computeKitCoverage,
-  type KitCoverageEntry,
-  type KitOverride,
-} from '@/src/lib/kitCoverage';
-import type { HouseholdMember, ItemWithBox, ShoppingListItem } from '@/src/types/database';
+import { computeKitCoverage, type KitCoverageEntry, type KitOverride } from '@/src/lib/kitCoverage';
+import { ensureSeededChecklists, entryToKitItem, satisfactionsToMaps } from '@/src/lib/checklists';
+import { hasAnthropicKey } from '@/src/lib/vision';
+import { suggestKitMatches } from '@/src/lib/kitMatch';
+import { getExpiryStatus } from '@/src/types/database';
+import type { ChecklistEntry, HouseholdMember, ItemWithBox, ShoppingListItem } from '@/src/types/database';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
 import { CATEGORY_SF } from '@/src/components/categoryIcons';
-
-const dismissKey = (warehouseId: string) => `@kalta/kit_dismissed_${warehouseId}`;
 
 type Tone = 'red' | 'amber' | 'green';
 
@@ -72,39 +75,48 @@ export default function ReadinessScreen() {
   const [members, setMembers] = useState<HouseholdMember[]>([]);
   const [shoppingList, setShoppingList] = useState<ShoppingListItem[]>([]);
   const [goalDays, setGoalDays] = useState(14);
+  const [entries, setEntries] = useState<ChecklistEntry[]>([]);
   const [overrides, setOverrides] = useState<Map<string, KitOverride>>(new Map());
+  const [pins, setPins] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [showNotRelevant, setShowNotRelevant] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [matching, setMatching] = useState(false);
 
   const load = useCallback(async () => {
     if (!warehouseId) return;
+    hasAnthropicKey().then(setAiEnabled).catch(() => {});
     try {
-      const [rows, mem, wh, shop, overridesRaw] = await Promise.all([
+      const [rows, mem, wh, shop, checklists, links, sats] = await Promise.all([
         listAllItemsInWarehouse(warehouseId),
         listHouseholdMembers(warehouseId),
         getWarehouseById(warehouseId),
         listShoppingList(warehouseId).catch(() => [] as ShoppingListItem[]),
-        AsyncStorage.getItem(dismissKey(warehouseId)).catch(() => null),
+        ensureSeededChecklists(warehouseId),
+        listWarehouseChecklists(warehouseId).catch(() => []),
+        listChecklistSatisfactions(warehouseId).catch(() => []),
       ]);
       setItems(rows);
       setMembers(mem);
       setShoppingList(shop);
       setGoalDays(wh?.readiness_goal_days ?? 14);
-      if (overridesRaw) {
-        try {
-          const parsed = JSON.parse(overridesRaw);
-          // Legacy format: string[] of dismissed ids — all were force_stocked.
-          // New format: { [id]: 'force_stocked' | 'force_missing' }.
-          if (Array.isArray(parsed)) {
-            const m = new Map<string, KitOverride>();
-            for (const id of parsed) m.set(id, 'force_stocked');
-            setOverrides(m);
-          } else if (parsed && typeof parsed === 'object') {
-            setOverrides(new Map(Object.entries(parsed) as [string, KitOverride][]));
-          }
-        } catch {
-          /* corrupt — ignore */
-        }
-      }
+
+      // Active checklists = those linked to the warehouse; fall back to all
+      // (a warehouse with checklists but no explicit links still shows them).
+      const linkedIds = new Set(links.map((l) => l.checklist_id));
+      const activeIds = checklists
+        .filter((c) => linkedIds.size === 0 || linkedIds.has(c.id))
+        .map((c) => c.id);
+      const entryLists = await Promise.all(activeIds.map((id) => listChecklistEntries(id)));
+      const allEntries = entryLists.flat();
+      setEntries(allEntries);
+
+      const entryIds = new Set(allEntries.map((e) => e.id));
+      const { overrides: ov, pins: pn } = satisfactionsToMaps(
+        sats.filter((s) => entryIds.has(s.checklist_entry_id)),
+      );
+      setOverrides(ov);
+      setPins(pn);
     } catch {
       /* non-fatal */
     } finally {
@@ -118,47 +130,168 @@ export default function ReadinessScreen() {
     }, [load]),
   );
 
-  const kit = useMemo(
-    () => computeKitCoverage(items, overrides, shoppingList),
-    [items, overrides, shoppingList],
+  // Live-update when a peer edits a checklist / satisfaction / household member
+  // on another device.
+  useEffect(() => {
+    if (!warehouseId) return;
+    const unsubKit = subscribeChecklists(warehouseId, () => load());
+    const unsubHh = subscribeHousehold(warehouseId, () => load());
+    return () => {
+      unsubKit();
+      unsubHh();
+    };
+  }, [warehouseId, load]);
+
+  const kitItems = useMemo(() => entries.map(entryToKitItem), [entries]);
+
+  // Preliminary pass (no readiness) just to detect the water filter, which
+  // feeds computeReadiness. The final kit pass below uses the readiness result
+  // so quantified entries (food/water) become coverage-by-days.
+  const kitForFilter = useMemo(
+    () => computeKitCoverage(items, overrides, shoppingList, { entries: kitItems, pins }),
+    [items, overrides, shoppingList, kitItems, pins],
   );
-  const hasWaterFilter = useMemo(
-    () => kit.entries.some((e) => e.item.id === 'water-filter' && e.covered),
-    [kit],
-  );
+  const hasWaterFilter = useMemo(() => {
+    const wfEntry = entries.find((e) => e.seed_key === 'water-filter');
+    if (!wfEntry) return false;
+    return kitForFilter.entries.some((e) => e.item.id === wfEntry.id && e.covered);
+  }, [entries, kitForFilter]);
   const result = useMemo(
     () => computeReadiness(items, members, { hasWaterFilter }),
     [items, members, hasWaterFilter],
   );
+  const kit = useMemo(
+    () =>
+      computeKitCoverage(items, overrides, shoppingList, {
+        entries: kitItems,
+        pins,
+        readiness: result,
+        goalDays,
+      }),
+    [items, overrides, shoppingList, kitItems, pins, result, goalDays],
+  );
 
-  const persistOverrides = (next: Map<string, KitOverride>) => {
-    setOverrides(next);
-    if (warehouseId) {
-      const obj = Object.fromEntries(next);
-      AsyncStorage.setItem(dismissKey(warehouseId), JSON.stringify(obj)).catch(() => {});
-    }
+  // Persist a satisfaction override to the DB (synced). Pass null to clear.
+  const setOverride = (entryId: string, value: KitOverride | null) => {
+    if (!warehouseId) return;
+    setChecklistSatisfaction({
+      checklist_entry_id: entryId,
+      warehouse_id: warehouseId,
+      mode: value,
+    })
+      .then(() => load())
+      .catch((e: any) => Alert.alert('Error', e?.message ?? 'Could not update.'));
   };
 
-  const setOverride = (id: string, value: KitOverride | null) => {
-    const next = new Map(overrides);
-    if (value == null) next.delete(id);
-    else next.set(id, value);
-    persistOverrides(next);
+  const runSmartMatch = () => {
+    // Only the entries the local matcher couldn't cover and the user hasn't
+    // already decided on — that's where AI adds value.
+    const targets = kit.entries.filter(
+      (e) => e.applicable && e.override == null && e.state !== 'stocked',
+    );
+    const usableItems = items
+      .filter((i) => getExpiryStatus(i.expiry_date) !== 'expired')
+      .map((i) => ({ id: i.id, name: i.name }));
+
+    if (targets.length === 0) {
+      Alert.alert('Nothing to match', 'Every checklist item is already covered or decided.');
+      return;
+    }
+    if (usableItems.length === 0) {
+      Alert.alert('No items', 'There are no inventory items to match against.');
+      return;
+    }
+
+    // Explicit opt-in before any network call (BYOK — uses the user's key).
+    Alert.alert(
+      'Smart match',
+      `Send ${usableItems.length} item ${usableItems.length === 1 ? 'name' : 'names'} to Anthropic to suggest matches for ${targets.length} checklist ${targets.length === 1 ? 'item' : 'items'}? This uses your API key.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Match',
+          onPress: async () => {
+            setMatching(true);
+            try {
+              const suggestions = await suggestKitMatches(
+                targets.map((e) => ({
+                  id: e.item.id,
+                  label: e.item.label,
+                  rationale: e.item.rationale,
+                })),
+                usableItems,
+              );
+              if (suggestions.length === 0) {
+                Alert.alert('No matches', 'Claude found no confident matches.');
+                return;
+              }
+              const summary = suggestions
+                .map((s) => `• ${s.entryLabel} ← ${s.itemName}`)
+                .join('\n');
+              Alert.alert(
+                `${suggestions.length} ${suggestions.length === 1 ? 'match' : 'matches'} found`,
+                `${summary}\n\nPin these matches?`,
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Pin all',
+                    onPress: async () => {
+                      for (const s of suggestions) {
+                        await setChecklistSatisfaction({
+                          checklist_entry_id: s.entryId,
+                          warehouse_id: warehouseId!,
+                          mode: 'pin',
+                          item_id: s.itemId,
+                        }).catch(() => {});
+                      }
+                      load();
+                    },
+                  },
+                ],
+              );
+            } catch (e: any) {
+              Alert.alert('Smart match failed', e?.message ?? 'Could not reach Claude.');
+            } finally {
+              setMatching(false);
+            }
+          },
+        },
+      ],
+    );
   };
 
   const goToShopping = () => router.push(`/warehouse/${warehouseId}/shopping` as any);
 
+  const addGapToShopping = (item: KitCoverageEntry['item']) => {
+    addShoppingItem({
+      warehouse_id: warehouseId!,
+      label: item.label,
+      category: item.category,
+      source: 'gap',
+      source_ref: item.id,
+    })
+      .then(() => load())
+      .catch((e: any) => Alert.alert('Error', e?.message ?? 'Cannot add to shopping list.'));
+  };
+
   const handleEntryPress = (entry: KitCoverageEntry) => {
     const { item, state, override, matchedItem } = entry;
+
+    // User previously marked this irrelevant for the warehouse.
+    if (override === 'not_applicable') {
+      Alert.alert(item.label, 'Marked as not relevant for this warehouse.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Make it relevant again', onPress: () => setOverride(item.id, null) },
+      ]);
+      return;
+    }
 
     // User previously forced this to stocked despite no real match.
     if (override === 'force_stocked') {
       Alert.alert(item.label, 'You marked this as covered.', [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reset to auto-detect',
-          onPress: () => setOverride(item.id, null),
-        },
+        { text: 'Not relevant here', onPress: () => setOverride(item.id, 'not_applicable') },
+        { text: 'Reset to auto-detect', onPress: () => setOverride(item.id, null) },
       ]);
       return;
     }
@@ -178,23 +311,28 @@ export default function ReadinessScreen() {
       return;
     }
 
-    if (state === 'stocked') {
-      // Real inventory match — let the user see what got matched and back out
-      // of false positives without changing the inventory itself.
-      if (matchedItem) {
-        ActionSheetIOS.showActionSheetWithOptions(
-          {
-            title: item.label,
-            message: `Matched: "${matchedItem.name}"`,
-            options: ['OK', `That's not really ${item.label}`, 'Cancel'],
-            destructiveButtonIndex: 1,
-            cancelButtonIndex: 2,
-          },
-          (idx) => {
-            if (idx === 1) setOverride(item.id, 'force_missing');
-          },
-        );
-      }
+    if (state === 'stocked' || state === 'partial') {
+      // Real inventory match (or quantified supply) — let the user back out of
+      // false positives or hide the entry without changing inventory.
+      const message =
+        state === 'partial'
+          ? `${entry.days != null ? formatDays(entry.days) : 'Some'} of supply — below your goal.`
+          : matchedItem
+            ? `Matched: "${matchedItem.name}"`
+            : 'Covered.';
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: item.label,
+          message,
+          options: ['OK', `That's not really ${item.label}`, 'Not relevant here', 'Cancel'],
+          destructiveButtonIndex: 1,
+          cancelButtonIndex: 3,
+        },
+        (idx) => {
+          if (idx === 1) setOverride(item.id, 'force_missing');
+          else if (idx === 2) setOverride(item.id, 'not_applicable');
+        },
+      );
       return;
     }
 
@@ -206,12 +344,13 @@ export default function ReadinessScreen() {
             state === 'purchased'
               ? 'You marked this as purchased. Open Shopping list to restock.'
               : 'This is on your shopping list.',
-          options: ['Open shopping list', 'I already have this', 'Cancel'],
-          cancelButtonIndex: 2,
+          options: ['Open shopping list', 'I already have this', 'Not relevant here', 'Cancel'],
+          cancelButtonIndex: 3,
         },
         (idx) => {
           if (idx === 0) goToShopping();
           else if (idx === 1) setOverride(item.id, 'force_stocked');
+          else if (idx === 2) setOverride(item.id, 'not_applicable');
         },
       );
       return;
@@ -222,23 +361,13 @@ export default function ReadinessScreen() {
       {
         title: item.label,
         message: item.rationale,
-        options: ['Add to shopping list', 'I already have this', 'Cancel'],
-        cancelButtonIndex: 2,
+        options: ['Add to shopping list', 'I already have this', 'Not relevant here', 'Cancel'],
+        cancelButtonIndex: 3,
       },
       (idx) => {
-        if (idx === 0) {
-          addShoppingItem({
-            warehouse_id: warehouseId!,
-            label: item.label,
-            category: item.category,
-            source: 'gap',
-            source_ref: item.id,
-          })
-            .then(() => load())
-            .catch((e: any) => Alert.alert('Error', e?.message ?? 'Cannot add to shopping list.'));
-        } else if (idx === 1) {
-          setOverride(item.id, 'force_stocked');
-        }
+        if (idx === 0) addGapToShopping(item);
+        else if (idx === 1) setOverride(item.id, 'force_stocked');
+        else if (idx === 2) setOverride(item.id, 'not_applicable');
       },
     );
   };
@@ -321,11 +450,85 @@ export default function ReadinessScreen() {
               {kit.coveredCount}/{kit.total}
             </Text>
           </View>
-          <KitChecklist entries={kit.entries} onPress={handleEntryPress} />
+          <KitChecklist
+            entries={kit.entries.filter((e) => e.applicable)}
+            onPress={handleEntryPress}
+          />
+
+          {aiEnabled && (
+            <Pressable
+              style={({ pressed }) => [styles.smartMatchBtn, pressed && { opacity: 0.7 }]}
+              onPress={runSmartMatch}
+              disabled={matching}
+            >
+              {matching ? (
+                <ActivityIndicator color={colors.primary} size="small" />
+              ) : (
+                <Icon sf="sparkles" size={15} color={colors.primary} />
+              )}
+              <Text style={styles.smartMatchText}>
+                {matching ? 'Matching…' : 'Smart match with AI'}
+              </Text>
+            </Pressable>
+          )}
+
+          {/* Not relevant — collapsed by default, excluded from the count */}
+          {kit.entries.some((e) => !e.applicable) && (
+            <View style={styles.notRelevantWrap}>
+              <Pressable
+                style={({ pressed }) => [styles.notRelevantHeader, pressed && { opacity: 0.6 }]}
+                onPress={() => setShowNotRelevant((v) => !v)}
+              >
+                <Icon
+                  sf={showNotRelevant ? 'chevron.down' : 'chevron.right'}
+                  size={12}
+                  color={colors.textMuted}
+                />
+                <Text style={styles.notRelevantLabel}>
+                  Not relevant ({kit.entries.filter((e) => !e.applicable).length})
+                </Text>
+              </Pressable>
+              {showNotRelevant && (
+                <View style={styles.kitRowWrap}>
+                  {kit.entries
+                    .filter((e) => !e.applicable)
+                    .map((e) => (
+                      <Pressable
+                        key={e.item.id}
+                        onPress={() => handleEntryPress(e)}
+                        style={({ pressed }) => [
+                          styles.kitChip,
+                          styles.notRelevantChip,
+                          pressed && { opacity: 0.7 },
+                        ]}
+                      >
+                        <Icon sf="minus.circle" size={14} color={colors.textSubtle} />
+                        <Text style={[styles.kitChipText, { color: colors.textSubtle }]}>
+                          {e.item.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* Custom checklists link */}
+          <Pressable
+            style={({ pressed }) => [styles.needsCard, { marginTop: spacing.md }, pressed && { opacity: 0.7 }]}
+            onPress={() => router.push(`/warehouse/${warehouseId}/checklists` as any)}
+          >
+            <Icon sf="checklist" size={20} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.needsTitle}>Checklists</Text>
+              <Text style={styles.needsSub}>Custom lists of what to keep ready</Text>
+            </View>
+            <Icon sf="chevron.right" size={14} color={colors.textSubtle} />
+          </Pressable>
 
           {/* Shopping list link */}
           <Pressable
-            style={({ pressed }) => [styles.needsCard, { marginTop: spacing.md }, pressed && { opacity: 0.7 }]}
+            style={({ pressed }) => [styles.needsCard, { marginTop: spacing.sm }, pressed && { opacity: 0.7 }]}
             onPress={() => router.push(`/warehouse/${warehouseId}/shopping` as any)}
           >
             <Icon sf="cart.fill" size={20} color={colors.primary} />
@@ -461,6 +664,15 @@ function chipVisualFor(entry: KitCoverageEntry): {
       icon: 'cart.fill',
     };
   }
+  if (entry.state === 'partial') {
+    // Quantified entry with some supply but below goal — amber, half-filled.
+    return {
+      bg: colors.warningBg,
+      border: colors.warningBgStrong,
+      fg: colors.warningText,
+      icon: 'circle.lefthalf.filled',
+    };
+  }
   // missing
   return {
     bg: colors.dangerBg,
@@ -528,6 +740,7 @@ function KitChecklist({
                     ]}
                   >
                     {e.item.label}
+                    {e.state === 'partial' && e.days != null ? ` · ${Math.floor(e.days)}d` : ''}
                   </Text>
                 </Pressable>
               );
@@ -681,6 +894,30 @@ const styles = StyleSheet.create({
   kitChipGap: { backgroundColor: colors.dangerBg, borderColor: colors.dangerBgStrong },
   kitChipText: { ...typography.footnote, fontWeight: '600' },
   kitChipDismissed: { textDecorationLine: 'line-through', opacity: 0.7 },
+
+  notRelevantWrap: { marginTop: spacing.sm, gap: spacing.xs + 2 },
+  notRelevantHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: spacing.xs,
+  },
+  notRelevantLabel: { ...typography.label, color: colors.textMuted },
+  notRelevantChip: { backgroundColor: colors.palette.neutral[100], borderColor: colors.border },
+
+  smartMatchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs + 2,
+    marginTop: spacing.sm,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.primarySubtle,
+    backgroundColor: colors.primaryTint,
+  },
+  smartMatchText: { ...typography.subhead, color: colors.primary, fontWeight: '700' },
 
   emptyCard: {
     alignItems: 'center',

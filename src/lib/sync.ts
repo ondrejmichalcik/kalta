@@ -75,6 +75,10 @@ export async function initialFullSync(userId: string): Promise<void> {
     { data: invitations },
     { data: householdMembers },
     { data: shoppingItems },
+    { data: checklists },
+    { data: checklistEntries },
+    { data: checklistSatisfactions },
+    { data: warehouseChecklists },
     { data: inventorySessions },
     { data: inventoryLines },
   ] = await Promise.all([
@@ -89,6 +93,10 @@ export async function initialFullSync(userId: string): Promise<void> {
     supabase.from('invitations').select('*').in('warehouse_id', warehouseIds),
     supabase.from('household_members').select('*').in('warehouse_id', warehouseIds),
     supabase.from('shopping_list_items').select('*').in('warehouse_id', warehouseIds),
+    supabase.from('checklists').select('*').in('warehouse_id', warehouseIds),
+    supabase.from('checklist_entries').select('*').in('warehouse_id', warehouseIds),
+    supabase.from('checklist_satisfactions').select('*').in('warehouse_id', warehouseIds),
+    supabase.from('warehouse_checklists').select('*').in('warehouse_id', warehouseIds),
     supabase.from('inventory_sessions').select('*').in(
       'box_id',
       // Nested: sessions for boxes in our warehouses
@@ -164,9 +172,9 @@ export async function initialFullSync(userId: string): Promise<void> {
     // Household members (Sprint 6)
     for (const m of (householdMembers ?? []) as any[]) {
       db.runSync(
-        `INSERT OR REPLACE INTO household_members (id, warehouse_id, name, daily_kcal, daily_water_l, created_at, _synced)
-         VALUES (?, ?, ?, ?, ?, ?, 1)`,
-        [m.id, m.warehouse_id, m.name, m.daily_kcal, m.daily_water_l, m.created_at],
+        `INSERT OR REPLACE INTO household_members (id, warehouse_id, name, daily_kcal, daily_water_l, kind, created_at, _synced)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+        [m.id, m.warehouse_id, m.name, m.daily_kcal, m.daily_water_l, m.kind ?? null, m.created_at],
       );
     }
 
@@ -176,6 +184,36 @@ export async function initialFullSync(userId: string): Promise<void> {
         `INSERT OR REPLACE INTO shopping_list_items (id, warehouse_id, label, category, source, source_ref, quantity, checked, created_at, _synced)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
         [s.id, s.warehouse_id, s.label, s.category, s.source, s.source_ref, s.quantity, s.checked ? 1 : 0, s.created_at],
+      );
+    }
+
+    // Checklists (Sprint 7)
+    for (const c of (checklists ?? []) as any[]) {
+      db.runSync(
+        `INSERT OR REPLACE INTO checklists (id, warehouse_id, name, is_seed, goal_days, created_at, updated_at, _synced)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+        [c.id, c.warehouse_id, c.name, c.is_seed ? 1 : 0, c.goal_days ?? null, c.created_at, c.updated_at],
+      );
+    }
+    for (const e of (checklistEntries ?? []) as any[]) {
+      db.runSync(
+        `INSERT OR REPLACE INTO checklist_entries (id, checklist_id, warehouse_id, seed_key, label, group_name, category, keywords, quantified, rationale, sort_order, created_at, updated_at, _synced)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        [e.id, e.checklist_id, e.warehouse_id, e.seed_key ?? null, e.label, e.group_name ?? null, e.category ?? null, e.keywords ?? null, e.quantified ?? null, e.rationale ?? null, e.sort_order ?? 0, e.created_at, e.updated_at],
+      );
+    }
+    for (const s of (checklistSatisfactions ?? []) as any[]) {
+      db.runSync(
+        `INSERT OR REPLACE INTO checklist_satisfactions (id, checklist_entry_id, warehouse_id, item_id, mode, created_at, _synced)
+         VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        [s.id, s.checklist_entry_id, s.warehouse_id, s.item_id ?? null, s.mode, s.created_at],
+      );
+    }
+    for (const wc of (warehouseChecklists ?? []) as any[]) {
+      db.runSync(
+        `INSERT OR REPLACE INTO warehouse_checklists (id, warehouse_id, checklist_id, created_at, _synced)
+         VALUES (?, ?, ?, ?, 1)`,
+        [wc.id, wc.warehouse_id, wc.checklist_id, wc.created_at],
       );
     }
 
@@ -198,7 +236,7 @@ export async function initialFullSync(userId: string): Promise<void> {
     }
 
     // Update sync metadata
-    const tables = ['users', 'warehouses', 'warehouse_members', 'boxes', 'items', 'custom_products', 'invitations', 'inventory_sessions', 'household_members', 'shopping_list_items'];
+    const tables = ['users', 'warehouses', 'warehouse_members', 'boxes', 'items', 'custom_products', 'invitations', 'inventory_sessions', 'household_members', 'shopping_list_items', 'checklists', 'checklist_entries', 'checklist_satisfactions', 'warehouse_checklists'];
     for (const t of tables) {
       db.runSync(
         `INSERT OR REPLACE INTO _sync_meta (table_name, last_pulled_at) VALUES (?, ?)`,
@@ -233,19 +271,45 @@ export function hasInitialSync(): boolean {
  * Coalesces rapid writes (e.g. batch item inserts) into a single sync pass.
  */
 let _pushTimer: ReturnType<typeof setTimeout> | null = null;
-function scheduleAutoPush() {
+let _retryAttempt = 0;
+const RETRY_BASE_MS = 2000;
+const RETRY_MAX_MS = 60000;
+const RETRY_MAX_ATTEMPTS = 5;
+
+function backoffDelay(): number {
+  return Math.min(RETRY_BASE_MS * 2 ** (_retryAttempt - 1), RETRY_MAX_MS);
+}
+
+// Debounced auto-push with bounded exponential backoff. A normal write
+// schedules a 500ms push; if that push leaves anything undelivered (network
+// error → entry.failed), the next attempt backs off 2s → 4s → … capped at 60s,
+// so a transient outage drains on its own instead of waiting for the next
+// write or reconnect. A clean drain resets the backoff.
+function scheduleAutoPush(delayMs = 500) {
   if (_pushTimer) clearTimeout(_pushTimer);
   _pushTimer = setTimeout(() => {
     _pushTimer = null;
     const prev = _currentStatus;
     setSyncStatus('syncing');
     pushSync()
-      .catch(() => {})
+      .then((res) => {
+        if (res.failed > 0) {
+          // Something didn't drain — retry with backoff (bounded).
+          if (_retryAttempt < RETRY_MAX_ATTEMPTS) _retryAttempt++;
+          scheduleAutoPush(backoffDelay());
+        } else {
+          _retryAttempt = 0;
+        }
+      })
+      .catch(() => {
+        if (_retryAttempt < RETRY_MAX_ATTEMPTS) _retryAttempt++;
+        scheduleAutoPush(backoffDelay());
+      })
       .finally(() => {
         // Only drop back to idle if we were the one who set syncing.
         if (_currentStatus === 'syncing') setSyncStatus(prev === 'error' ? 'idle' : prev);
       });
-  }, 500);
+  }, delayMs);
 }
 
 /**
@@ -1647,9 +1711,9 @@ export async function pullSync(userId: string): Promise<{ pulled: number; confli
         );
         if (local && local._synced === 0) continue; // pending local edit wins
         db.runSync(
-          `INSERT OR REPLACE INTO household_members (id, warehouse_id, name, daily_kcal, daily_water_l, created_at, _synced)
-           VALUES (?, ?, ?, ?, ?, ?, 1)`,
-          [m.id, m.warehouse_id, m.name, m.daily_kcal, m.daily_water_l, m.created_at],
+          `INSERT OR REPLACE INTO household_members (id, warehouse_id, name, daily_kcal, daily_water_l, kind, created_at, _synced)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+          [m.id, m.warehouse_id, m.name, m.daily_kcal, m.daily_water_l, m.kind ?? null, m.created_at],
         );
         pulled++;
       }
@@ -1722,10 +1786,109 @@ export async function pullSync(userId: string): Promise<{ pulled: number; confli
         if (!serverIds.has(id)) db.runSync('DELETE FROM custom_products WHERE id = ?', [id]);
       }
     }
+
+    // Custom checklists (Sprint 7) — same last-write-wins shape.
+    const whParams = myWarehouseIds.map(() => '?').join(',');
+
+    const { data: cl, error: clErr } = await supabase
+      .from('checklists').select('*').in('warehouse_id', myWarehouseIds);
+    if (!clErr && cl) {
+      const serverIds = new Set<string>();
+      for (const c of cl as any[]) {
+        serverIds.add(c.id);
+        const local = db.getFirstSync<{ _synced: number }>('SELECT _synced FROM checklists WHERE id = ?', [c.id]);
+        if (local && local._synced === 0) continue;
+        db.runSync(
+          `INSERT OR REPLACE INTO checklists (id, warehouse_id, name, is_seed, goal_days, created_at, updated_at, _synced)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+          [c.id, c.warehouse_id, c.name, c.is_seed ? 1 : 0, c.goal_days ?? null, c.created_at, c.updated_at],
+        );
+        pulled++;
+      }
+      const localRows = db.getAllSync<{ id: string }>(
+        `SELECT id FROM checklists WHERE warehouse_id IN (${whParams}) AND _synced = 1 AND _deleted_at IS NULL`,
+        myWarehouseIds,
+      );
+      for (const { id } of localRows) {
+        if (!serverIds.has(id)) db.runSync('DELETE FROM checklists WHERE id = ?', [id]);
+      }
+    }
+
+    const { data: ce, error: ceErr } = await supabase
+      .from('checklist_entries').select('*').in('warehouse_id', myWarehouseIds);
+    if (!ceErr && ce) {
+      const serverIds = new Set<string>();
+      for (const e of ce as any[]) {
+        serverIds.add(e.id);
+        const local = db.getFirstSync<{ _synced: number }>('SELECT _synced FROM checklist_entries WHERE id = ?', [e.id]);
+        if (local && local._synced === 0) continue;
+        db.runSync(
+          `INSERT OR REPLACE INTO checklist_entries (id, checklist_id, warehouse_id, seed_key, label, group_name, category, keywords, quantified, rationale, sort_order, created_at, updated_at, _synced)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+          [e.id, e.checklist_id, e.warehouse_id, e.seed_key ?? null, e.label, e.group_name ?? null, e.category ?? null, e.keywords ?? null, e.quantified ?? null, e.rationale ?? null, e.sort_order ?? 0, e.created_at, e.updated_at],
+        );
+        pulled++;
+      }
+      const localRows = db.getAllSync<{ id: string }>(
+        `SELECT id FROM checklist_entries WHERE warehouse_id IN (${whParams}) AND _synced = 1 AND _deleted_at IS NULL`,
+        myWarehouseIds,
+      );
+      for (const { id } of localRows) {
+        if (!serverIds.has(id)) db.runSync('DELETE FROM checklist_entries WHERE id = ?', [id]);
+      }
+    }
+
+    const { data: cs, error: csErr } = await supabase
+      .from('checklist_satisfactions').select('*').in('warehouse_id', myWarehouseIds);
+    if (!csErr && cs) {
+      const serverIds = new Set<string>();
+      for (const s of cs as any[]) {
+        serverIds.add(s.id);
+        const local = db.getFirstSync<{ _synced: number }>('SELECT _synced FROM checklist_satisfactions WHERE id = ?', [s.id]);
+        if (local && local._synced === 0) continue;
+        db.runSync(
+          `INSERT OR REPLACE INTO checklist_satisfactions (id, checklist_entry_id, warehouse_id, item_id, mode, created_at, _synced)
+           VALUES (?, ?, ?, ?, ?, ?, 1)`,
+          [s.id, s.checklist_entry_id, s.warehouse_id, s.item_id ?? null, s.mode, s.created_at],
+        );
+        pulled++;
+      }
+      const localRows = db.getAllSync<{ id: string }>(
+        `SELECT id FROM checklist_satisfactions WHERE warehouse_id IN (${whParams}) AND _synced = 1 AND _deleted_at IS NULL`,
+        myWarehouseIds,
+      );
+      for (const { id } of localRows) {
+        if (!serverIds.has(id)) db.runSync('DELETE FROM checklist_satisfactions WHERE id = ?', [id]);
+      }
+    }
+
+    const { data: wc, error: wcErr } = await supabase
+      .from('warehouse_checklists').select('*').in('warehouse_id', myWarehouseIds);
+    if (!wcErr && wc) {
+      const serverIds = new Set<string>();
+      for (const w of wc as any[]) {
+        serverIds.add(w.id);
+        const local = db.getFirstSync<{ _synced: number }>('SELECT _synced FROM warehouse_checklists WHERE id = ?', [w.id]);
+        if (local && local._synced === 0) continue;
+        db.runSync(
+          `INSERT OR REPLACE INTO warehouse_checklists (id, warehouse_id, checklist_id, created_at, _synced)
+           VALUES (?, ?, ?, ?, 1)`,
+          [w.id, w.warehouse_id, w.checklist_id, w.created_at],
+        );
+        pulled++;
+      }
+      const localRows = db.getAllSync<{ id: string }>(
+        `SELECT id FROM warehouse_checklists WHERE warehouse_id IN (${whParams}) AND _synced = 1 AND _deleted_at IS NULL`,
+        myWarehouseIds,
+      );
+      for (const { id } of localRows) {
+        if (!serverIds.has(id)) db.runSync('DELETE FROM warehouse_checklists WHERE id = ?', [id]);
+      }
+    }
   }
 
   // Update sync timestamps
-  for (const t of ['boxes', 'items', 'household_members', 'shopping_list_items', 'custom_products']) {
+  for (const t of ['boxes', 'items', 'household_members', 'shopping_list_items', 'custom_products', 'checklists', 'checklist_entries', 'checklist_satisfactions', 'warehouse_checklists']) {
     db.runSync(
       'INSERT OR REPLACE INTO _sync_meta (table_name, last_pulled_at) VALUES (?, ?)',
       [t, now],

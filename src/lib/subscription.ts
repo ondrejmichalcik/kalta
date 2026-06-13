@@ -332,9 +332,29 @@ export function useSubscription(): UseSubscriptionResult {
       if (mountedRef.current) setState(OPEN_ACCESS_STATE);
       return;
     }
+    const prev = memoState;
     try {
       const next = await queryStoreKitState();
       memoState = next;
+      // Regained cloud access (renew / subscribe / restore) — drain the local
+      // change queue that built up while lapsed RIGHT AWAY, instead of waiting
+      // for the next app launch. pushSync is gated on isCloudEnabledNow(),
+      // which now reads `active` from the just-updated memoState. Only fires on
+      // a real entitlement change (lapsed/never → active), not the normal
+      // loading→active hydration on launch (that path syncs on its own).
+      if (next.status === 'active' && (prev?.status === 'lapsed' || prev?.status === 'never')) {
+        try {
+          const { runSyncCycle } = require('./sync') as typeof import('./sync');
+          const { getActiveUserId } = require('./supabase') as typeof import('./supabase');
+          getActiveUserId()
+            .then((uid: string | null) => {
+              if (uid) runSyncCycle(uid).catch(() => {});
+            })
+            .catch(() => {});
+        } catch {
+          /* non-fatal — will sync on next launch */
+        }
+      }
       if (!mountedRef.current) return;
       setState(next);
       await saveCachedState(next);

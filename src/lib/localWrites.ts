@@ -10,7 +10,7 @@ import * as Crypto from 'expo-crypto';
 import { getDb } from './localDb';
 import { enqueueChange } from './sync';
 import { supabase } from './supabase';
-import type { Box, Item, Category, Unit, Warehouse, CustomProduct, InventorySession, InventoryLine, InventoryLineStatus, HouseholdMember, ShoppingListItem, ShoppingSource } from '@/src/types/database';
+import type { Box, Item, Category, Unit, Warehouse, CustomProduct, InventorySession, InventoryLine, InventoryLineStatus, HouseholdMember, MemberKind, ShoppingListItem, ShoppingSource, Checklist, ChecklistEntry, SatisfactionMode } from '@/src/types/database';
 
 function genId(): string {
   return Crypto.randomUUID();
@@ -855,22 +855,32 @@ export function addHouseholdMemberLocal(input: {
   name: string;
   daily_kcal: number;
   daily_water_l: number;
+  kind?: MemberKind | null;
 }): HouseholdMember {
   const db = getDb();
   const id = genId();
   const now = nowIso();
+  const kind = input.kind ?? null;
   db.runSync(
-    `INSERT INTO household_members (id, warehouse_id, name, daily_kcal, daily_water_l, created_at, _synced)
-     VALUES (?, ?, ?, ?, ?, ?, 0)`,
-    [id, input.warehouse_id, input.name, input.daily_kcal, input.daily_water_l, now],
+    `INSERT INTO household_members (id, warehouse_id, name, daily_kcal, daily_water_l, kind, created_at, _synced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+    [id, input.warehouse_id, input.name, input.daily_kcal, input.daily_water_l, kind, now],
   );
   enqueueChange('household_members', id, 'INSERT');
-  return { id, ...input, created_at: now };
+  return {
+    id,
+    warehouse_id: input.warehouse_id,
+    name: input.name,
+    daily_kcal: input.daily_kcal,
+    daily_water_l: input.daily_water_l,
+    kind,
+    created_at: now,
+  };
 }
 
 export function updateHouseholdMemberLocal(
   id: string,
-  patch: Partial<Pick<HouseholdMember, 'name' | 'daily_kcal' | 'daily_water_l'>>,
+  patch: Partial<Pick<HouseholdMember, 'name' | 'daily_kcal' | 'daily_water_l' | 'kind'>>,
 ): void {
   const db = getDb();
   const fields = Object.keys(patch) as (keyof typeof patch)[];
@@ -944,4 +954,192 @@ export function deleteShoppingItemLocal(id: string): void {
     [nowIso(), id],
   );
   enqueueChange('shopping_list_items', id, 'DELETE');
+}
+
+// ---- Custom checklists (Sprint 7) -----------------------------------------
+// LWW sync (no per-field merge / conflict tracking) — these tables are small
+// and low-conflict, same shape as custom_products / shopping list.
+
+export function createChecklistLocal(input: {
+  warehouse_id: string;
+  name: string;
+  is_seed?: boolean;
+  goal_days?: number | null;
+}): Checklist {
+  const db = getDb();
+  const id = genId();
+  const now = nowIso();
+  const isSeed = input.is_seed ?? false;
+  const goal = input.goal_days ?? null;
+  db.runSync(
+    `INSERT INTO checklists (id, warehouse_id, name, is_seed, goal_days, created_at, updated_at, _synced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+    [id, input.warehouse_id, input.name, isSeed ? 1 : 0, goal, now, now],
+  );
+  enqueueChange('checklists', id, 'INSERT');
+  return {
+    id, warehouse_id: input.warehouse_id, name: input.name,
+    is_seed: isSeed, goal_days: goal, created_at: now, updated_at: now,
+  };
+}
+
+export function updateChecklistLocal(
+  id: string,
+  patch: Partial<Pick<Checklist, 'name' | 'goal_days'>>,
+): void {
+  const db = getDb();
+  const fields = Object.keys(patch) as (keyof typeof patch)[];
+  if (fields.length === 0) return;
+  const now = nowIso();
+  const setClause = [...fields.map((f) => `${f} = ?`), 'updated_at = ?'].join(', ');
+  const values = [...fields.map((f) => patch[f] as string | number | null), now];
+  db.runSync(`UPDATE checklists SET ${setClause}, _synced = 0 WHERE id = ?`, [...values, id]);
+  enqueueChange('checklists', id, 'UPDATE', [...(fields as string[]), 'updated_at']);
+}
+
+export function deleteChecklistLocal(id: string): void {
+  const db = getDb();
+  const now = nowIso();
+  db.runSync('UPDATE checklists SET _deleted_at = ?, _synced = 0 WHERE id = ?', [now, id]);
+  enqueueChange('checklists', id, 'DELETE');
+  // Soft-delete child entries locally too (server cascades on the FK).
+  const entries = db.getAllSync<{ id: string }>(
+    'SELECT id FROM checklist_entries WHERE checklist_id = ? AND _deleted_at IS NULL',
+    [id],
+  );
+  for (const e of entries) {
+    db.runSync('UPDATE checklist_entries SET _deleted_at = ?, _synced = 0 WHERE id = ?', [now, e.id]);
+    enqueueChange('checklist_entries', e.id, 'DELETE');
+  }
+}
+
+export function createChecklistEntryLocal(input: {
+  checklist_id: string;
+  warehouse_id: string;
+  label: string;
+  group_name?: string | null;
+  category?: Category | null;
+  keywords?: string[];
+  quantified?: 'food' | 'water' | null;
+  rationale?: string | null;
+  sort_order?: number;
+  seed_key?: string | null;
+}): ChecklistEntry {
+  const db = getDb();
+  const id = genId();
+  const now = nowIso();
+  const keywords = input.keywords ?? [];
+  const sortOrder = input.sort_order ?? 0;
+  db.runSync(
+    `INSERT INTO checklist_entries (id, checklist_id, warehouse_id, seed_key, label, group_name, category, keywords, quantified, rationale, sort_order, created_at, updated_at, _synced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [
+      id, input.checklist_id, input.warehouse_id, input.seed_key ?? null, input.label,
+      input.group_name ?? null, input.category ?? null, JSON.stringify(keywords),
+      input.quantified ?? null, input.rationale ?? null, sortOrder, now, now,
+    ],
+  );
+  enqueueChange('checklist_entries', id, 'INSERT');
+  return {
+    id, checklist_id: input.checklist_id, warehouse_id: input.warehouse_id,
+    seed_key: input.seed_key ?? null, label: input.label, group_name: input.group_name ?? null,
+    category: (input.category ?? null) as Category | null, keywords,
+    quantified: input.quantified ?? null, rationale: input.rationale ?? null,
+    sort_order: sortOrder, created_at: now, updated_at: now,
+  };
+}
+
+export function updateChecklistEntryLocal(
+  id: string,
+  patch: Partial<{
+    label: string;
+    group_name: string | null;
+    category: Category | null;
+    keywords: string[];
+    quantified: 'food' | 'water' | null;
+    rationale: string | null;
+    sort_order: number;
+  }>,
+): void {
+  const db = getDb();
+  const fields = Object.keys(patch) as (keyof typeof patch)[];
+  if (fields.length === 0) return;
+  const now = nowIso();
+  const setClause = [...fields.map((f) => `${f} = ?`), 'updated_at = ?'].join(', ');
+  const values = fields.map((f) =>
+    f === 'keywords' ? JSON.stringify(patch.keywords ?? []) : (patch[f] as string | number | null),
+  );
+  db.runSync(
+    `UPDATE checklist_entries SET ${setClause}, _synced = 0 WHERE id = ?`,
+    [...values, now, id],
+  );
+  enqueueChange('checklist_entries', id, 'UPDATE', [...(fields as string[]), 'updated_at']);
+}
+
+export function deleteChecklistEntryLocal(id: string): void {
+  const db = getDb();
+  db.runSync('UPDATE checklist_entries SET _deleted_at = ?, _synced = 0 WHERE id = ?', [nowIso(), id]);
+  enqueueChange('checklist_entries', id, 'DELETE');
+}
+
+/**
+ * Set the single satisfaction for an entry (pin / force_stocked / force_missing
+ * / not_applicable). Clears any existing satisfaction first — an entry has at
+ * most one. Pass mode=null to just clear.
+ */
+export function setChecklistSatisfactionLocal(input: {
+  checklist_entry_id: string;
+  warehouse_id: string;
+  mode: SatisfactionMode | null;
+  item_id?: string | null;
+}): void {
+  const db = getDb();
+  const now = nowIso();
+  const existing = db.getAllSync<{ id: string }>(
+    'SELECT id FROM checklist_satisfactions WHERE checklist_entry_id = ? AND _deleted_at IS NULL',
+    [input.checklist_entry_id],
+  );
+  for (const e of existing) {
+    db.runSync('UPDATE checklist_satisfactions SET _deleted_at = ?, _synced = 0 WHERE id = ?', [now, e.id]);
+    enqueueChange('checklist_satisfactions', e.id, 'DELETE');
+  }
+  if (input.mode == null) return;
+  const id = genId();
+  db.runSync(
+    `INSERT INTO checklist_satisfactions (id, checklist_entry_id, warehouse_id, item_id, mode, created_at, _synced)
+     VALUES (?, ?, ?, ?, ?, ?, 0)`,
+    [id, input.checklist_entry_id, input.warehouse_id, input.item_id ?? null, input.mode, now],
+  );
+  enqueueChange('checklist_satisfactions', id, 'INSERT');
+}
+
+export function addWarehouseChecklistLocal(input: {
+  warehouse_id: string;
+  checklist_id: string;
+}): void {
+  const db = getDb();
+  const existing = db.getFirstSync<{ id: string }>(
+    'SELECT id FROM warehouse_checklists WHERE warehouse_id = ? AND checklist_id = ? AND _deleted_at IS NULL',
+    [input.warehouse_id, input.checklist_id],
+  );
+  if (existing) return;
+  const id = genId();
+  db.runSync(
+    `INSERT INTO warehouse_checklists (id, warehouse_id, checklist_id, created_at, _synced)
+     VALUES (?, ?, ?, ?, 0)`,
+    [id, input.warehouse_id, input.checklist_id, nowIso()],
+  );
+  enqueueChange('warehouse_checklists', id, 'INSERT');
+}
+
+export function removeWarehouseChecklistLocal(warehouseId: string, checklistId: string): void {
+  const db = getDb();
+  const rows = db.getAllSync<{ id: string }>(
+    'SELECT id FROM warehouse_checklists WHERE warehouse_id = ? AND checklist_id = ? AND _deleted_at IS NULL',
+    [warehouseId, checklistId],
+  );
+  for (const r of rows) {
+    db.runSync('UPDATE warehouse_checklists SET _deleted_at = ?, _synced = 0 WHERE id = ?', [nowIso(), r.id]);
+    enqueueChange('warehouse_checklists', r.id, 'DELETE');
+  }
 }

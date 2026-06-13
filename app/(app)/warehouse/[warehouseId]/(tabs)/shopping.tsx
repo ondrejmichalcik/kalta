@@ -17,7 +17,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useGlobalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import {
@@ -25,12 +24,17 @@ import {
   deleteShoppingItem,
   findCustomProduct,
   listAllItemsInWarehouse,
+  listChecklistEntries,
+  listChecklistSatisfactions,
   listCustomProducts,
   listShoppingList,
+  listWarehouseChecklists,
   setShoppingItemChecked,
+  subscribeShopping,
 } from '@/src/lib/supabase';
 import { computeLowStock } from '@/src/lib/lowStock';
-import { computeKitCoverage, type KitOverride } from '@/src/lib/kitCoverage';
+import { computeKitCoverage } from '@/src/lib/kitCoverage';
+import { ensureSeededChecklists, entryToKitItem, satisfactionsToMaps } from '@/src/lib/checklists';
 import { CATEGORY_LABEL, getExpiryStatus } from '@/src/types/database';
 import type { Category, Item, ItemWithBox, ShoppingListItem, ShoppingSource } from '@/src/types/database';
 import { BoxPicker } from '@/src/components/BoxPicker';
@@ -44,8 +48,6 @@ const SOURCE_LABEL: Record<ShoppingSource, string> = {
   gap: 'Kit gap',
   manual: 'Manual',
 };
-
-const dismissKey = (warehouseId: string) => `@kalta/kit_dismissed_${warehouseId}`;
 
 interface Suggestion {
   label: string;
@@ -107,6 +109,12 @@ export default function ShoppingScreen() {
     }, [load]),
   );
 
+  // Live-update the shared list when a peer checks off / adds in the store.
+  useEffect(() => {
+    if (!warehouseId) return;
+    return subscribeShopping(warehouseId, () => load());
+  }, [warehouseId, load]);
+
   // Two-section partition: unchecked = still to buy, checked = bought and
   // waiting to be restocked into the warehouse.
   const toBuy = useMemo(() => list.filter((i) => !i.checked), [list]);
@@ -166,32 +174,32 @@ export default function ShoppingScreen() {
     if (!warehouseId) return;
     setRefreshing(true);
     try {
-      const [items, customProducts, dismissedRaw] = await Promise.all([
+      const [items, customProducts, checklists, links, sats] = await Promise.all([
         listAllItemsInWarehouse(warehouseId),
         listCustomProducts(warehouseId).catch(() => []),
-        AsyncStorage.getItem(dismissKey(warehouseId)).catch(() => null),
+        ensureSeededChecklists(warehouseId),
+        listWarehouseChecklists(warehouseId).catch(() => []),
+        listChecklistSatisfactions(warehouseId).catch(() => []),
       ]);
-      // overrides may live as legacy string[] (force_stocked only) or the
-      // newer { [id]: 'force_stocked' | 'force_missing' } map — readiness.tsx
-      // owns the canonical format, this screen only needs to read it.
-      const overrides = new Map<string, KitOverride>();
-      if (dismissedRaw) {
-        try {
-          const parsed = JSON.parse(dismissedRaw);
-          if (Array.isArray(parsed)) {
-            for (const id of parsed) overrides.set(id, 'force_stocked');
-          } else if (parsed && typeof parsed === 'object') {
-            for (const [k, v] of Object.entries(parsed)) {
-              overrides.set(k, v as KitOverride);
-            }
-          }
-        } catch {
-          /* corrupt — treat as no overrides */
-        }
-      }
+
+      // Kit gaps come from the warehouse's active DB checklists (same source as
+      // the readiness screen) — linked lists, or all when nothing is linked.
+      const linkedIds = new Set(links.map((l) => l.checklist_id));
+      const activeIds = checklists
+        .filter((c) => linkedIds.size === 0 || linkedIds.has(c.id))
+        .map((c) => c.id);
+      const entryLists = await Promise.all(activeIds.map((id) => listChecklistEntries(id)));
+      const entries = entryLists.flat();
+      const entryIds = new Set(entries.map((e) => e.id));
+      const { overrides, pins } = satisfactionsToMaps(
+        sats.filter((s) => entryIds.has(s.checklist_entry_id)),
+      );
 
       const lowStock = computeLowStock(items, customProducts);
-      const kit = computeKitCoverage(items, overrides);
+      const kit = computeKitCoverage(items, overrides, [], {
+        entries: entries.map(entryToKitItem),
+        pins,
+      });
 
       // Build suggestions keyed by normalized label so expired + below-par of
       // the same product collapse into one row.
@@ -213,7 +221,10 @@ export default function ShoppingScreen() {
         }
       }
       for (const e of kit.entries) {
-        if (!e.covered) {
+        // Only truly missing entries become new gap suggestions — skip
+        // not_applicable (irrelevant here), partial/stocked, and rows already
+        // on the list (on_list / purchased).
+        if (e.state === 'missing') {
           put({ label: e.item.label, category: e.item.category, source: 'gap', source_ref: e.item.id });
         }
       }

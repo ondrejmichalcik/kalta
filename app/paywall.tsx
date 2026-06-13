@@ -64,17 +64,23 @@ export default function PaywallScreen() {
   const [displayPrice, setDisplayPrice] = useState<string | null>(null);
   const { status } = useSubscription();
 
-  // Watch for subscription state to flip out of `never` — that means the
-  // purchase completed (or a Restore surfaced historical entitlements).
-  // Dismiss the paywall back to the app. With enforcement off the status
-  // is always `active`, so we'd bounce off the screen immediately —
-  // skip the redirect in that case to keep the screen previewable.
+  // Auto-dismiss applies ONLY to the forced paywall (canDismiss=false, shown
+  // when status was `never`): once the user gains entry rights — `active`
+  // (purchase) or `lapsed` (a Restore surfaced an expired sub → local-only is
+  // allowed) — send them into the app.
+  //
+  // The dismissible RENEW paywall (canDismiss=true) is entered while already
+  // `lapsed`, so this effect must NOT run for it — otherwise it'd fire on the
+  // first cache-hydrated render and bounce the modal before the user can tap
+  // anything. The renew modal is dismissed by the close button or by
+  // `handleSubscribe` after a successful purchase instead.
   useEffect(() => {
     if (!SUBSCRIPTION_ENFORCEMENT_ENABLED) return;
+    if (canDismiss) return;
     if (status === 'active' || status === 'lapsed') {
       router.replace('/' as any);
     }
-  }, [status, router]);
+  }, [status, canDismiss, router]);
 
   // Try to pull the localized price from StoreKit. Falls back to the
   // hardcoded "$14.99" when enforcement is off or the store can't be

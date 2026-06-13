@@ -45,7 +45,7 @@ export const CATEGORY_LABEL: Record<Category, string> = {
 };
 
 // Maps domain categories to the custom icon names rendered via <Icon>.
-// Keep in sync with src/components/Icon.tsx IconName union.
+// Keep in sync with src/components/Icon.tsx BrandIconName union.
 export const CATEGORY_ICON: Record<Category, string> = {
   water: 'water-drop',
   food: 'food-can',
@@ -164,12 +164,25 @@ export interface CustomProduct {
 // Sprint 6 — Readiness
 // ----------------------------------------------------------------------------
 
+// Household member "kind" — drives auto-suggested kit add-ons (e.g. an
+// adult_female suggests feminine hygiene, an infant/toddler suggests baby
+// supplies). `custom` / null = no implied add-on.
+export type MemberKind =
+  | 'adult_male'
+  | 'adult_female'
+  | 'teen'
+  | 'child'
+  | 'toddler'
+  | 'infant'
+  | 'custom';
+
 export interface HouseholdMember {
   id: string;
   warehouse_id: string;
   name: string;
   daily_kcal: number;
   daily_water_l: number;
+  kind: MemberKind | null;
   created_at: string;
 }
 
@@ -187,20 +200,72 @@ export interface ShoppingListItem {
   created_at: string;
 }
 
+// ----------------------------------------------------------------------------
+// Sprint 7 — Custom readiness checklists
+// ----------------------------------------------------------------------------
+
+export interface Checklist {
+  id: string;
+  warehouse_id: string;
+  name: string;
+  is_seed: boolean;
+  goal_days: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChecklistEntry {
+  id: string;
+  checklist_id: string;
+  warehouse_id: string;
+  /** Original hardcoded kit.id for FEMA seed entries; null for custom. */
+  seed_key: string | null;
+  label: string;
+  group_name: string | null;
+  category: Category | null;
+  keywords: string[];
+  quantified: 'food' | 'water' | null;
+  rationale: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type SatisfactionMode = 'pin' | 'force_stocked' | 'force_missing' | 'not_applicable';
+
+export interface ChecklistSatisfaction {
+  id: string;
+  checklist_entry_id: string;
+  warehouse_id: string;
+  /** Set when mode === 'pin' — the inventory item that fulfils the entry. */
+  item_id: string | null;
+  mode: SatisfactionMode;
+  created_at: string;
+}
+
+export interface WarehouseChecklist {
+  id: string;
+  warehouse_id: string;
+  checklist_id: string;
+  created_at: string;
+}
+
 // Quick-fill presets for adding a household member. Values are rough
 // daily-needs guidelines (editable after pick).
 export interface DailyNeedPreset {
   label: string;
   daily_kcal: number;
   daily_water_l: number;
+  kind: MemberKind;
 }
 
 export const DAILY_NEED_PRESETS: DailyNeedPreset[] = [
-  { label: 'Adult male', daily_kcal: 2500, daily_water_l: 3.0 },
-  { label: 'Adult female', daily_kcal: 2000, daily_water_l: 2.5 },
-  { label: 'Teenager', daily_kcal: 2200, daily_water_l: 2.5 },
-  { label: 'Child (4–8)', daily_kcal: 1400, daily_water_l: 1.5 },
-  { label: 'Toddler', daily_kcal: 1200, daily_water_l: 1.0 },
+  { label: 'Adult male', daily_kcal: 2500, daily_water_l: 3.0, kind: 'adult_male' },
+  { label: 'Adult female', daily_kcal: 2000, daily_water_l: 2.5, kind: 'adult_female' },
+  { label: 'Teenager', daily_kcal: 2200, daily_water_l: 2.5, kind: 'teen' },
+  { label: 'Child (4–8)', daily_kcal: 1400, daily_water_l: 1.5, kind: 'child' },
+  { label: 'Toddler', daily_kcal: 1200, daily_water_l: 1.0, kind: 'toddler' },
+  { label: 'Infant (0–1)', daily_kcal: 700, daily_water_l: 0.8, kind: 'infant' },
 ];
 
 export interface InventorySession {

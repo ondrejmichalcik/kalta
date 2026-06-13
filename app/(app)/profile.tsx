@@ -375,7 +375,7 @@ export default function ProfileScreen() {
               </Pressable>
             ) : (
               <Pressable
-                style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.8 }]}
+                style={({ pressed }) => [styles.primaryBtn, styles.actionRowPrimary, pressed && { opacity: 0.8 }]}
                 onPress={() => router.push('/paywall?canDismiss=1' as any)}
               >
                 <Icon sf="arrow.clockwise" size={16} color={colors.textOnPrimary} />
@@ -702,6 +702,14 @@ const styles = StyleSheet.create({
   actionRow: {
     flexDirection: 'row',
     gap: spacing.sm,
+  },
+  // Renew/Subscribe sits next to Restore in actionRow — match its width (flex)
+  // and box model (padding + transparent border) so the two buttons are equal.
+  actionRowPrimary: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   actionBtn: {
     flex: 1,
