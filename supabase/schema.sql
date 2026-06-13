@@ -173,10 +173,11 @@ create table if not exists public.shopping_list_items (
   warehouse_id  uuid not null references public.warehouses(id) on delete cascade,
   label         text not null,
   category      text,
-  source        text not null default 'manual' check (source in ('expired','low_stock','gap','manual')),
+  source        text not null default 'manual' check (source in ('expired','low_stock','gap','manual','ai')),
   source_ref    text,
   quantity      numeric,
   checked       boolean not null default false,
+  reason        text,
   created_at    timestamptz not null default now()
 );
 
@@ -380,6 +381,14 @@ alter table public.custom_products
 -- household_members: member "kind" (drives auto-suggested kit add-ons).
 alter table public.household_members
   add column if not exists kind text;
+-- shopping_list_items: provenance reason + 'ai' source (Sprint 8).
+alter table public.shopping_list_items
+  add column if not exists reason text;
+alter table public.shopping_list_items
+  drop constraint if exists shopping_list_items_source_check;
+alter table public.shopping_list_items
+  add constraint shopping_list_items_source_check
+  check (source in ('expired','low_stock','gap','manual','ai'));
 
 -- ============================================================================
 -- FUNCTIONS + TRIGGERS

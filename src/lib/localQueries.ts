@@ -208,7 +208,7 @@ export function listHouseholdMembersLocal(warehouseId: string): HouseholdMember[
 export function listShoppingListLocal(warehouseId: string): ShoppingListItem[] {
   const db = getDb();
   const rows = db.getAllSync<any>(
-    `SELECT id, warehouse_id, label, category, source, source_ref, quantity, checked, created_at
+    `SELECT id, warehouse_id, label, category, source, source_ref, quantity, checked, reason, created_at
      FROM shopping_list_items
      WHERE warehouse_id = ? AND _deleted_at IS NULL
      ORDER BY checked ASC, created_at ASC`,

@@ -25,7 +25,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { addItem, deleteShoppingItem, getActiveUserId } from '@/src/lib/supabase';
+import { addOrMergeItem, deleteShoppingItem, getActiveUserId, getBoxById } from '@/src/lib/supabase';
 import {
   NEVER_EXPIRES_DATE,
   formatDate,
@@ -37,8 +37,6 @@ import type { Box, Item, ShoppingListItem } from '@/src/types/database';
 import { BoxPicker } from './BoxPicker';
 import { Icon } from './Icon';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
-
-const LAST_BOX_KEY_PREFIX = '@kalta/restock_last_box_';
 
 interface Props {
   visible: boolean;
@@ -87,8 +85,16 @@ export function RestockSheet({
     } else {
       setExpiry(null);
     }
-    setTargetBox(null);
-  }, [visible, shoppingItem.id, typicalExpiryDays]);
+    // Pre-select the box the item came from (where it ran low / expired) so
+    // restock returns to its origin by default — user can still change it.
+    if (sourceItem?.box_id) {
+      getBoxById(sourceItem.box_id)
+        .then((b) => setTargetBox(b))
+        .catch(() => setTargetBox(null));
+    } else {
+      setTargetBox(null);
+    }
+  }, [visible, shoppingItem.id, typicalExpiryDays, sourceItem?.box_id]);
 
   const handleSave = async () => {
     const qty = parseInt(quantityText.replace(/[^0-9]/g, ''), 10);
@@ -108,8 +114,9 @@ export function RestockSheet({
       setSaving(true);
       const userId = (await getActiveUserId()) ?? '';
       // Clone metadata from the source item when available so readiness math
-      // works without forcing the user to re-enter kcal / net weight.
-      await addItem(targetBox.id, userId, {
+      // works without forcing the user to re-enter kcal / net weight. Merges
+      // into a matching same-expiry row in the box (else creates a new batch).
+      await addOrMergeItem(targetBox.id, userId, {
         name: sourceItem?.name ?? shoppingItem.label,
         quantity: qty,
         unit: sourceItem?.unit ?? 'pcs',
@@ -342,9 +349,6 @@ export function RestockSheet({
     </Modal>
   );
 }
-
-// Suppress unused warning for prefix constant (reserved for last-box persistence next iteration).
-void LAST_BOX_KEY_PREFIX;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },

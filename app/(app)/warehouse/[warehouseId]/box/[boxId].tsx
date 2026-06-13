@@ -259,6 +259,7 @@ export default function BoxDetailScreen() {
       'Select & move items',
       'Inventory check',
       'Inventory history',
+      'Import a purchase',
       ...(isOwner ? ['Delete box'] : []),
       'Cancel',
     ];
@@ -290,6 +291,13 @@ export default function BoxDetailScreen() {
           if (box) {
             router.push(
               `/warehouse/${warehouseId}/box/${box.id}/inventories` as any,
+            );
+          }
+        }
+        else if (idx === 5) {
+          if (box) {
+            router.push(
+              `/warehouse/${warehouseId}/box/${box.id}/import` as any,
             );
           }
         }

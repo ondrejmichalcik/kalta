@@ -40,6 +40,8 @@ import { addAddonToChecklist, entryToKitItem, satisfactionsToMaps } from '@/src/
 import type { KitAddon } from '@/src/data/emergencyKit';
 import { hasAnthropicKey } from '@/src/lib/vision';
 import { suggestKitMatches } from '@/src/lib/kitMatch';
+import { AiProposalSheet } from '@/src/components/AiProposalSheet';
+import type { AiProposal } from '@/src/lib/aiProposal';
 import { getExpiryStatus } from '@/src/types/database';
 import type {
   ChecklistEntry,
@@ -98,6 +100,8 @@ export default function ChecklistDetailScreen() {
   const [editorEntry, setEditorEntry] = useState<ChecklistEntry | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
   const [packPickerOpen, setPackPickerOpen] = useState(false);
+  const [aiProposal, setAiProposal] = useState<AiProposal | null>(null);
+  const [aiProposalOpen, setAiProposalOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!warehouseId || !checklistId) return;
@@ -345,6 +349,19 @@ export default function ChecklistDetailScreen() {
     );
   };
 
+  const applyAiProposal = async (edited: AiProposal) => {
+    if (edited.kind !== 'pins' || !warehouseId) return;
+    for (const m of edited.matches) {
+      await setChecklistSatisfaction({
+        checklist_entry_id: m.entryId,
+        warehouse_id: warehouseId,
+        mode: 'pin',
+        item_id: m.itemId,
+      }).catch(() => {});
+    }
+    load();
+  };
+
   const runSmartMatch = () => {
     const targets = kit.entries.filter(
       (e) => e.applicable && (overrides.get(e.item.id) ?? null) == null && e.state !== 'stocked',
@@ -370,32 +387,16 @@ export default function ChecklistDetailScreen() {
           onPress: async () => {
             setMatching(true);
             try {
-              const suggestions = await suggestKitMatches(
+              const proposal = await suggestKitMatches(
                 targets.map((e) => ({ id: e.item.id, label: e.item.label, rationale: e.item.rationale })),
                 usableItems,
               );
-              if (suggestions.length === 0) {
+              if (proposal.kind !== 'pins' || proposal.matches.length === 0) {
                 Alert.alert('No matches', 'Claude found no confident matches.');
                 return;
               }
-              const summary = suggestions.map((s) => `• ${s.entryLabel} ← ${s.itemName}`).join('\n');
-              Alert.alert(`${suggestions.length} found`, `${summary}\n\nPin these matches?`, [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Pin all',
-                  onPress: async () => {
-                    for (const s of suggestions) {
-                      await setChecklistSatisfaction({
-                        checklist_entry_id: s.entryId,
-                        warehouse_id: warehouseId!,
-                        mode: 'pin',
-                        item_id: s.itemId,
-                      }).catch(() => {});
-                    }
-                    load();
-                  },
-                },
-              ]);
+              setAiProposal(proposal);
+              setAiProposalOpen(true);
             } catch (e: any) {
               Alert.alert('Smart match failed', e?.message ?? 'Could not reach Claude.');
             } finally {
@@ -539,6 +540,14 @@ export default function ChecklistDetailScreen() {
         presentSeedKeys={new Set(entries.map((e) => e.seed_key).filter(Boolean) as string[])}
         onAdd={addPack}
         onClose={() => setPackPickerOpen(false)}
+      />
+
+      <AiProposalSheet
+        visible={aiProposalOpen}
+        proposal={aiProposal}
+        title="Smart match"
+        onConfirm={applyAiProposal}
+        onClose={() => setAiProposalOpen(false)}
       />
 
       <Modal

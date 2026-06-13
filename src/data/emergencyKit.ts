@@ -234,6 +234,14 @@ export const EMERGENCY_KIT: KitItem[] = [
     rationale: 'Basic hygiene to prevent illness.',
   },
   {
+    id: 'dental',
+    label: 'Toothbrush & toothpaste',
+    group: 'Sanitation',
+    category: 'sanitation',
+    keywords: ['toothbrush*', 'toothpaste*', 'zubní past*', 'zubní kartáč*', 'kartáček na zuby', 'pasta na zuby'],
+    rationale: 'Oral hygiene — infections are harder to treat in an emergency.',
+  },
+  {
     id: 'wipes',
     label: 'Wet wipes',
     group: 'Sanitation',

@@ -129,6 +129,10 @@ export async function lookupByBarcode(barcode: string): Promise<OpenFoodFactsPro
     throw new Error('Cannot connect to Open Food Facts.');
   }
 
+  // 404 = the barcode isn't in OFF — that's a normal "not found", not an
+  // error. Returning null lets the scan flow fall straight to manual entry
+  // instead of throwing (which previously triggered a rescan loop).
+  if (response.status === 404) return null;
   if (!response.ok) {
     throw new Error(`Open Food Facts: HTTP ${response.status}`);
   }

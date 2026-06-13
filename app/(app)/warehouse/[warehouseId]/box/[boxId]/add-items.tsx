@@ -27,7 +27,7 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { getCachedUri } from '@/src/lib/imageCache';
 import {
-  addItemsBatch,
+  addOrMergeItem,
   deleteShoppingItem,
   findCustomProduct,
   getActiveUserId,
@@ -248,49 +248,40 @@ export default function AddItemsScreen() {
         return;
       }
 
-      // 3. Fallback — manual entry (OFF 404)
-      // Set up the empty manual draft first, then (optionally) offer AI
-      // identification. If the user accepts, we kick off the camera →
-      // upload → Claude flow below; otherwise they keep the blank form.
-      setDraft({
-        name: '',
-        quantity: 1,
-        unit: 'pcs',
-        expiry_date: '',
-        barcode,
-        image_url: null,
-        category: null,
-        pack_count: null,
-        energy_kcal_per_100g: null,
-        net_weight_g: null,
-        min_quantity: null,
-      });
-      setDraftSource('manual');
-      setShelfLifeDaysHint(null);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      setMode('form');
-
-      if (visionEnabled) {
-        Alert.alert(
-          'Product not in database',
-          'Would you like to identify it with Claude Vision? You can take a photo and AI will suggest the name and category.',
-          [
-            { text: 'Add manually', style: 'cancel' },
-            {
-              text: 'Take photo',
-              onPress: () => {
-                runVisionFromCamera(barcode).catch(() => {});
-              },
-            },
-          ],
-        );
-      }
+      // 3. Not in OFF (404 / status 0) → go straight to manual entry with the
+      // barcode prefilled. No interrupting alert — the SourceBanner already
+      // says "Product <barcode> not in database — fill in manually", and the
+      // "Identify with AI" button stays available in the form for opt-in vision.
+      openManualDraftForBarcode(barcode);
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot load product.');
-      lastBarcodeRef.current = null;
+      // Network / OFF error — same graceful fallback to manual (with the
+      // barcode), no alert and (critically) WITHOUT resetting lastBarcodeRef,
+      // so the camera doesn't re-fire the same barcode into a lookup loop.
+      openManualDraftForBarcode(barcode);
     } finally {
       setLooking(false);
     }
+  };
+
+  // Open the manual draft form seeded with just the scanned barcode.
+  const openManualDraftForBarcode = (barcode: string) => {
+    setDraft({
+      name: '',
+      quantity: 1,
+      unit: 'pcs',
+      expiry_date: '',
+      barcode,
+      image_url: null,
+      category: null,
+      pack_count: null,
+      energy_kcal_per_100g: null,
+      net_weight_g: null,
+      min_quantity: null,
+    });
+    setDraftSource('manual');
+    setShelfLifeDaysHint(null);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    setMode('form');
   };
 
   // --------------------------------------------------------------
@@ -435,43 +426,6 @@ export default function AddItemsScreen() {
     }
   };
 
-  /** Path A: user accepted "Take photo to identify" after OFF 404. Opens
-   *  the camera, uploads, then calls Claude. */
-  const runVisionFromCamera = async (barcode: string) => {
-    if (!warehouseId) return;
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Camera access needed', 'Enable camera access in iOS Settings.');
-      return;
-    }
-    const picker = await ImagePicker.launchCameraAsync({
-      allowsEditing: false,
-      quality: 1,
-      mediaTypes: ['images'],
-    });
-    if (picker.canceled || !picker.assets[0]) return;
-
-    try {
-      setUploadingImage(true);
-      const url = await uploadProductImage(warehouseId, picker.assets[0].uri);
-      setDraft((d) => (d ? { ...d, image_url: url } : d));
-      setUploadingImage(false);
-
-      setIdentifying(true);
-      const result = await identifyProduct(url);
-      await applyIdentifyResult(result, { barcode, imageUrl: url });
-    } catch (e: any) {
-      if (e instanceof MissingApiKeyError) {
-        Alert.alert('Not configured', e.message);
-      } else {
-        Alert.alert('Identification failed', e?.message ?? 'Unknown error.');
-      }
-    } finally {
-      setUploadingImage(false);
-      setIdentifying(false);
-    }
-  };
-
   /** Path B: user has a photo on the draft and taps "Identify with AI"
    *  button to (re-)identify. Uses the existing image_url, no new upload. */
   const handleIdentifyAI = async () => {
@@ -605,10 +559,11 @@ export default function AddItemsScreen() {
       setSaving(true);
       const userId = await getActiveUserId();
       if (!userId) throw new Error('Not signed in.');
-      await addItemsBatch(
-        boxId,
-        userId,
-        queue.map((d) => ({
+      // Sequential add-or-merge: same product + same expiry (incl. matching a
+      // row already in the box, or an earlier draft this session) bumps the
+      // quantity; a different expiry stays a separate batch for FIFO rotation.
+      for (const d of queue) {
+        await addOrMergeItem(boxId, userId, {
           name: d.name,
           quantity: d.quantity,
           unit: d.unit,
@@ -622,8 +577,8 @@ export default function AddItemsScreen() {
           // Smart-write par level: barcoded products store it as an aggregate
           // on custom_products (below), so keep the per-row column null.
           min_quantity: d.barcode ? null : d.min_quantity,
-        })),
-      );
+        });
+      }
 
       // Route barcoded par levels to the shared custom_products row.
       if (warehouseId) {

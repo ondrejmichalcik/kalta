@@ -47,7 +47,26 @@ const SOURCE_LABEL: Record<ShoppingSource, string> = {
   low_stock: 'Low stock',
   gap: 'Kit gap',
   manual: 'Manual',
+  ai: 'AI suggested',
 };
+
+// Provenance — why a row is on the list. Prefers a stored reason (AI rows),
+// otherwise a concise explanation derived from the source.
+function whyText(item: ShoppingListItem): string {
+  if (item.reason) return item.reason;
+  switch (item.source) {
+    case 'expired':
+      return 'This item is expired — replace it.';
+    case 'low_stock':
+      return 'Running low — stock is below your set minimum.';
+    case 'gap':
+      return 'Missing from your readiness checklist.';
+    case 'ai':
+      return 'Suggested by AI.';
+    default:
+      return 'Added manually.';
+  }
+}
 
 interface Suggestion {
   label: string;
@@ -269,18 +288,20 @@ export default function ShoppingScreen() {
     // Buy-section row: just toggle / remove. Restock action lives as a
     // primary button on the restock-section rows.
     const options = item.checked
-      ? ['Move back to To buy', 'Remove from list', 'Cancel']
-      : ['Mark as purchased', 'Remove from list', 'Cancel'];
+      ? ['Move back to To buy', 'Why is this here?', 'Remove from list', 'Cancel']
+      : ['Mark as purchased', 'Why is this here?', 'Remove from list', 'Cancel'];
     ActionSheetIOS.showActionSheetWithOptions(
       {
         title: item.label,
+        message: SOURCE_LABEL[item.source],
         options,
-        destructiveButtonIndex: 1,
-        cancelButtonIndex: 2,
+        destructiveButtonIndex: 2,
+        cancelButtonIndex: 3,
       },
       (idx) => {
         if (idx === 0) toggleCheck(item);
-        else if (idx === 1) removeItem(item);
+        else if (idx === 1) Alert.alert(item.label, whyText(item));
+        else if (idx === 2) removeItem(item);
       },
     );
   };

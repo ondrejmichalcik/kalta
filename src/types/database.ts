@@ -186,7 +186,7 @@ export interface HouseholdMember {
   created_at: string;
 }
 
-export type ShoppingSource = 'expired' | 'low_stock' | 'gap' | 'manual';
+export type ShoppingSource = 'expired' | 'low_stock' | 'gap' | 'manual' | 'ai';
 
 export interface ShoppingListItem {
   id: string;
@@ -197,6 +197,9 @@ export interface ShoppingListItem {
   source_ref: string | null;
   quantity: number | null;
   checked: boolean;
+  /** Provenance explanation — generated for AI rows, null otherwise (the
+   *  "why is this here?" for source-derived rows is computed on the fly). */
+  reason: string | null;
   created_at: string;
 }
 

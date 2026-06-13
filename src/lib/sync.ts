@@ -181,9 +181,9 @@ export async function initialFullSync(userId: string): Promise<void> {
     // Shopping list items (Sprint 6)
     for (const s of (shoppingItems ?? []) as any[]) {
       db.runSync(
-        `INSERT OR REPLACE INTO shopping_list_items (id, warehouse_id, label, category, source, source_ref, quantity, checked, created_at, _synced)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-        [s.id, s.warehouse_id, s.label, s.category, s.source, s.source_ref, s.quantity, s.checked ? 1 : 0, s.created_at],
+        `INSERT OR REPLACE INTO shopping_list_items (id, warehouse_id, label, category, source, source_ref, quantity, checked, reason, created_at, _synced)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        [s.id, s.warehouse_id, s.label, s.category, s.source, s.source_ref, s.quantity, s.checked ? 1 : 0, s.reason ?? null, s.created_at],
       );
     }
 
@@ -1741,9 +1741,9 @@ export async function pullSync(userId: string): Promise<{ pulled: number; confli
         );
         if (local && local._synced === 0) continue;
         db.runSync(
-          `INSERT OR REPLACE INTO shopping_list_items (id, warehouse_id, label, category, source, source_ref, quantity, checked, created_at, _synced)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-          [s.id, s.warehouse_id, s.label, s.category, s.source, s.source_ref, s.quantity, s.checked ? 1 : 0, s.created_at],
+          `INSERT OR REPLACE INTO shopping_list_items (id, warehouse_id, label, category, source, source_ref, quantity, checked, reason, created_at, _synced)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+          [s.id, s.warehouse_id, s.label, s.category, s.source, s.source_ref, s.quantity, s.checked ? 1 : 0, s.reason ?? null, s.created_at],
         );
         pulled++;
       }

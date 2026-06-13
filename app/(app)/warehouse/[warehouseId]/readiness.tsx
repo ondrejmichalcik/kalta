@@ -36,6 +36,9 @@ import { computeKitCoverage, type KitCoverageEntry, type KitOverride } from '@/s
 import { ensureSeededChecklists, entryToKitItem, satisfactionsToMaps } from '@/src/lib/checklists';
 import { hasAnthropicKey } from '@/src/lib/vision';
 import { suggestKitMatches } from '@/src/lib/kitMatch';
+import { analyzeReadiness } from '@/src/lib/advisor';
+import { AiProposalSheet } from '@/src/components/AiProposalSheet';
+import type { AiProposal } from '@/src/lib/aiProposal';
 import { getExpiryStatus } from '@/src/types/database';
 import type { ChecklistEntry, HouseholdMember, ItemWithBox, ShoppingListItem } from '@/src/types/database';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
@@ -82,6 +85,8 @@ export default function ReadinessScreen() {
   const [showNotRelevant, setShowNotRelevant] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [matching, setMatching] = useState(false);
+  const [aiProposal, setAiProposal] = useState<AiProposal | null>(null);
+  const [aiProposalOpen, setAiProposalOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!warehouseId) return;
@@ -183,6 +188,82 @@ export default function ReadinessScreen() {
       .catch((e: any) => Alert.alert('Error', e?.message ?? 'Could not update.'));
   };
 
+  const applyAiProposal = async (edited: AiProposal) => {
+    if (!warehouseId) return;
+    if (edited.kind === 'pins') {
+      for (const m of edited.matches) {
+        await setChecklistSatisfaction({
+          checklist_entry_id: m.entryId,
+          warehouse_id: warehouseId,
+          mode: 'pin',
+          item_id: m.itemId,
+        }).catch(() => {});
+      }
+    } else if (edited.kind === 'shopping') {
+      for (const r of edited.rows) {
+        await addShoppingItem({
+          warehouse_id: warehouseId,
+          label: r.label,
+          category: r.category,
+          source: 'ai',
+          quantity: r.quantity,
+          reason: r.reason,
+        }).catch(() => {});
+      }
+    }
+    load();
+  };
+
+  const runAdvisor = () => {
+    if (result.weakestLink == null) {
+      Alert.alert('Set up household', 'Add household members first so the advisor knows who to plan for.');
+      return;
+    }
+    Alert.alert(
+      'AI advisor',
+      'Send your readiness summary (household, days of supply, missing kit) to Anthropic for a prioritized shopping list? This uses your API key.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Analyze',
+          onPress: async () => {
+            setMatching(true);
+            try {
+              const counts = new Map<string, number>();
+              for (const m of members) {
+                const k = m.kind ?? 'person';
+                counts.set(k, (counts.get(k) ?? 0) + 1);
+              }
+              const household =
+                [...counts].map(([k, n]) => `${n}× ${k}`).join(', ') || `${members.length} people`;
+              const missingKit = kit.entries
+                .filter((e) => e.applicable && e.state === 'missing')
+                .map((e) => e.item.label);
+              const proposal = await analyzeReadiness({
+                household,
+                goalDays,
+                foodDays: result.foodDays,
+                waterDays: result.waterDays,
+                uncounted: result.uncountedItems,
+                missingKit,
+              });
+              if (proposal.kind !== 'shopping' || proposal.rows.length === 0) {
+                Alert.alert('No suggestions', 'The advisor returned nothing to add.');
+                return;
+              }
+              setAiProposal(proposal);
+              setAiProposalOpen(true);
+            } catch (e: any) {
+              Alert.alert('Advisor failed', e?.message ?? 'Could not reach Claude.');
+            } finally {
+              setMatching(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const runSmartMatch = () => {
     // Only the entries the local matcher couldn't cover and the user hasn't
     // already decided on — that's where AI adds value.
@@ -213,7 +294,7 @@ export default function ReadinessScreen() {
           onPress: async () => {
             setMatching(true);
             try {
-              const suggestions = await suggestKitMatches(
+              const proposal = await suggestKitMatches(
                 targets.map((e) => ({
                   id: e.item.id,
                   label: e.item.label,
@@ -221,34 +302,12 @@ export default function ReadinessScreen() {
                 })),
                 usableItems,
               );
-              if (suggestions.length === 0) {
+              if (proposal.kind !== 'pins' || proposal.matches.length === 0) {
                 Alert.alert('No matches', 'Claude found no confident matches.');
                 return;
               }
-              const summary = suggestions
-                .map((s) => `• ${s.entryLabel} ← ${s.itemName}`)
-                .join('\n');
-              Alert.alert(
-                `${suggestions.length} ${suggestions.length === 1 ? 'match' : 'matches'} found`,
-                `${summary}\n\nPin these matches?`,
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Pin all',
-                    onPress: async () => {
-                      for (const s of suggestions) {
-                        await setChecklistSatisfaction({
-                          checklist_entry_id: s.entryId,
-                          warehouse_id: warehouseId!,
-                          mode: 'pin',
-                          item_id: s.itemId,
-                        }).catch(() => {});
-                      }
-                      load();
-                    },
-                  },
-                ],
-              );
+              setAiProposal(proposal);
+              setAiProposalOpen(true);
             } catch (e: any) {
               Alert.alert('Smart match failed', e?.message ?? 'Could not reach Claude.');
             } finally {
@@ -472,6 +531,17 @@ export default function ReadinessScreen() {
             </Pressable>
           )}
 
+          {aiEnabled && (
+            <Pressable
+              style={({ pressed }) => [styles.smartMatchBtn, pressed && { opacity: 0.7 }]}
+              onPress={runAdvisor}
+              disabled={matching}
+            >
+              <Icon sf="wand.and.stars" size={15} color={colors.primary} />
+              <Text style={styles.smartMatchText}>AI advisor — what should I buy?</Text>
+            </Pressable>
+          )}
+
           {/* Not relevant — collapsed by default, excluded from the count */}
           {kit.entries.some((e) => !e.applicable) && (
             <View style={styles.notRelevantWrap}>
@@ -562,6 +632,14 @@ export default function ReadinessScreen() {
           <Text style={styles.goalLine}>Goal: {goalLabel(goalDays)} of supply</Text>
         </ScrollView>
       )}
+
+      <AiProposalSheet
+        visible={aiProposalOpen}
+        proposal={aiProposal}
+        title={aiProposal?.kind === 'shopping' ? 'AI advisor' : 'Smart match'}
+        onConfirm={applyAiProposal}
+        onClose={() => setAiProposalOpen(false)}
+      />
     </SafeAreaView>
   );
 }

@@ -34,6 +34,7 @@ import { hasInitialSync } from './sync';
 import { wasRecentLocalWrite } from './realtimeEcho';
 import {
   addItemLocal,
+  addOrMergeItemLocal,
   addItemsBatchLocal,
   createBoxLocal,
   deleteBoxLocal,
@@ -718,6 +719,28 @@ export async function addItem(
       .then(() => {}, () => {});
     return item;
   }
+  const { data, error } = await supabase
+    .from('items')
+    .insert({ box_id: boxId, added_by: addedBy, ...input })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Item;
+}
+
+/**
+ * Add an item, merging into an existing row when the product identity (incl.
+ * expiry) matches — see addOrMergeItemLocal. Used by stocking + restock so the
+ * same product+expiry bumps quantity instead of creating a duplicate row, while
+ * a different expiry stays a separate batch.
+ */
+export async function addOrMergeItem(
+  boxId: string,
+  addedBy: string,
+  input: NewItemInput,
+): Promise<Item> {
+  if (hasInitialSync()) return addOrMergeItemLocal(boxId, addedBy, input);
+  // Pre-initial-sync fallback (rare): plain insert, no merge.
   const { data, error } = await supabase
     .from('items')
     .insert({ box_id: boxId, added_by: addedBy, ...input })
@@ -1532,6 +1555,7 @@ export async function addShoppingItem(input: {
   source?: ShoppingSource;
   source_ref?: string | null;
   quantity?: number | null;
+  reason?: string | null;
 }): Promise<ShoppingListItem> {
   if (hasInitialSync()) return addShoppingItemLocal(input);
   const { data, error } = await supabase

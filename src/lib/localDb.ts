@@ -168,6 +168,7 @@ export function initLocalDb(): void {
       source_ref TEXT,
       quantity REAL,
       checked INTEGER NOT NULL DEFAULT 0,
+      reason TEXT,
       created_at TEXT NOT NULL,
       _synced INTEGER NOT NULL DEFAULT 1,
       _changed_fields TEXT,
@@ -320,6 +321,7 @@ export function initLocalDb(): void {
   addColumnIfMissing(db, 'items', 'min_quantity', 'REAL');
   addColumnIfMissing(db, 'custom_products', 'min_quantity', 'REAL');
   addColumnIfMissing(db, 'household_members', 'kind', 'TEXT');
+  addColumnIfMissing(db, 'shopping_list_items', 'reason', 'TEXT');
 }
 
 /**

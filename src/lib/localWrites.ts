@@ -280,6 +280,42 @@ export function addItemLocal(
   };
 }
 
+/**
+ * Add an item, merging into an existing row in the box when the product
+ * IDENTITY matches (name + barcode + expiry_date + category + unit +
+ * pack_count + opened). Same product with a DIFFERENT expiry is a different
+ * batch → a new row (needed for FIFO rotation). Same identity → bump quantity.
+ */
+export function addOrMergeItemLocal(
+  boxId: string,
+  addedBy: string,
+  input: Parameters<typeof addItemLocal>[2],
+): Item {
+  const db = getDb();
+  const matchId = findMatchingItemLocal(boxId, {
+    name: input.name,
+    barcode: input.barcode ?? null,
+    expiry_date: input.expiry_date ?? null,
+    category: input.category ?? null,
+    unit: input.unit,
+    pack_count: input.pack_count ?? null,
+    opened: input.opened ?? false,
+  });
+  if (!matchId) return addItemLocal(boxId, addedBy, input);
+
+  const now = nowIso();
+  const match = db.getFirstSync<any>('SELECT * FROM items WHERE id = ?', [matchId]);
+  const prevQty = match?.quantity ?? 0;
+  const nextQty = prevQty + input.quantity;
+  db.runSync(
+    'UPDATE items SET quantity = ?, updated_at = ?, _synced = 0, _local_updated_at = ? WHERE id = ?',
+    [nextQty, now, now, matchId],
+  );
+  enqueueChange('items', matchId, 'UPDATE', ['quantity'], { before: { quantity: prevQty } });
+  recalcBoxCacheLocal(boxId);
+  return { ...(match as Item), quantity: nextQty, updated_at: now };
+}
+
 export function addItemsBatchLocal(
   boxId: string,
   addedBy: string,
@@ -919,22 +955,24 @@ export function addShoppingItemLocal(input: {
   source?: ShoppingSource;
   source_ref?: string | null;
   quantity?: number | null;
+  reason?: string | null;
 }): ShoppingListItem {
   const db = getDb();
   const id = genId();
   const now = nowIso();
   const source = input.source ?? 'manual';
+  const reason = input.reason ?? null;
   db.runSync(
-    `INSERT INTO shopping_list_items (id, warehouse_id, label, category, source, source_ref, quantity, checked, created_at, _synced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 0)`,
-    [id, input.warehouse_id, input.label, input.category ?? null, source, input.source_ref ?? null, input.quantity ?? null, now],
+    `INSERT INTO shopping_list_items (id, warehouse_id, label, category, source, source_ref, quantity, checked, reason, created_at, _synced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0)`,
+    [id, input.warehouse_id, input.label, input.category ?? null, source, input.source_ref ?? null, input.quantity ?? null, reason, now],
   );
   enqueueChange('shopping_list_items', id, 'INSERT');
   return {
     id, warehouse_id: input.warehouse_id, label: input.label,
     category: (input.category ?? null) as Category | null, source,
     source_ref: input.source_ref ?? null, quantity: input.quantity ?? null,
-    checked: false, created_at: now,
+    checked: false, reason, created_at: now,
   };
 }
 

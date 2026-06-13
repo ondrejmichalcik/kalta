@@ -17,6 +17,7 @@
 import { getAnthropicKey } from './secureStore';
 import { CloudFeatureDisabledError, isCloudEnabledNow } from './subscription';
 import { MissingApiKeyError } from './vision';
+import type { AiProposal } from './aiProposal';
 
 const ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-haiku-4-5';
@@ -53,14 +54,14 @@ export interface KitMatchSuggestion {
 export async function suggestKitMatches(
   entries: KitMatchEntry[],
   items: KitMatchInventoryItem[],
-): Promise<KitMatchSuggestion[]> {
+): Promise<AiProposal> {
   if (!isCloudEnabledNow()) {
     throw new CloudFeatureDisabledError('AI smart match');
   }
   const key = await getAnthropicKey();
   if (!key) throw new MissingApiKeyError();
 
-  if (entries.length === 0 || items.length === 0) return [];
+  if (entries.length === 0 || items.length === 0) return { kind: 'pins', matches: [] };
 
   const batch = items.slice(0, MAX_ITEMS);
   const entryById = new Map(entries.map((e) => [e.id, e]));
@@ -153,7 +154,7 @@ export async function suggestKitMatches(
     ? data.content.find((b: any) => b?.type === 'tool_use' && b?.name === 'record_matches')
     : null;
   const matches = toolBlock?.input?.matches;
-  if (!Array.isArray(matches)) return [];
+  if (!Array.isArray(matches)) return { kind: 'pins', matches: [] };
 
   const seenEntries = new Set<string>();
   const seenItems = new Set<number>();
@@ -174,5 +175,5 @@ export async function suggestKitMatches(
       entryLabel: entry.label,
     });
   }
-  return out;
+  return { kind: 'pins', matches: out.map((s) => ({ ...s, reason: null })) };
 }
