@@ -37,6 +37,7 @@ import { ensureSeededChecklists, entryToKitItem, satisfactionsToMaps } from '@/s
 import { hasAnthropicKey } from '@/src/lib/vision';
 import { suggestKitMatches } from '@/src/lib/kitMatch';
 import { analyzeReadiness } from '@/src/lib/advisor';
+import { updateReadinessWidget } from '@/src/lib/widget';
 import { AiProposalSheet } from '@/src/components/AiProposalSheet';
 import type { AiProposal } from '@/src/lib/aiProposal';
 import { getExpiryStatus } from '@/src/types/database';
@@ -78,6 +79,7 @@ export default function ReadinessScreen() {
   const [members, setMembers] = useState<HouseholdMember[]>([]);
   const [shoppingList, setShoppingList] = useState<ShoppingListItem[]>([]);
   const [goalDays, setGoalDays] = useState(14);
+  const [warehouseName, setWarehouseName] = useState('Kalta');
   const [entries, setEntries] = useState<ChecklistEntry[]>([]);
   const [overrides, setOverrides] = useState<Map<string, KitOverride>>(new Map());
   const [pins, setPins] = useState<Map<string, string>>(new Map());
@@ -105,6 +107,7 @@ export default function ReadinessScreen() {
       setMembers(mem);
       setShoppingList(shop);
       setGoalDays(wh?.readiness_goal_days ?? 14);
+      setWarehouseName(wh?.name ?? 'Kalta');
 
       // Active checklists = those linked to the warehouse; fall back to all
       // (a warehouse with checklists but no explicit links still shows them).
@@ -148,6 +151,14 @@ export default function ReadinessScreen() {
   }, [warehouseId, load]);
 
   const kitItems = useMemo(() => entries.map(entryToKitItem), [entries]);
+  const useSoonCount = useMemo(
+    () =>
+      items.filter((i) => {
+        const s = getExpiryStatus(i.expiry_date);
+        return s === 'expired' || s === 'critical' || s === 'soon';
+      }).length,
+    [items],
+  );
 
   // Preliminary pass (no readiness) just to detect the water filter, which
   // feeds computeReadiness. The final kit pass below uses the readiness result
@@ -175,6 +186,19 @@ export default function ReadinessScreen() {
       }),
     [items, overrides, shoppingList, kitItems, pins, result, goalDays],
   );
+
+  // Push the latest readiness summary to the home-screen widget (iOS, no-op
+  // otherwise) so it reflects the warehouse the user last opened.
+  useEffect(() => {
+    const wl = result.weakestLink;
+    const ratio = wl && goalDays > 0 ? wl.days / goalDays : 0;
+    updateReadinessWidget({
+      days: wl?.days ?? 0,
+      tone: wl == null ? 'none' : ratio >= 1 ? 'green' : ratio >= 0.25 ? 'amber' : 'red',
+      expiringCount: useSoonCount,
+      warehouseName,
+    });
+  }, [result, goalDays, useSoonCount, warehouseName]);
 
   // Persist a satisfaction override to the DB (synced). Pass null to clear.
   const setOverride = (entryId: string, value: KitOverride | null) => {
@@ -592,6 +616,23 @@ export default function ReadinessScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.needsTitle}>Checklists</Text>
               <Text style={styles.needsSub}>Custom lists of what to keep ready</Text>
+            </View>
+            <Icon sf="chevron.right" size={14} color={colors.textSubtle} />
+          </Pressable>
+
+          {/* Use soon link */}
+          <Pressable
+            style={({ pressed }) => [styles.needsCard, { marginTop: spacing.sm }, pressed && { opacity: 0.7 }]}
+            onPress={() => router.push(`/warehouse/${warehouseId}/use-soon` as any)}
+          >
+            <Icon sf="clock.badge.exclamationmark" size={20} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.needsTitle}>Use soon</Text>
+              <Text style={styles.needsSub}>
+                {useSoonCount > 0
+                  ? `${useSoonCount} ${useSoonCount === 1 ? 'item' : 'items'} expiring — rotate them first`
+                  : 'Nothing expiring in 90 days'}
+              </Text>
             </View>
             <Icon sf="chevron.right" size={14} color={colors.textSubtle} />
           </Pressable>

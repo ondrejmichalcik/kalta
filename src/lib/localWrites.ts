@@ -612,6 +612,34 @@ export function deleteItemLocal(id: string): void {
   }
 }
 
+/**
+ * Consume stock (use-it-up rotation): subtract `amount` units, or 'all'.
+ * When the row hits zero it's soft-deleted (the batch is gone), otherwise the
+ * quantity is decremented. Returns the remaining quantity (0 if removed).
+ */
+export function consumeItemLocal(itemId: string, amount: number | 'all'): number {
+  const db = getDb();
+  const item = db.getFirstSync<{ quantity: number }>(
+    'SELECT quantity FROM items WHERE id = ? AND _deleted_at IS NULL',
+    [itemId],
+  );
+  if (!item) return 0;
+  const next = amount === 'all' ? 0 : Math.max(0, item.quantity - amount);
+  if (next <= 0) {
+    deleteItemLocal(itemId);
+    return 0;
+  }
+  const now = nowIso();
+  db.runSync(
+    'UPDATE items SET quantity = ?, updated_at = ?, _synced = 0, _local_updated_at = ? WHERE id = ?',
+    [next, now, now, itemId],
+  );
+  enqueueChange('items', itemId, 'UPDATE', ['quantity'], { before: { quantity: item.quantity } });
+  const box = db.getFirstSync<{ box_id: string }>('SELECT box_id FROM items WHERE id = ?', [itemId]);
+  if (box?.box_id) recalcBoxCacheLocal(box.box_id);
+  return next;
+}
+
 // ---- Warehouses -----------------------------------------------------------
 
 export function createWarehouseLocal(ownerId: string, name: string): Warehouse {

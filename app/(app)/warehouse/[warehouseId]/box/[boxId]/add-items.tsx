@@ -22,6 +22,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { Swipeable } from 'react-native-gesture-handler';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
@@ -448,6 +449,59 @@ export default function AddItemsScreen() {
     }
   };
 
+  /** No photo yet: pick/take one, upload, then identify in one flow. Lets the
+   *  user reach AI identification straight from the manual form (e.g. after an
+   *  unknown-barcode scan) without first manually attaching a photo. */
+  const identifyWithNewPhoto = () => {
+    if (!warehouseId || !draft || uploadingImage || identifying) return;
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title: 'Identify with AI',
+        message: 'Take or choose a photo — AI will suggest the name and category.',
+        options: ['Take photo', 'Choose from library', 'Cancel'],
+        cancelButtonIndex: 2,
+      },
+      async (idx) => {
+        if (idx == null || idx > 1) return;
+        try {
+          let uri: string | null = null;
+          if (idx === 0) {
+            const perm = await ImagePicker.requestCameraPermissionsAsync();
+            if (!perm.granted) {
+              Alert.alert('Camera access needed', 'Enable camera access in iOS Settings.');
+              return;
+            }
+            const r = await ImagePicker.launchCameraAsync({ allowsEditing: false, quality: 1, mediaTypes: ['images'] });
+            if (r.canceled || !r.assets[0]) return;
+            uri = r.assets[0].uri;
+          } else {
+            const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (!perm.granted) {
+              Alert.alert('Photo library access needed', 'Enable photo library access in iOS Settings.');
+              return;
+            }
+            const r = await ImagePicker.launchImageLibraryAsync({ allowsEditing: false, quality: 1, mediaTypes: ['images'] });
+            if (r.canceled || !r.assets[0]) return;
+            uri = r.assets[0].uri;
+          }
+          setUploadingImage(true);
+          const url = await uploadProductImage(warehouseId, uri);
+          setDraft((d) => (d ? { ...d, image_url: url } : d));
+          setUploadingImage(false);
+          setIdentifying(true);
+          const result = await identifyProduct(url);
+          await applyIdentifyResult(result, { barcode: draft.barcode ?? null, imageUrl: url });
+        } catch (e: any) {
+          if (e instanceof MissingApiKeyError) Alert.alert('Not configured', e.message);
+          else Alert.alert('Identification failed', e?.message ?? 'Unknown error.');
+        } finally {
+          setUploadingImage(false);
+          setIdentifying(false);
+        }
+      },
+    );
+  };
+
   const showImagePicker = () => {
     if (uploadingImage || !draft) return;
     const hasImage = draft.image_url != null;
@@ -746,14 +800,14 @@ export default function AddItemsScreen() {
 
             <SourceBanner source={draftSource} barcode={draft.barcode ?? null} />
 
-            {visionEnabled && draft.image_url && !uploadingImage && (
+            {visionEnabled && !uploadingImage && (
               <Pressable
                 style={({ pressed }) => [
                   styles.identifyBtn,
                   identifying && { opacity: 0.6 },
                   pressed && !identifying && { opacity: 0.7 },
                 ]}
-                onPress={handleIdentifyAI}
+                onPress={draft.image_url ? handleIdentifyAI : identifyWithNewPhoto}
                 disabled={identifying}
               >
                 {identifying ? (
@@ -761,7 +815,9 @@ export default function AddItemsScreen() {
                 ) : (
                   <>
                     <Icon sf="sparkles" size={16} color={colors.primary} />
-                    <Text style={styles.identifyBtnText}>Identify with AI</Text>
+                    <Text style={styles.identifyBtnText}>
+                      {draft.image_url ? 'Identify with AI' : 'Identify with AI (photo)'}
+                    </Text>
                   </>
                 )}
               </Pressable>
@@ -1020,11 +1076,10 @@ export default function AddItemsScreen() {
           <FlatList
             data={queue}
             keyExtractor={(item) => item.localId}
-            horizontal
-            showsHorizontalScrollIndicator={false}
+            style={{ flex: 1 }}
             contentContainerStyle={styles.queueList}
             renderItem={({ item }) => (
-              <QueueChip
+              <QueueRow
                 draft={item}
                 onRemove={() => handleRemoveFromQueue(item.localId)}
                 onSameAgain={() => handleSameAgain(item)}
@@ -1147,7 +1202,9 @@ function ChipRow<T extends string>({
 // QueueChip — a card shown in the queue
 // ---------------------------------------------------------------------------
 
-function QueueChip({
+// QueueRow — a list row (like box items): swipe left → Delete, swipe right →
+// "New date" (clone for another expiry of the same product).
+function QueueRow({
   draft,
   onRemove,
   onSameAgain,
@@ -1161,36 +1218,61 @@ function QueueChip({
     status === 'none'
       ? { bg: colors.expiryNoneBg, fg: colors.expiryNoneText }
       : EXPIRY_COLORS[status];
+  const swipeRef = useRef<Swipeable>(null);
+
   return (
-    <View style={styles.queueChip}>
-      <Pressable onPress={onRemove} style={styles.queueRemove}>
-        <Icon sf="xmark" size={12} color="#FFFFFF" />
-      </Pressable>
-      {draft.image_url ? (
-        <Image source={{ uri: getCachedUri(draft.image_url)! }} style={styles.queueImage} />
-      ) : (
-        <Icon
-          sf={draft.category ? CATEGORY_SF[draft.category] : 'shippingbox.fill'}
-          size={34}
-          color={colors.textMuted}
-        />
+    <Swipeable
+      ref={swipeRef}
+      renderRightActions={() => (
+        <Pressable style={styles.queueDeleteAction} onPress={onRemove}>
+          <Icon sf="trash.fill" size={18} color="#FFFFFF" />
+          <Text style={styles.queueActionText}>Delete</Text>
+        </Pressable>
       )}
-      <Text numberOfLines={2} style={styles.queueName}>
-        {draft.name}
-      </Text>
-      <Text style={styles.queueQty}>{formatItemQuantity(draft)}</Text>
-      <View style={[styles.queueBadge, { backgroundColor: palette.bg }]}>
-        <Text style={[styles.queueBadgeText, { color: palette.fg }]}>
-          {formatExpiry(draft.expiry_date)}
-        </Text>
-      </View>
-      <Pressable onPress={onSameAgain} style={styles.queueAgainBtn}>
-        <View style={styles.queueAgainContent}>
-          <Icon sf="arrow.clockwise" size={10} color={colors.text} />
-          <Text style={styles.queueAgainText}>Different date</Text>
+      renderLeftActions={() => (
+        <Pressable
+          style={styles.queueDateAction}
+          onPress={() => {
+            swipeRef.current?.close();
+            onSameAgain();
+          }}
+        >
+          <Icon sf="calendar.badge.plus" size={18} color={colors.warningText} />
+          <Text style={[styles.queueActionText, { color: colors.warningText }]}>New date</Text>
+        </Pressable>
+      )}
+      rightThreshold={40}
+      leftThreshold={40}
+      overshootRight={false}
+      overshootLeft={false}
+    >
+      <View style={styles.queueRow}>
+        {draft.image_url ? (
+          <Image source={{ uri: getCachedUri(draft.image_url)! }} style={styles.queueRowThumb} />
+        ) : (
+          <View style={styles.queueRowIcon}>
+            <Icon
+              sf={draft.category ? CATEGORY_SF[draft.category] : 'shippingbox.fill'}
+              size={20}
+              color={colors.textMuted}
+            />
+          </View>
+        )}
+        <View style={{ flex: 1 }}>
+          <Text style={styles.queueRowName} numberOfLines={1}>
+            {draft.name || 'Unnamed'}
+          </Text>
+          <Text style={styles.queueRowQty} numberOfLines={1}>
+            {formatItemQuantity(draft)}
+          </Text>
         </View>
-      </Pressable>
-    </View>
+        <View style={[styles.queueBadge, { marginTop: 0, backgroundColor: palette.bg }]}>
+          <Text style={[styles.queueBadgeText, { color: palette.fg }]} numberOfLines={1}>
+            {formatExpiry(draft.expiry_date)}
+          </Text>
+        </View>
+      </View>
+    </Swipeable>
   );
 }
 
@@ -1245,15 +1327,17 @@ const styles = StyleSheet.create({
   // shrinks children to content width — these need an explicit min.
   permBtn: { alignSelf: 'stretch', minWidth: 240 },
   // Scanner
-  cameraWrap: { flex: 1, backgroundColor: '#000', overflow: 'hidden' },
+  // A short camera band — only the barcode frame matters, so it doesn't need
+  // to fill the screen; the queue list takes the rest.
+  cameraWrap: { height: 220, backgroundColor: '#000', overflow: 'hidden' },
   scanOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
   },
   scanFrame: {
-    width: 280,
-    height: 140,
+    width: 260,
+    height: 110,
     borderRadius: radius.md,
     borderWidth: 3,
     borderColor: '#FFFFFF',
@@ -1262,7 +1346,7 @@ const styles = StyleSheet.create({
     ...typography.subhead,
     color: '#FFFFFF',
     fontWeight: '600',
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
     textShadowColor: 'rgba(0,0,0,0.6)',
     textShadowRadius: 4,
   },
@@ -1474,6 +1558,7 @@ const styles = StyleSheet.create({
   chipTextActive: { color: colors.textOnPrimary },
   // Queue
   queueContainer: {
+    flex: 1,
     backgroundColor: colors.surfaceElevated,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
@@ -1497,40 +1582,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   queueList: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, gap: spacing.sm },
-  queueChip: {
-    width: 140,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.sm,
-    alignItems: 'center',
-  },
-  queueRemove: {
-    position: 'absolute',
-    top: 2,
-    right: 4,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1,
-  },
-  queueImage: { width: 50, height: 50, borderRadius: radius.sm + 2, resizeMode: 'contain' },
-  queueName: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.text,
-    textAlign: 'center',
-    marginTop: 4,
-  },
-  queueQty: {
-    fontSize: 10,
-    color: colors.textMuted,
-    marginTop: 1,
-  },
   queueBadge: {
     marginTop: 4,
     paddingHorizontal: 6,
@@ -1538,25 +1589,48 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
   },
   queueBadgeText: { fontSize: 9, fontWeight: '700' },
-  queueAgainBtn: {
-    marginTop: 6,
-    paddingVertical: 4,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.sm,
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  queueAgainContent: {
+  // List-view queue rows (like box items) + swipe actions
+  queueRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
   },
-  queueAgainText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: colors.text,
+  queueRowThumb: { width: 36, height: 36, borderRadius: radius.sm + 2, resizeMode: 'contain' },
+  queueRowIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.sm + 2,
+    backgroundColor: colors.primaryTint,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  queueRowName: { ...typography.body, color: colors.text, fontWeight: '600' },
+  queueRowQty: { ...typography.footnote, color: colors.textMuted, marginTop: 1 },
+  queueDeleteAction: {
+    backgroundColor: colors.danger,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 2,
+    width: 84,
+    borderTopRightRadius: radius.md,
+    borderBottomRightRadius: radius.md,
+  },
+  queueDateAction: {
+    backgroundColor: colors.warningBg,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 2,
+    width: 84,
+    borderTopLeftRadius: radius.md,
+    borderBottomLeftRadius: radius.md,
+  },
+  queueActionText: { ...typography.caption, color: '#FFFFFF', fontWeight: '700' },
   savingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: colors.scrim,

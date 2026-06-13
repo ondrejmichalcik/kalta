@@ -25,7 +25,12 @@
       },
       "associatedDomains": [
         "applinks:kalta.app"
-      ]
+      ],
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.ondrejmichalcik.kalta"
+        ]
+      }
     },
     "plugins": [
       "expo-router",
@@ -62,7 +67,8 @@
       ],
       "expo-font",
       "expo-sqlite",
-      "expo-iap"
+      "expo-iap",
+      "@bacons/apple-targets"
     ],
     "experiments": {
       "typedRoutes": true

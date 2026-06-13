@@ -35,6 +35,7 @@ import { wasRecentLocalWrite } from './realtimeEcho';
 import {
   addItemLocal,
   addOrMergeItemLocal,
+  consumeItemLocal,
   addItemsBatchLocal,
   createBoxLocal,
   deleteBoxLocal,
@@ -783,6 +784,27 @@ export async function updateItem(id: string, patch: Partial<NewItemInput>) {
   const { data, error } = await supabase.from('items').update(patch).eq('id', id).select().single();
   if (error) throw error;
   return data as Item;
+}
+
+/**
+ * Consume stock (use-it-up): subtract `amount` units, or 'all'. Removes the
+ * row when it hits zero, else decrements quantity. Local-first.
+ */
+export async function consumeItem(itemId: string, amount: number | 'all'): Promise<void> {
+  if (hasInitialSync()) {
+    consumeItemLocal(itemId, amount);
+    return;
+  }
+  const { data } = await supabase.from('items').select('quantity').eq('id', itemId).single();
+  const q = (data as { quantity: number } | null)?.quantity ?? 0;
+  const next = amount === 'all' ? 0 : Math.max(0, q - amount);
+  if (next <= 0) {
+    const { error } = await supabase.from('items').delete().eq('id', itemId);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from('items').update({ quantity: next }).eq('id', itemId);
+    if (error) throw error;
+  }
 }
 
 /**
