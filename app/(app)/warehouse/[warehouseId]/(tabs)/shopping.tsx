@@ -6,7 +6,6 @@
 // ============================================================================
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActionSheetIOS,
   ActivityIndicator,
   Modal,
   Pressable,
@@ -15,7 +14,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { showPrompt, toast } from '@/src/lib/feedback';
+import { showPrompt, toast, showActionSheet } from '@/src/lib/feedback';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useGlobalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -289,7 +288,7 @@ export default function ShoppingScreen() {
     const options = item.checked
       ? ['Move back to To buy', 'Why is this here?', 'Remove from list', 'Cancel']
       : ['Mark as purchased', 'Why is this here?', 'Remove from list', 'Cancel'];
-    ActionSheetIOS.showActionSheetWithOptions(
+    showActionSheet(
       {
         title: item.label,
         message: SOURCE_LABEL[item.source],

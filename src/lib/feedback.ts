@@ -46,9 +46,23 @@ export interface DialogState {
   prompt?: PromptConfig;
 }
 
+export interface ActionSheetConfig {
+  title?: string;
+  message?: string;
+  options: string[];
+  destructiveButtonIndex?: number;
+  cancelButtonIndex?: number;
+}
+
+export interface ActionSheetState extends ActionSheetConfig {
+  id: number;
+  callback: (index: number) => void;
+}
+
 // --- Store ------------------------------------------------------------------
 let toasts: ToastItem[] = [];
 let dialog: DialogState | null = null;
+let actionSheet: ActionSheetState | null = null;
 let seq = 1;
 
 const listeners = new Set<() => void>();
@@ -69,6 +83,10 @@ export function getToastsSnapshot(): ToastItem[] {
 
 export function getDialogSnapshot(): DialogState | null {
   return dialog;
+}
+
+export function getActionSheetSnapshot(): ActionSheetState | null {
+  return actionSheet;
 }
 
 // --- Toasts -----------------------------------------------------------------
@@ -137,6 +155,33 @@ export function dismissDialog() {
 export function resolveDialogButton(button: DialogButton, value?: string) {
   dismissDialog();
   button.onPress?.(value);
+}
+
+// --- Action sheet -----------------------------------------------------------
+/**
+ * Drop-in replacement for iOS `ActionSheetIOS.showActionSheetWithOptions`.
+ * Renders a themed bottom sheet instead of the native one. Same config shape
+ * (title, message, options, destructiveButtonIndex, cancelButtonIndex) and the
+ * callback receives the tapped option's index.
+ */
+export function showActionSheet(
+  config: ActionSheetConfig,
+  callback: (index: number) => void,
+) {
+  actionSheet = { ...config, id: seq++, callback };
+  emit();
+}
+
+export function dismissActionSheet() {
+  actionSheet = null;
+  emit();
+}
+
+/** Called by the host when an action-sheet row (or the backdrop) resolves. */
+export function resolveActionSheet(index: number) {
+  const cb = actionSheet?.callback;
+  dismissActionSheet();
+  if (index >= 0) cb?.(index);
 }
 
 export interface ConfirmOptions {

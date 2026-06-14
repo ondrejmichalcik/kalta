@@ -7,7 +7,6 @@
 // ============================================================================
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActionSheetIOS,
   ActivityIndicator,
   Pressable,
   ScrollView,
@@ -44,7 +43,7 @@ import type { ChecklistEntry, HouseholdMember, ItemWithBox, ShoppingListItem } f
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
 import { CATEGORY_SF } from '@/src/components/categoryIcons';
-import { toast, showAlert } from '@/src/lib/feedback';
+import { toast, showAlert, showActionSheet } from '@/src/lib/feedback';
 
 type Tone = 'red' | 'amber' | 'green';
 
@@ -403,7 +402,7 @@ export default function ReadinessScreen() {
           : matchedItem
             ? `Matched: "${matchedItem.name}"`
             : 'Covered.';
-      ActionSheetIOS.showActionSheetWithOptions(
+      showActionSheet(
         {
           title: item.label,
           message,
@@ -420,7 +419,7 @@ export default function ReadinessScreen() {
     }
 
     if (state === 'on_list' || state === 'purchased') {
-      ActionSheetIOS.showActionSheetWithOptions(
+      showActionSheet(
         {
           title: item.label,
           message:
@@ -440,7 +439,7 @@ export default function ReadinessScreen() {
     }
 
     // missing
-    ActionSheetIOS.showActionSheetWithOptions(
+    showActionSheet(
       {
         title: item.label,
         message: item.rationale,

@@ -4,7 +4,6 @@
 // ============================================================================
 import { useEffect, useState } from 'react';
 import {
-  ActionSheetIOS,
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
@@ -22,7 +21,7 @@ import DateTimePicker, { type DateTimePickerEvent } from '@react-native-communit
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { getCachedUri } from '@/src/lib/imageCache';
-import { toast, showAlert, showPrompt } from '@/src/lib/feedback';
+import { toast, showAlert, showPrompt, showActionSheet } from '@/src/lib/feedback';
 import {
   addShoppingItem,
   deleteItem,
@@ -276,7 +275,7 @@ export function ItemEditSheet({
     const removeIdx = hasImage ? 2 : -1;
     const cancelIdx = options.length - 1;
 
-    ActionSheetIOS.showActionSheetWithOptions(
+    showActionSheet(
       {
         options,
         destructiveButtonIndex: removeIdx >= 0 ? removeIdx : undefined,

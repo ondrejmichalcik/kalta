@@ -5,7 +5,6 @@
 // ============================================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActionSheetIOS,
   ActivityIndicator,
   FlatList,
   Image,
@@ -26,7 +25,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { getCachedUri } from '@/src/lib/imageCache';
-import { toast, showAlert } from '@/src/lib/feedback';
+import { toast, showAlert, showActionSheet } from '@/src/lib/feedback';
 import { ItemEditSheet } from '@/src/components/ItemEditSheet';
 import { BoxEditSheet } from '@/src/components/BoxEditSheet';
 import { Icon } from '@/src/components/Icon';
@@ -266,7 +265,7 @@ export default function BoxDetailScreen() {
     const destructiveIdx = isOwner ? options.length - 2 : -1;
     const cancelIdx = options.length - 1;
 
-    ActionSheetIOS.showActionSheetWithOptions(
+    showActionSheet(
       {
         options,
         destructiveButtonIndex: destructiveIdx >= 0 ? destructiveIdx : undefined,

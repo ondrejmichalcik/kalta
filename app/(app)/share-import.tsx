@@ -8,7 +8,6 @@
 // ============================================================================
 import { useEffect, useState } from 'react';
 import {
-  ActionSheetIOS,
   ActivityIndicator,
   Image,
   Pressable,
@@ -35,7 +34,7 @@ import type { AiProposal } from '@/src/lib/aiProposal';
 import type { Box, WarehouseWithRole } from '@/src/types/database';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
-import { toast, showAlert } from '@/src/lib/feedback';
+import { toast, showAlert, showActionSheet } from '@/src/lib/feedback';
 
 /** Prefix a bare filesystem path with file:// so RN/Expo file APIs accept it. */
 function toFileUri(path: string): string {
@@ -101,7 +100,7 @@ export default function ShareImportScreen() {
 
   const pickWarehouse = () => {
     if (warehouses.length < 2) return;
-    ActionSheetIOS.showActionSheetWithOptions(
+    showActionSheet(
       {
         title: 'Import into warehouse',
         options: [...warehouses.map((w) => w.name), 'Cancel'],

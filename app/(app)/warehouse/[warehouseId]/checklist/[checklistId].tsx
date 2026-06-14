@@ -6,7 +6,6 @@
 // ============================================================================
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActionSheetIOS,
   ActivityIndicator,
   Modal,
   Pressable,
@@ -53,7 +52,7 @@ import { Icon } from '@/src/components/Icon';
 import { ChecklistEntrySheet } from '@/src/components/ChecklistEntrySheet';
 import { ChecklistSheet } from '@/src/components/ChecklistSheet';
 import { PackPickerSheet } from '@/src/components/PackPickerSheet';
-import { toast, showAlert } from '@/src/lib/feedback';
+import { toast, showAlert, showActionSheet } from '@/src/lib/feedback';
 
 function chipVisual(state: KitCoverageEntry['state']): {
   bg: string;
@@ -288,7 +287,7 @@ export default function ChecklistDetailScreen() {
     opts.push({ label: 'Delete item', run: () => deleteEntry(entry), destructive: true });
 
     const labels = opts.map((o) => o.label);
-    ActionSheetIOS.showActionSheetWithOptions(
+    showActionSheet(
       {
         title: entry.label,
         message: cov.matchedItem ? `Matched: "${cov.matchedItem.name}"` : entry.rationale || undefined,
@@ -336,7 +335,7 @@ export default function ChecklistDetailScreen() {
     ];
     if (!isSeed) opts.push({ label: 'Delete checklist', run: removeChecklist, destructive: true });
     const labels = opts.map((o) => o.label);
-    ActionSheetIOS.showActionSheetWithOptions(
+    showActionSheet(
       {
         title: name,
         options: [...labels, 'Cancel'],

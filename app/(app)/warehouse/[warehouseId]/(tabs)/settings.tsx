@@ -6,7 +6,6 @@
 // ============================================================================
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ActionSheetIOS,
   ActivityIndicator,
   FlatList,
   Modal,
@@ -36,7 +35,7 @@ import {
   renameWarehouse,
   supabase,
 } from '@/src/lib/supabase';
-import { toast, showAlert, showPrompt } from '@/src/lib/feedback';
+import { toast, showAlert, showPrompt, showActionSheet } from '@/src/lib/feedback';
 import type { Role, Warehouse, WarehouseMember } from '@/src/types/database';
 import { colors, radius, spacing, typography } from '@/src/theme';
 import { Card } from '@/src/components/Card';
@@ -250,7 +249,7 @@ export default function WarehouseSettingsScreen() {
     const destructiveIdx = options.length - 2;
     const cancelIdx = options.length - 1;
 
-    ActionSheetIOS.showActionSheetWithOptions(
+    showActionSheet(
       {
         options,
         destructiveButtonIndex: destructiveIdx,

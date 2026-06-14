@@ -18,8 +18,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   dismissToast,
+  getActionSheetSnapshot,
   getDialogSnapshot,
   getToastsSnapshot,
+  resolveActionSheet,
   resolveDialogButton,
   subscribeFeedback,
   type DialogButton,
@@ -183,6 +185,79 @@ function DialogView() {
   );
 }
 
+function ActionSheetView() {
+  const sheet = useSyncExternalStore(subscribeFeedback, getActionSheetSnapshot);
+  const insets = useSafeAreaInsets();
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (sheet) {
+      anim.setValue(0);
+      Animated.spring(anim, { toValue: 1, useNativeDriver: true, bounciness: 3, speed: 18 }).start();
+    }
+  }, [sheet, anim]);
+
+  if (!sheet) return null;
+
+  const cancelIdx = sheet.cancelButtonIndex;
+  const onCancel = () => resolveActionSheet(cancelIdx ?? -1);
+  const mainOptions = sheet.options
+    .map((label, i) => ({ label, i }))
+    .filter((o) => o.i !== cancelIdx);
+  const hasHeader = !!sheet.title || !!sheet.message;
+  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [320, 0] });
+
+  return (
+    <Modal transparent visible animationType="fade" statusBarTranslucent onRequestClose={onCancel}>
+      <Pressable style={styles.sheetOverlay} onPress={onCancel}>
+        <Animated.View
+          style={[styles.sheetWrap, { paddingBottom: insets.bottom + spacing.sm, transform: [{ translateY }] }]}
+        >
+          {/* Absorb taps so they don't fall through to the dismiss overlay. */}
+          <Pressable onPress={() => {}}>
+            <View style={styles.sheetGroup}>
+              {hasHeader && (
+                <View style={styles.sheetHeader}>
+                  {!!sheet.title && <Text style={styles.sheetTitle}>{sheet.title}</Text>}
+                  {!!sheet.message && <Text style={styles.sheetMessage}>{sheet.message}</Text>}
+                </View>
+              )}
+              {mainOptions.map((o, idx) => (
+                <Pressable
+                  key={o.i}
+                  onPress={() => resolveActionSheet(o.i)}
+                  style={({ pressed }) => [
+                    styles.sheetRow,
+                    (idx > 0 || hasHeader) && styles.sheetRowDivider,
+                    pressed && { backgroundColor: colors.primaryTint },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.sheetRowText,
+                      o.i === sheet.destructiveButtonIndex && { color: colors.danger },
+                    ]}
+                  >
+                    {o.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            {cancelIdx != null && (
+              <Pressable
+                style={({ pressed }) => [styles.sheetCancel, pressed && { opacity: 0.7 }]}
+                onPress={() => resolveActionSheet(cancelIdx)}
+              >
+                <Text style={styles.sheetCancelText}>{sheet.options[cancelIdx]}</Text>
+              </Pressable>
+            )}
+          </Pressable>
+        </Animated.View>
+      </Pressable>
+    </Modal>
+  );
+}
+
 export function FeedbackHost() {
   const toasts = useSyncExternalStore(subscribeFeedback, getToastsSnapshot);
   const insets = useSafeAreaInsets();
@@ -195,6 +270,7 @@ export function FeedbackHost() {
         ))}
       </View>
       <DialogView />
+      <ActionSheetView />
     </>
   );
 }
@@ -281,4 +357,49 @@ const styles = StyleSheet.create({
   dialogBtnDestructive: { backgroundColor: colors.danger },
   dialogBtnCancel: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong },
   dialogBtnText: { ...typography.bodyStrong },
+
+  // --- Action sheet ---
+  sheetOverlay: {
+    flex: 1,
+    backgroundColor: colors.overlay,
+    justifyContent: 'flex-end',
+    padding: spacing.sm,
+  },
+  sheetWrap: { gap: spacing.sm },
+  sheetGroup: {
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: radius.xl,
+    overflow: 'hidden',
+    ...shadows.lg,
+  },
+  sheetHeader: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  sheetTitle: { ...typography.footnote, color: colors.textMuted, fontWeight: '600', textAlign: 'center' },
+  sheetMessage: {
+    ...typography.footnote,
+    color: colors.textSubtle,
+    textAlign: 'center',
+    marginTop: spacing.xs,
+    lineHeight: 17,
+  },
+  sheetRow: {
+    paddingVertical: spacing.md + 2,
+    paddingHorizontal: spacing.lg,
+    alignItems: 'center',
+  },
+  sheetRowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  sheetRowText: { ...typography.body, color: colors.primary, fontWeight: '500' },
+  sheetCancel: {
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: radius.xl,
+    paddingVertical: spacing.md + 2,
+    alignItems: 'center',
+    ...shadows.lg,
+  },
+  sheetCancelText: { ...typography.bodyStrong, color: colors.text },
 });

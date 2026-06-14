@@ -4,7 +4,6 @@
 // ============================================================================
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActionSheetIOS,
   ActivityIndicator,
   Animated,
   FlatList,
@@ -27,7 +26,7 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { getCachedUri } from '@/src/lib/imageCache';
 // Aliased to avoid colliding with the local `toast` queue-add state below.
-import { toast as appToast } from '@/src/lib/feedback';
+import { toast as appToast, showActionSheet } from '@/src/lib/feedback';
 import {
   addOrMergeItem,
   deleteShoppingItem,
@@ -455,7 +454,7 @@ export default function AddItemsScreen() {
    *  unknown-barcode scan) without first manually attaching a photo. */
   const identifyWithNewPhoto = () => {
     if (!warehouseId || !draft || uploadingImage || identifying) return;
-    ActionSheetIOS.showActionSheetWithOptions(
+    showActionSheet(
       {
         title: 'Identify with AI',
         message: 'Take or choose a photo — AI will suggest the name and category.',
@@ -512,7 +511,7 @@ export default function AddItemsScreen() {
     const removeIdx = hasImage ? 2 : -1;
     const cancelIdx = options.length - 1;
 
-    ActionSheetIOS.showActionSheetWithOptions(
+    showActionSheet(
       {
         options,
         destructiveButtonIndex: removeIdx >= 0 ? removeIdx : undefined,
