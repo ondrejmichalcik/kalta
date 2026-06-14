@@ -28,6 +28,7 @@ import {
   getActiveUserId,
   listCustomProducts,
   upsertCustomProduct,
+  applyProductAttributesToItems,
 } from '@/src/lib/supabase';
 import { getCachedUri } from '@/src/lib/imageCache';
 import type { Category, CustomProduct } from '@/src/types/database';
@@ -105,6 +106,8 @@ export default function ProductsScreen() {
     name: string;
     category: Category | null;
     typical_expiry_days: number | null;
+    energy_kcal_per_100g: number | null;
+    net_weight_g: number | null;
   }) => {
     if (!editing) return;
     const trimmed = patched.name.trim();
@@ -122,6 +125,13 @@ export default function ProductsScreen() {
         image_url: editing.image_url,
         typical_expiry_days: patched.typical_expiry_days,
         created_by: uid,
+        energy_kcal_per_100g: patched.energy_kcal_per_100g,
+        net_weight_g: patched.net_weight_g,
+      });
+      // Propagate the product-level nutrition to every stocked instance.
+      await applyProductAttributesToItems(editing.warehouse_id, editing.barcode, {
+        energy_kcal_per_100g: patched.energy_kcal_per_100g,
+        net_weight_g: patched.net_weight_g,
       });
       setEditing(null);
       await load();
@@ -278,11 +288,15 @@ function EditSheet({
     name: string;
     category: Category | null;
     typical_expiry_days: number | null;
+    energy_kcal_per_100g: number | null;
+    net_weight_g: number | null;
   }) => void;
 }) {
   const [name, setName] = useState('');
   const [category, setCategory] = useState<Category | null>(null);
   const [shelfDays, setShelfDays] = useState('');
+  const [energyText, setEnergyText] = useState('');
+  const [netWeightText, setNetWeightText] = useState('');
 
   useEffect(() => {
     if (!product) return;
@@ -293,6 +307,8 @@ function EditSheet({
         ? String(product.typical_expiry_days)
         : '',
     );
+    setEnergyText(product.energy_kcal_per_100g != null ? String(product.energy_kcal_per_100g) : '');
+    setNetWeightText(product.net_weight_g != null ? String(product.net_weight_g) : '');
   }, [product]);
 
   if (!product) return null;
@@ -304,6 +320,17 @@ function EditSheet({
     if (!Number.isFinite(n) || n < 0) return null;
     return n;
   })();
+
+  const parsePositive = (text: string): number | null => {
+    const trimmed = text.trim().replace(',', '.');
+    if (!trimmed) return null;
+    const n = parseFloat(trimmed);
+    if (!Number.isFinite(n) || n < 0) return null;
+    return n;
+  };
+  const isFoodOrWater = category === 'food' || category === 'water';
+  const parsedEnergy = isFoodOrWater ? parsePositive(energyText) : null;
+  const parsedNetWeight = isFoodOrWater ? parsePositive(netWeightText) : null;
 
   return (
     <Modal
@@ -322,7 +349,13 @@ function EditSheet({
           </Text>
           <Pressable
             onPress={() =>
-              onSave({ name, category, typical_expiry_days: parsedDays })
+              onSave({
+                name,
+                category,
+                typical_expiry_days: parsedDays,
+                energy_kcal_per_100g: parsedEnergy,
+                net_weight_g: parsedNetWeight,
+              })
             }
             hitSlop={12}
           >
@@ -412,6 +445,38 @@ function EditSheet({
               Used as a hint when adding new items with this barcode and no
               explicit expiry date.
             </Text>
+
+            {isFoodOrWater && (
+              <>
+                <Text style={styles.sheetSection}>Nutrition</Text>
+                <View style={styles.shelfRow}>
+                  <TextInput
+                    style={[styles.input, styles.shelfInput]}
+                    value={energyText}
+                    onChangeText={setEnergyText}
+                    keyboardType="decimal-pad"
+                    placeholder="—"
+                    placeholderTextColor={colors.textSubtle}
+                  />
+                  <Text style={styles.shelfUnit}>kcal / 100 g</Text>
+                </View>
+                <View style={[styles.shelfRow, { marginTop: spacing.sm }]}>
+                  <TextInput
+                    style={[styles.input, styles.shelfInput]}
+                    value={netWeightText}
+                    onChangeText={setNetWeightText}
+                    keyboardType="decimal-pad"
+                    placeholder="—"
+                    placeholderTextColor={colors.textSubtle}
+                  />
+                  <Text style={styles.shelfUnit}>g / unit (net weight)</Text>
+                </View>
+                <Text style={styles.sheetHint}>
+                  Saving updates every stocked item with this barcode and
+                  pre-fills future scans. Used for readiness (days of food).
+                </Text>
+              </>
+            )}
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>

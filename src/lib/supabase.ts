@@ -52,6 +52,7 @@ import {
   createInventorySessionLocal,
   completeInventorySessionLocal,
   upsertCustomProductLocal,
+  applyProductAttributesToItemsLocal,
   deleteCustomProductLocal,
   setCustomProductMinQuantityLocal,
   addHouseholdMemberLocal,
@@ -1445,6 +1446,8 @@ export async function upsertCustomProduct(input: {
   image_url?: string | null;
   typical_expiry_days?: number | null;
   created_by: string;
+  energy_kcal_per_100g?: number | null;
+  net_weight_g?: number | null;
 }): Promise<CustomProduct> {
   if (hasInitialSync()) {
     const cp = upsertCustomProductLocal(input);
@@ -1460,6 +1463,35 @@ export async function upsertCustomProduct(input: {
     .single();
   if (error) throw error;
   return data as CustomProduct;
+}
+
+/**
+ * Propagate product-level attribute edits (energy / net weight) to every
+ * stocked instance of the barcode in the warehouse. Local-first: per-item
+ * writes enqueue for push so the change reaches the cloud + other devices.
+ */
+export async function applyProductAttributesToItems(
+  warehouseId: string,
+  barcode: string,
+  patch: { energy_kcal_per_100g?: number | null; net_weight_g?: number | null },
+): Promise<void> {
+  if (hasInitialSync()) {
+    applyProductAttributesToItemsLocal(warehouseId, barcode, patch);
+    return;
+  }
+  // Pre-sync fallback: bulk update straight on the server.
+  const { data: boxes } = await supabase
+    .from('boxes')
+    .select('id')
+    .eq('warehouse_id', warehouseId);
+  const boxIds = (boxes ?? []).map((b: any) => b.id);
+  if (boxIds.length === 0) return;
+  const { error } = await supabase
+    .from('items')
+    .update(patch)
+    .eq('barcode', barcode)
+    .in('box_id', boxIds);
+  if (error) throw error;
 }
 
 /**

@@ -809,9 +809,14 @@ export function upsertCustomProductLocal(input: {
   image_url?: string | null;
   typical_expiry_days?: number | null;
   created_by: string;
+  // Optional cached product attributes — only written when the key is present.
+  energy_kcal_per_100g?: number | null;
+  net_weight_g?: number | null;
 }): CustomProduct {
   const db = getDb();
   const now = nowIso();
+  const hasEnergy = 'energy_kcal_per_100g' in input;
+  const hasNet = 'net_weight_g' in input;
 
   // Check if exists
   const existing = db.getFirstSync<{ id: string }>(
@@ -820,21 +825,26 @@ export function upsertCustomProductLocal(input: {
   );
 
   if (existing) {
-    const before = captureBefore('custom_products', existing.id, [
-      'name',
-      'category',
-      'image_url',
-      'typical_expiry_days',
-    ]);
+    const cols = ['name', 'category', 'image_url', 'typical_expiry_days'];
+    const vals: any[] = [input.name, input.category ?? null, input.image_url ?? null, input.typical_expiry_days ?? null];
+    if (hasEnergy) {
+      cols.push('energy_kcal_per_100g');
+      vals.push(input.energy_kcal_per_100g ?? null);
+    }
+    if (hasNet) {
+      cols.push('net_weight_g');
+      vals.push(input.net_weight_g ?? null);
+    }
+    const before = captureBefore('custom_products', existing.id, cols);
     db.runSync(
-      `UPDATE custom_products SET name = ?, category = ?, image_url = ?, typical_expiry_days = ?, _synced = 0 WHERE id = ?`,
-      [input.name, input.category ?? null, input.image_url ?? null, input.typical_expiry_days ?? null, existing.id],
+      `UPDATE custom_products SET ${cols.map((c) => `${c} = ?`).join(', ')}, _synced = 0 WHERE id = ?`,
+      [...vals, existing.id],
     );
     enqueueChange(
       'custom_products',
       existing.id,
       'UPDATE',
-      ['name', 'category', 'image_url', 'typical_expiry_days'],
+      cols,
       before ? { before } : undefined,
     );
     return db.getFirstSync<CustomProduct>(
@@ -845,9 +855,9 @@ export function upsertCustomProductLocal(input: {
 
   const id = genId();
   db.runSync(
-    `INSERT INTO custom_products (id, warehouse_id, barcode, name, category, image_url, typical_expiry_days, created_by, created_at, _synced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-    [id, input.warehouse_id, input.barcode, input.name, input.category ?? null, input.image_url ?? null, input.typical_expiry_days ?? null, input.created_by, now],
+    `INSERT INTO custom_products (id, warehouse_id, barcode, name, category, image_url, typical_expiry_days, created_by, created_at, energy_kcal_per_100g, net_weight_g, _synced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [id, input.warehouse_id, input.barcode, input.name, input.category ?? null, input.image_url ?? null, input.typical_expiry_days ?? null, input.created_by, now, input.energy_kcal_per_100g ?? null, input.net_weight_g ?? null],
   );
   enqueueChange('custom_products', id, 'INSERT');
 
@@ -855,8 +865,33 @@ export function upsertCustomProductLocal(input: {
     id, warehouse_id: input.warehouse_id, barcode: input.barcode, name: input.name,
     category: (input.category ?? null) as Category | null, image_url: input.image_url ?? null,
     typical_expiry_days: input.typical_expiry_days ?? null, created_by: input.created_by, created_at: now,
-    min_quantity: null, energy_kcal_per_100g: null, net_weight_g: null,
+    min_quantity: null, energy_kcal_per_100g: input.energy_kcal_per_100g ?? null, net_weight_g: input.net_weight_g ?? null,
   };
+}
+
+/**
+ * Propagate product-level attribute edits (energy / net weight) from the
+ * product cache to every stocked instance of that barcode in the warehouse.
+ * Reuses updateItemLocal per row so each change is enqueued for sync and the
+ * box caches recalc. Returns the number of items updated.
+ */
+export function applyProductAttributesToItemsLocal(
+  warehouseId: string,
+  barcode: string,
+  patch: { energy_kcal_per_100g?: number | null; net_weight_g?: number | null },
+): number {
+  const db = getDb();
+  const rows = db.getAllSync<{ id: string }>(
+    `SELECT i.id
+     FROM items i
+     JOIN boxes b ON b.id = i.box_id
+     WHERE b.warehouse_id = ? AND i.barcode = ? AND i._deleted_at IS NULL AND b._deleted_at IS NULL`,
+    [warehouseId, barcode],
+  );
+  for (const { id } of rows) {
+    updateItemLocal(id, patch);
+  }
+  return rows.length;
 }
 
 export function deleteCustomProductLocal(id: string): void {

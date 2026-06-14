@@ -166,6 +166,21 @@ export function listAllItemsInWarehouseLocal(warehouseId: string): ItemWithBox[]
   return rows.map((r) => ({ ...mapItem(r), box_name: r.box_name ?? '' }));
 }
 
+/** IDs of all (non-deleted) items with a given barcode in a warehouse. Used to
+ *  propagate product-level attribute edits (energy/net weight) to every
+ *  stocked instance of that product. */
+export function listItemIdsByBarcodeLocal(warehouseId: string, barcode: string): string[] {
+  const db = getDb();
+  const rows = db.getAllSync<{ id: string }>(
+    `SELECT i.id
+     FROM items i
+     JOIN boxes b ON b.id = i.box_id
+     WHERE b.warehouse_id = ? AND i.barcode = ? AND i._deleted_at IS NULL AND b._deleted_at IS NULL`,
+    [warehouseId, barcode],
+  );
+  return rows.map((r) => r.id);
+}
+
 // ---- Custom products ------------------------------------------------------
 
 export function findCustomProductLocal(
