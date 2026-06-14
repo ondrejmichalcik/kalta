@@ -19,15 +19,32 @@ import type {
 import type { KitAddon, KitItem } from '@/src/data/emergencyKit';
 import { EMERGENCY_KIT, KIT_ADDONS } from '@/src/data/emergencyKit';
 import type { KitOverride } from '@/src/lib/kitCoverage';
+import * as Crypto from 'expo-crypto';
 import {
   addWarehouseChecklist,
   createChecklist,
   createChecklistEntry,
+  deleteChecklist,
   listChecklistEntries,
   listChecklists,
   listWarehouseChecklists,
   setChecklistSatisfaction,
 } from '@/src/lib/supabase';
+
+// Deterministic UUID (v5-style) from a seed string, so the FEMA seed checklist
+// and its entries get the SAME id on every device. Two members opening a fresh
+// warehouse then produce identical rows that the sync layer collapses, instead
+// of two separate "Emergency kit (FEMA)" lists.
+async function deterministicId(seed: string): Promise<string> {
+  const hex = await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    `kalta:checklist:${seed}`,
+  );
+  const h = hex.slice(0, 32);
+  const version = `5${h.slice(13, 16)}`; // version nibble = 5
+  const variant = ((parseInt(h[16], 16) & 0x3) | 0x8).toString(16); // 8/9/a/b
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${version}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
 
 const legacyDismissKey = (warehouseId: string) => `@kalta/kit_dismissed_${warehouseId}`;
 
@@ -92,7 +109,9 @@ async function readLegacyOverrides(warehouseId: string): Promise<Map<string, Kit
  * into DB satisfactions. Returns the created seed checklist.
  */
 export async function seedFemaChecklist(warehouseId: string): Promise<Checklist> {
+  const checklistId = await deterministicId(`${warehouseId}:fema`);
   const checklist = await createChecklist({
+    id: checklistId,
     warehouse_id: warehouseId,
     name: 'Emergency kit (FEMA)',
     is_seed: true,
@@ -102,7 +121,9 @@ export async function seedFemaChecklist(warehouseId: string): Promise<Checklist>
   const seedKeyToEntryId = new Map<string, string>();
   for (let i = 0; i < EMERGENCY_KIT.length; i++) {
     const k = EMERGENCY_KIT[i];
+    const entryId = await deterministicId(`${warehouseId}:fema:${k.id}`);
     const entry = await createChecklistEntry({
+      id: entryId,
       checklist_id: checklist.id,
       warehouse_id: warehouseId,
       seed_key: k.id,
@@ -153,7 +174,26 @@ const seedingInFlight = new Map<string, Promise<Checklist[]>>();
  * warehouse's checklists (seeding first if there were none).
  */
 export async function ensureSeededChecklists(warehouseId: string): Promise<Checklist[]> {
-  const existing = await listChecklists(warehouseId);
+  let existing = await listChecklists(warehouseId);
+
+  // Collapse duplicate FEMA seeds — created before the deterministic-id fix by
+  // a cross-device first-open race (each member's device seeded its own). Keep
+  // the oldest, delete the rest; the deletion syncs so both devices converge.
+  const seeds = existing.filter((c) => c.is_seed);
+  if (seeds.length > 1) {
+    const sorted = [...seeds].sort((a, b) =>
+      (a.created_at ?? '').localeCompare(b.created_at ?? ''),
+    );
+    for (const dup of sorted.slice(1)) {
+      try {
+        await deleteChecklist(dup.id);
+      } catch {
+        /* best-effort dedup */
+      }
+    }
+    existing = await listChecklists(warehouseId);
+  }
+
   if (existing.length > 0) return existing;
 
   const inflight = seedingInFlight.get(warehouseId);

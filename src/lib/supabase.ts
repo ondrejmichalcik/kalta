@@ -1716,11 +1716,12 @@ export async function createChecklist(input: {
   name: string;
   is_seed?: boolean;
   goal_days?: number | null;
+  id?: string; // optional deterministic id (seed dedup across devices)
 }): Promise<Checklist> {
   if (hasInitialSync()) return createChecklistLocal(input);
   const { data, error } = await supabase
     .from('checklists')
-    .insert({ warehouse_id: input.warehouse_id, name: input.name, is_seed: input.is_seed ?? false, goal_days: input.goal_days ?? null })
+    .insert({ ...(input.id ? { id: input.id } : {}), warehouse_id: input.warehouse_id, name: input.name, is_seed: input.is_seed ?? false, goal_days: input.goal_days ?? null })
     .select().single();
   if (error) throw error;
   return data as Checklist;
@@ -1752,11 +1753,13 @@ export async function createChecklistEntry(input: {
   rationale?: string | null;
   sort_order?: number;
   seed_key?: string | null;
+  id?: string; // optional deterministic id (seed dedup across devices)
 }): Promise<ChecklistEntry> {
   if (hasInitialSync()) return createChecklistEntryLocal(input);
   const { data, error } = await supabase
     .from('checklist_entries')
     .insert({
+      ...(input.id ? { id: input.id } : {}),
       checklist_id: input.checklist_id, warehouse_id: input.warehouse_id, label: input.label,
       group_name: input.group_name ?? null, category: input.category ?? null,
       keywords: JSON.stringify(input.keywords ?? []), quantified: input.quantified ?? null,

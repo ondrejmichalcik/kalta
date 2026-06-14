@@ -1082,9 +1082,10 @@ export function createChecklistLocal(input: {
   name: string;
   is_seed?: boolean;
   goal_days?: number | null;
+  id?: string;
 }): Checklist {
   const db = getDb();
-  const id = genId();
+  const id = input.id ?? genId();
   const now = nowIso();
   const isSeed = input.is_seed ?? false;
   const goal = input.goal_days ?? null;
@@ -1141,9 +1142,10 @@ export function createChecklistEntryLocal(input: {
   rationale?: string | null;
   sort_order?: number;
   seed_key?: string | null;
+  id?: string;
 }): ChecklistEntry {
   const db = getDb();
-  const id = genId();
+  const id = input.id ?? genId();
   const now = nowIso();
   const keywords = input.keywords ?? [];
   const sortOrder = input.sort_order ?? 0;
