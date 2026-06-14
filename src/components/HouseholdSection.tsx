@@ -7,7 +7,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -42,6 +41,7 @@ import {
 } from '@/src/types/database';
 import { colors, radius, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
+import { toast, showAlert } from '@/src/lib/feedback';
 
 const GOAL_PRESETS: Array<{ label: string; days: number }> = [
   { label: '72 hours', days: 3 },
@@ -89,7 +89,7 @@ export function HouseholdSection({ warehouseId }: { warehouseId: string }) {
     if (!seedChecklistId) return;
     addAddonToChecklist(warehouseId, seedChecklistId, addon)
       .then(load)
-      .catch((e: any) => Alert.alert('Error', e?.message ?? 'Could not add.'));
+      .catch((e: any) => toast.error(e?.message ?? 'Could not add.'));
   };
 
   useEffect(() => {
@@ -106,7 +106,7 @@ export function HouseholdSection({ warehouseId }: { warehouseId: string }) {
   const totalWater = members.reduce((s, m) => s + m.daily_water_l, 0);
 
   const handleDelete = (m: HouseholdMember) => {
-    Alert.alert('Remove person', `Remove ${m.name} from the household?`, [
+    showAlert('Remove person', `Remove ${m.name} from the household?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',
@@ -116,7 +116,7 @@ export function HouseholdSection({ warehouseId }: { warehouseId: string }) {
             await deleteHouseholdMember(m.id);
             setMembers((prev) => prev.filter((x) => x.id !== m.id));
           } catch (e: any) {
-            Alert.alert('Error', e?.message ?? 'Cannot remove.');
+            toast.error(e?.message ?? 'Cannot remove.');
           }
         },
       },
@@ -299,17 +299,17 @@ function MemberSheet({
   const handleSave = async () => {
     const trimmed = name.trim();
     if (!trimmed) {
-      Alert.alert('Name required', 'Please enter a name.');
+      toast.error('Please enter a name.');
       return;
     }
     const kcalN = parseInt(kcal, 10);
     const waterN = parseFloat(water.replace(',', '.'));
     if (!Number.isFinite(kcalN) || kcalN <= 0) {
-      Alert.alert('Invalid calories', 'Enter a positive number.');
+      toast.error('Enter a positive number.');
       return;
     }
     if (!Number.isFinite(waterN) || waterN <= 0) {
-      Alert.alert('Invalid water', 'Enter a positive number.');
+      toast.error('Enter a positive number.');
       return;
     }
     // Derive the member "kind" from the matching preset (drives kit add-on
@@ -338,7 +338,7 @@ function MemberSheet({
       }
       onSaved();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot save.');
+      toast.error(e?.message ?? 'Cannot save.');
     } finally {
       setSaving(false);
     }

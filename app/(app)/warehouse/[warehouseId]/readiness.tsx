@@ -9,7 +9,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActionSheetIOS,
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -45,6 +44,7 @@ import type { ChecklistEntry, HouseholdMember, ItemWithBox, ShoppingListItem } f
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
 import { CATEGORY_SF } from '@/src/components/categoryIcons';
+import { toast, showAlert } from '@/src/lib/feedback';
 
 type Tone = 'red' | 'amber' | 'green';
 
@@ -209,7 +209,7 @@ export default function ReadinessScreen() {
       mode: value,
     })
       .then(() => load())
-      .catch((e: any) => Alert.alert('Error', e?.message ?? 'Could not update.'));
+      .catch((e: any) => toast.error(e?.message ?? 'Could not update.'));
   };
 
   const applyAiProposal = async (edited: AiProposal) => {
@@ -240,10 +240,10 @@ export default function ReadinessScreen() {
 
   const runAdvisor = () => {
     if (result.weakestLink == null) {
-      Alert.alert('Set up household', 'Add household members first so the advisor knows who to plan for.');
+      toast.info('Add household members first so the advisor knows who to plan for.');
       return;
     }
-    Alert.alert(
+    showAlert(
       'AI advisor',
       'Send your readiness summary (household, days of supply, missing kit) to Anthropic for a prioritized shopping list? This uses your API key.',
       [
@@ -272,13 +272,13 @@ export default function ReadinessScreen() {
                 missingKit,
               });
               if (proposal.kind !== 'shopping' || proposal.rows.length === 0) {
-                Alert.alert('No suggestions', 'The advisor returned nothing to add.');
+                toast.info('The advisor returned nothing to add.');
                 return;
               }
               setAiProposal(proposal);
               setAiProposalOpen(true);
             } catch (e: any) {
-              Alert.alert('Advisor failed', e?.message ?? 'Could not reach Claude.');
+              toast.error(e?.message ?? 'Could not reach Claude.');
             } finally {
               setMatching(false);
             }
@@ -299,16 +299,16 @@ export default function ReadinessScreen() {
       .map((i) => ({ id: i.id, name: i.name }));
 
     if (targets.length === 0) {
-      Alert.alert('Nothing to match', 'Every checklist item is already covered or decided.');
+      toast.info('Every checklist item is already covered or decided.');
       return;
     }
     if (usableItems.length === 0) {
-      Alert.alert('No items', 'There are no inventory items to match against.');
+      toast.info('There are no inventory items to match against.');
       return;
     }
 
     // Explicit opt-in before any network call (BYOK — uses the user's key).
-    Alert.alert(
+    showAlert(
       'Smart match',
       `Send ${usableItems.length} item ${usableItems.length === 1 ? 'name' : 'names'} to Anthropic to suggest matches for ${targets.length} checklist ${targets.length === 1 ? 'item' : 'items'}? This uses your API key.`,
       [
@@ -327,13 +327,13 @@ export default function ReadinessScreen() {
                 usableItems,
               );
               if (proposal.kind !== 'pins' || proposal.matches.length === 0) {
-                Alert.alert('No matches', 'Claude found no confident matches.');
+                toast.info('Claude found no confident matches.');
                 return;
               }
               setAiProposal(proposal);
               setAiProposalOpen(true);
             } catch (e: any) {
-              Alert.alert('Smart match failed', e?.message ?? 'Could not reach Claude.');
+              toast.error(e?.message ?? 'Could not reach Claude.');
             } finally {
               setMatching(false);
             }
@@ -354,7 +354,7 @@ export default function ReadinessScreen() {
       source_ref: item.id,
     })
       .then(() => load())
-      .catch((e: any) => Alert.alert('Error', e?.message ?? 'Cannot add to shopping list.'));
+      .catch((e: any) => toast.error(e?.message ?? 'Cannot add to shopping list.'));
   };
 
   const handleEntryPress = (entry: KitCoverageEntry) => {
@@ -362,7 +362,7 @@ export default function ReadinessScreen() {
 
     // User previously marked this irrelevant for the warehouse.
     if (override === 'not_applicable') {
-      Alert.alert(item.label, 'Marked as not relevant for this warehouse.', [
+      showAlert(item.label, 'Marked as not relevant for this warehouse.', [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Make it relevant again', onPress: () => setOverride(item.id, null) },
       ]);
@@ -371,7 +371,7 @@ export default function ReadinessScreen() {
 
     // User previously forced this to stocked despite no real match.
     if (override === 'force_stocked') {
-      Alert.alert(item.label, 'You marked this as covered.', [
+      showAlert(item.label, 'You marked this as covered.', [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Not relevant here', onPress: () => setOverride(item.id, 'not_applicable') },
         { text: 'Reset to auto-detect', onPress: () => setOverride(item.id, null) },
@@ -381,7 +381,7 @@ export default function ReadinessScreen() {
 
     // User previously forced to missing despite the matcher finding something.
     if (override === 'force_missing') {
-      Alert.alert(
+      showAlert(
         item.label,
         matchedItem
           ? `You marked this as missing despite "${matchedItem.name}" being in inventory.`

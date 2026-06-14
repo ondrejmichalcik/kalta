@@ -6,7 +6,6 @@
 // ============================================================================
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
   FlatList,
   Pressable,
   RefreshControl,
@@ -14,6 +13,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { showAlert, toast } from '@/src/lib/feedback';
 import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -88,7 +88,7 @@ export default function PendingScreen() {
 
   const handleRevertAll = useCallback(() => {
     if (entries.length === 0) return;
-    Alert.alert(
+    showAlert(
       'Revert all changes?',
       `This will undo all ${entries.length} pending change${entries.length === 1 ? '' : 's'} and restore your local data to its last synced state.`,
       [
@@ -102,15 +102,14 @@ export default function PendingScreen() {
               for (const boxId of result.affectedBoxIds) recalcBoxCacheLocal(boxId);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
               if (result.skipped > 0) {
-                Alert.alert(
-                  'Some changes kept',
+                toast.info(
                   `Reverted ${result.reverted}. Skipped ${result.skipped} that couldn't be undone (no snapshot).`,
                 );
               }
               refresh();
             } catch (e: any) {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-              Alert.alert('Cannot revert', e?.message ?? 'Unknown error');
+              toast.error(e?.message ?? 'Unknown error');
             }
           },
         },
@@ -125,7 +124,7 @@ export default function PendingScreen() {
         entry.change_count > 1
           ? `Revert ${entry.change_count} changes?`
           : 'Revert change?';
-      Alert.alert(title, message, [
+      showAlert(title, message, [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Revert',
@@ -150,10 +149,7 @@ export default function PendingScreen() {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
             } else {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-              Alert.alert(
-                'Cannot revert',
-                'No before-snapshots were available for this change.',
-              );
+              toast.error('No before-snapshots were available for this change.');
             }
             refresh();
           },

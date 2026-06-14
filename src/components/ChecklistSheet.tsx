@@ -6,7 +6,6 @@
 // ============================================================================
 import { useEffect, useState } from 'react';
 import {
-  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -17,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { createChecklist, updateChecklist } from '@/src/lib/supabase';
+import { toast } from '@/src/lib/feedback';
 import { cloneChecklist } from '@/src/lib/checklists';
 import type { Checklist } from '@/src/types/database';
 import { colors, radius, spacing, typography } from '@/src/theme';
@@ -66,7 +66,7 @@ export function ChecklistSheet({
   const save = async () => {
     const trimmed = name.trim();
     if (!trimmed) {
-      Alert.alert('Name required', 'Give the checklist a name.');
+      toast.info('Give the checklist a name.');
       return;
     }
     setSaving(true);
@@ -83,7 +83,7 @@ export function ChecklistSheet({
       }
       onClose();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Could not save.');
+      toast.error(e?.message ?? 'Could not save.');
     } finally {
       setSaving(false);
     }

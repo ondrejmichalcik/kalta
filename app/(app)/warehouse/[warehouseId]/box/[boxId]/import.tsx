@@ -7,7 +7,6 @@
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -28,6 +27,7 @@ import type { AiProposal } from '@/src/lib/aiProposal';
 import type { NewItemInput } from '@/src/lib/supabase';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
+import { toast, showAlert } from '@/src/lib/feedback';
 
 export default function ImportPurchaseScreen() {
   const router = useRouter();
@@ -47,13 +47,13 @@ export default function ImportPurchaseScreen() {
       if (!input) return;
       const result = await extractPurchase(input);
       if (result.kind !== 'items' || result.drafts.length === 0) {
-        Alert.alert('Nothing found', 'No items were detected in that purchase.');
+        toast.info('No items were detected in that purchase.');
         return;
       }
       setProposal(result);
       setSheetOpen(true);
     } catch (e: any) {
-      Alert.alert('Import failed', e?.message ?? 'Could not read the purchase.');
+      toast.error(e?.message ?? 'Could not read the purchase.');
     } finally {
       setBusy(null);
     }
@@ -62,7 +62,7 @@ export default function ImportPurchaseScreen() {
   const fromText = () => {
     const t = text.trim();
     if (!t) {
-      Alert.alert('Paste something', 'Paste the order or receipt text first.');
+      toast.info('Paste the order or receipt text first.');
       return;
     }
     confirmThenRun('Send the pasted text to Anthropic to extract items?', 'text', async () => ({
@@ -75,7 +75,7 @@ export default function ImportPurchaseScreen() {
     confirmThenRun('Upload the image and send it to Anthropic to extract items?', 'photo', async () => {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) {
-        Alert.alert('Permission needed', 'Allow photo access to import from a screenshot.');
+        toast.error('Allow photo access to import from a screenshot.');
         return null;
       }
       const res = await ImagePicker.launchImageLibraryAsync({
@@ -86,7 +86,7 @@ export default function ImportPurchaseScreen() {
       if (!warehouseId) return null;
       const url = await uploadProductImage(warehouseId, res.assets[0].uri);
       if (url.startsWith('local:')) {
-        Alert.alert('Cloud needed', 'Image import needs cloud sync enabled.');
+        toast.error('Image import needs cloud sync enabled.');
         return null;
       }
       return { type: 'image', url };
@@ -111,7 +111,7 @@ export default function ImportPurchaseScreen() {
     label: string,
     build: () => Promise<Parameters<typeof extractPurchase>[0] | null>,
   ) => {
-    Alert.alert('Import purchase', `${message} This uses your API key.`, [
+    showAlert('Import purchase', `${message} This uses your API key.`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Import', onPress: () => runExtract(label, build) },
     ]);
@@ -121,7 +121,7 @@ export default function ImportPurchaseScreen() {
     if (edited.kind !== 'items' || !boxId) return;
     const uid = await getActiveUserId();
     if (!uid) {
-      Alert.alert('Not signed in', 'Cannot add items right now.');
+      toast.error('Cannot add items right now.');
       return;
     }
     const now = Date.now();
@@ -137,11 +137,10 @@ export default function ImportPurchaseScreen() {
     }));
     try {
       await addItemsBatch(boxId, uid, items);
-      Alert.alert('Added', `${items.length} ${items.length === 1 ? 'item' : 'items'} added to the box.`, [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      toast.success(`${items.length} ${items.length === 1 ? 'item' : 'items'} added to the box.`);
+      router.back();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Could not add items.');
+      toast.error(e?.message ?? 'Could not add items.');
     }
   };
 

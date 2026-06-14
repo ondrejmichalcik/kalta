@@ -6,7 +6,6 @@
 // ============================================================================
 import { useEffect, useState } from 'react';
 import {
-  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -17,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { createChecklistEntry, updateChecklistEntry } from '@/src/lib/supabase';
+import { toast } from '@/src/lib/feedback';
 import {
   CATEGORIES,
   CATEGORY_LABEL,
@@ -70,7 +70,7 @@ export function ChecklistEntrySheet({
   const save = async () => {
     const trimmed = label.trim();
     if (!trimmed) {
-      Alert.alert('Label required', 'Give the checklist item a name.');
+      toast.info('Give the checklist item a name.');
       return;
     }
     const kws = keywords
@@ -104,7 +104,7 @@ export function ChecklistEntrySheet({
       onSaved();
       onClose();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Could not save.');
+      toast.error(e?.message ?? 'Could not save.');
     } finally {
       setSaving(false);
     }

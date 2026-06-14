@@ -15,6 +15,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.ondrejmichalcik.kalta",
+      "appleTeamId": "P59Z5SBM7N",
       "buildNumber": "22",
       "usesAppleSignIn": true,
       "infoPlist": {
@@ -68,7 +69,19 @@
       "expo-font",
       "expo-sqlite",
       "expo-iap",
-      "@bacons/apple-targets"
+      "@bacons/apple-targets",
+      [
+        "expo-share-intent",
+        {
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsText": true,
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+            "NSExtensionActivationSupportsImageWithMaxCount": 1,
+            "NSExtensionActivationSupportsFileWithMaxCount": 1
+          },
+          "iosAppGroupIdentifier": "group.com.ondrejmichalcik.kalta"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

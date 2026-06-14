@@ -6,13 +6,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { showAlert, toast } from '@/src/lib/feedback';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -56,7 +56,7 @@ export default function ChecklistsScreen() {
     const op = applies
       ? removeWarehouseChecklist(warehouseId, checklistId)
       : addWarehouseChecklist({ warehouse_id: warehouseId, checklist_id: checklistId });
-    op.then(load).catch((e: any) => Alert.alert('Error', e?.message ?? 'Could not update.'));
+    op.then(load).catch((e: any) => toast.error(e?.message ?? 'Could not update.'));
   };
 
   useFocusEffect(
@@ -79,7 +79,7 @@ export default function ChecklistsScreen() {
   const openSwipeableRef = useRef<Swipeable | null>(null);
 
   const handleDeleteChecklist = (c: Checklist, close: () => void) => {
-    Alert.alert('Delete checklist', `Delete "${c.name}" and all its items?`, [
+    showAlert('Delete checklist', `Delete "${c.name}" and all its items?`, [
       { text: 'Cancel', style: 'cancel', onPress: close },
       {
         text: 'Delete',
@@ -90,7 +90,7 @@ export default function ChecklistsScreen() {
               close();
               load();
             })
-            .catch((e: any) => Alert.alert('Error', e?.message ?? 'Could not delete.')),
+            .catch((e: any) => toast.error(e?.message ?? 'Could not delete.')),
       },
     ]);
   };

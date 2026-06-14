@@ -12,7 +12,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -23,6 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { getActiveUser, getActiveUserId } from '@/src/lib/supabase';
+import { toast } from '@/src/lib/feedback';
 import {
   decodeMessage,
   encodeMessage,
@@ -549,7 +549,7 @@ export default function P2PSyncScreen() {
         // — failure is surfaced via the watchdog, not this call site.
         inviteWithWatchdog(peer.displayName, 1).catch(() => {});
       } catch (e: any) {
-        Alert.alert('Connection failed', e?.message ?? 'Unknown error');
+        toast.error(e?.message ?? 'Unknown error');
       }
     },
     [inviteWithWatchdog],

@@ -6,7 +6,6 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   ImageBackground,
   Linking,
   Pressable,
@@ -15,6 +14,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { toast } from '@/src/lib/feedback';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -100,8 +100,7 @@ export default function PaywallScreen() {
   const handleSubscribe = async () => {
     if (purchasing) return;
     if (!SUBSCRIPTION_ENFORCEMENT_ENABLED) {
-      Alert.alert(
-        'Coming soon',
+      toast.info(
         'Subscriptions are not yet enabled in this build. The flow will activate once Apple Paid Apps Agreement is active.',
       );
       return;
@@ -117,7 +116,7 @@ export default function PaywallScreen() {
     } catch (e: any) {
       const msg = e?.message ?? String(e);
       if (/cancel/i.test(msg)) return;
-      Alert.alert('Purchase failed', msg);
+      toast.error(msg);
     } finally {
       setPurchasing(false);
     }
@@ -128,12 +127,11 @@ export default function PaywallScreen() {
     try {
       setRestoring(true);
       await restoreSubscription();
-      Alert.alert(
-        'Restore complete',
+      toast.success(
         'If you have an active or past subscription, it has been restored.',
       );
     } catch (e: any) {
-      Alert.alert('Restore failed', e?.message ?? 'Unknown error');
+      toast.error(e?.message ?? 'Unknown error');
     } finally {
       setRestoring(false);
     }

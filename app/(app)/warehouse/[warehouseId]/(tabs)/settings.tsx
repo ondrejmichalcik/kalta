@@ -8,7 +8,6 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActionSheetIOS,
   ActivityIndicator,
-  Alert,
   FlatList,
   Modal,
   Pressable,
@@ -37,6 +36,7 @@ import {
   renameWarehouse,
   supabase,
 } from '@/src/lib/supabase';
+import { toast, showAlert, showPrompt } from '@/src/lib/feedback';
 import type { Role, Warehouse, WarehouseMember } from '@/src/types/database';
 import { colors, radius, spacing, typography } from '@/src/theme';
 import { Card } from '@/src/components/Card';
@@ -116,7 +116,7 @@ export default function WarehouseSettingsScreen() {
 
   const handleRename = () => {
     if (!warehouse || !isOwner) return;
-    Alert.prompt(
+    showPrompt(
       'Rename warehouse',
       'Enter a new name.',
       [
@@ -131,15 +131,14 @@ export default function WarehouseSettingsScreen() {
               await renameWarehouse(warehouse.id, trimmed);
               await load();
             } catch (e: any) {
-              Alert.alert('Error', e?.message ?? 'Cannot rename.');
+              toast.error(e?.message ?? 'Cannot rename.');
             } finally {
               setBusy(false);
             }
           },
         },
       ],
-      'plain-text',
-      warehouse.name,
+      { defaultValue: warehouse.name },
     );
   };
 
@@ -152,7 +151,7 @@ export default function WarehouseSettingsScreen() {
       await promoteMember(warehouseId, member.user_id);
       await load();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot promote.');
+      toast.error(e?.message ?? 'Cannot promote.');
     } finally {
       setBusy(false);
     }
@@ -165,7 +164,7 @@ export default function WarehouseSettingsScreen() {
       await demoteMember(warehouseId, member.user_id);
       await load();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot demote.');
+      toast.error(e?.message ?? 'Cannot demote.');
     } finally {
       setBusy(false);
     }
@@ -178,7 +177,7 @@ export default function WarehouseSettingsScreen() {
       await removeMember(warehouseId, member.user_id);
       await load();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot remove.');
+      toast.error(e?.message ?? 'Cannot remove.');
     } finally {
       setBusy(false);
     }
@@ -201,13 +200,10 @@ export default function WarehouseSettingsScreen() {
       options.push('Demote to member');
       handlers.push(() => {
         if (isLastOwner) {
-          Alert.alert(
-            'Cannot demote',
-            'This is the last owner. Promote another member to owner first.',
-          );
+          toast.error('This is the last owner. Promote another member to owner first.');
           return;
         }
-        Alert.alert(
+        showAlert(
           'Demote to member',
           `${displayNameFor(member)} will lose the ability to rename, delete, or manage members.`,
           [
@@ -219,7 +215,7 @@ export default function WarehouseSettingsScreen() {
     } else {
       options.push('Promote to owner');
       handlers.push(() => {
-        Alert.alert(
+        showAlert(
           'Promote to owner',
           `${displayNameFor(member)} will gain full control — including the ability to delete this warehouse. Continue?`,
           [
@@ -233,13 +229,10 @@ export default function WarehouseSettingsScreen() {
     options.push('Remove from warehouse');
     handlers.push(() => {
       if (isLastOwner) {
-        Alert.alert(
-          'Cannot remove',
-          'This is the last owner. Promote another member to owner first.',
-        );
+        toast.error('This is the last owner. Promote another member to owner first.');
         return;
       }
-      Alert.alert(
+      showAlert(
         'Remove member',
         `Remove ${displayNameFor(member)}? They'll lose access immediately.`,
         [
@@ -274,7 +267,7 @@ export default function WarehouseSettingsScreen() {
 
   const handleDelete = () => {
     if (!warehouse || !isOwner) return;
-    Alert.alert(
+    showAlert(
       'Delete warehouse',
       `Really delete "${warehouse.name}"? All boxes and items in this warehouse will be permanently deleted for everyone.`,
       [
@@ -288,7 +281,7 @@ export default function WarehouseSettingsScreen() {
               await deleteWarehouse(warehouse.id);
               router.replace('/' as any);
             } catch (e: any) {
-              Alert.alert('Error', e?.message ?? 'Cannot delete.');
+              toast.error(e?.message ?? 'Cannot delete.');
             } finally {
               setBusy(false);
             }
@@ -301,13 +294,12 @@ export default function WarehouseSettingsScreen() {
   const handleLeave = () => {
     if (!warehouse || !currentUserId) return;
     if (selfIsLastOwner) {
-      Alert.alert(
-        'You are the last owner',
+      toast.info(
         'Promote another member to owner first, or delete the warehouse if you no longer need it.',
       );
       return;
     }
-    Alert.alert(
+    showAlert(
       'Leave warehouse',
       `Leave "${warehouse.name}"? You'll lose access to all its boxes and items. Other members keep access.`,
       [
@@ -321,7 +313,7 @@ export default function WarehouseSettingsScreen() {
               await leaveWarehouse(warehouse.id, currentUserId);
               router.replace('/' as any);
             } catch (e: any) {
-              Alert.alert('Error', e?.message ?? 'Cannot leave.');
+              toast.error(e?.message ?? 'Cannot leave.');
             } finally {
               setBusy(false);
             }
@@ -537,7 +529,7 @@ function InviteSheet({
       setLink(buildInviteLink(inv.token));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot create invitation.');
+      toast.error(e?.message ?? 'Cannot create invitation.');
     } finally {
       setGenerating(false);
     }

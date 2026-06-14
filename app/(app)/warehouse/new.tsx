@@ -6,7 +6,6 @@
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -19,6 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { createWarehouse, getActiveUserId } from '@/src/lib/supabase';
+import { toast } from '@/src/lib/feedback';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
 
@@ -30,7 +30,7 @@ export default function NewWarehouseScreen() {
   const handleSave = async () => {
     const trimmed = name.trim();
     if (!trimmed) {
-      Alert.alert('Name required', 'Give your warehouse a name, e.g. "Home" or "Cottage".');
+      toast.info('Give your warehouse a name, e.g. "Home" or "Cottage".');
       return;
     }
     try {
@@ -40,7 +40,7 @@ export default function NewWarehouseScreen() {
       const wh = await createWarehouse(userId, trimmed);
       router.replace(`/warehouse/${wh.id}` as any);
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot create warehouse.');
+      toast.error(e?.message ?? 'Cannot create warehouse.');
     } finally {
       setSaving(false);
     }

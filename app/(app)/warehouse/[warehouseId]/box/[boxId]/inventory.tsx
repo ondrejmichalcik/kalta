@@ -7,7 +7,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Pressable,
   ScrollView,
@@ -34,6 +33,7 @@ import type { Box, Item } from '@/src/types/database';
 import { formatItemQuantity } from '@/src/types/database';
 import { colors, radius, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
+import { toast, showAlert, showPrompt } from '@/src/lib/feedback';
 
 type Phase = 'scanning' | 'report';
 
@@ -90,7 +90,7 @@ export default function InventoryScreen() {
           setSessionId(session.id);
         }
       } catch (e: any) {
-        Alert.alert('Error', e?.message ?? 'Cannot load box.');
+        toast.error(e?.message ?? 'Cannot load box.');
         router.back();
       } finally {
         setLoading(false);
@@ -133,7 +133,7 @@ export default function InventoryScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-        Alert.alert('Unknown barcode', 'No item with this barcode in this box.');
+        toast.error('No item with this barcode in this box.');
       }
 
       setTimeout(() => { lastBarcodeRef.current = null; }, 1500);
@@ -208,7 +208,7 @@ export default function InventoryScreen() {
 
   const editNotes = (itemId: string) => {
     const current = foundMap[itemId]?.notes ?? '';
-    Alert.prompt(
+    showPrompt(
       'Item note',
       'Add a note about this item\'s condition.',
       [
@@ -224,8 +224,7 @@ export default function InventoryScreen() {
           },
         },
       ],
-      'plain-text',
-      current,
+      { defaultValue: current },
     );
   };
 
@@ -243,7 +242,7 @@ export default function InventoryScreen() {
   const confirmReport = () => {
     const missingCount = unscannedItems.length;
     if (missingCount > 0) {
-      Alert.alert(
+      showAlert(
         `${missingCount} item${missingCount > 1 ? 's' : ''} not found`,
         'Items you didn\'t scan will be removed from the box. If you just forgot to scan something, go back and scan it first.',
         [
@@ -315,7 +314,7 @@ export default function InventoryScreen() {
         try {
           await deleteItem(e.itemId);
         } catch (delErr: any) {
-          Alert.alert('Delete failed', `"${e.name}": ${delErr?.message}`);
+          toast.error(`"${e.name}": ${delErr?.message}`);
         }
       }
 
@@ -323,7 +322,7 @@ export default function InventoryScreen() {
         try {
           await deleteItem(i.id);
         } catch (delErr: any) {
-          Alert.alert('Delete failed', `"${i.name}": ${delErr?.message}`);
+          toast.error(`"${i.name}": ${delErr?.message}`);
         }
       }
 
@@ -353,11 +352,10 @@ export default function InventoryScreen() {
       if (totalDeleted) parts.push(`${totalDeleted} deleted`);
       if (toUpdate.length) parts.push(`${toUpdate.length} updated`);
 
-      Alert.alert('Inventory saved', parts.join(', '), [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      toast.success(parts.join(', '));
+      router.back();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot save.');
+      toast.error(e?.message ?? 'Cannot save.');
     } finally {
       setSaving(false);
     }
@@ -488,7 +486,7 @@ export default function InventoryScreen() {
         <Pressable
           hitSlop={12}
           onPress={() => {
-            Alert.alert('Cancel inventory?', 'Progress will be lost.', [
+            showAlert('Cancel inventory?', 'Progress will be lost.', [
               { text: 'Keep scanning', style: 'cancel' },
               { text: 'Cancel', style: 'destructive', onPress: () => router.back() },
             ]);

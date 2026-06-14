@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActionSheetIOS,
   ActivityIndicator,
-  Alert,
   FlatList,
   Image,
   Modal,
@@ -27,6 +26,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { getCachedUri } from '@/src/lib/imageCache';
+import { toast, showAlert } from '@/src/lib/feedback';
 import { ItemEditSheet } from '@/src/components/ItemEditSheet';
 import { BoxEditSheet } from '@/src/components/BoxEditSheet';
 import { Icon } from '@/src/components/Icon';
@@ -229,7 +229,7 @@ export default function BoxDetailScreen() {
 
   const handleDeleteBox = () => {
     if (!box) return;
-    Alert.alert(
+    showAlert(
       'Delete box',
       `Really delete "${box.name}"? All items in this box will be deleted with it.`,
       [
@@ -242,7 +242,7 @@ export default function BoxDetailScreen() {
               await deleteBox(box.id);
               router.replace(`/warehouse/${warehouseId}` as any);
             } catch (e: any) {
-              Alert.alert('Error', e?.message ?? 'Cannot delete.');
+              toast.error(e?.message ?? 'Cannot delete.');
             }
           },
         },
@@ -307,7 +307,7 @@ export default function BoxDetailScreen() {
   };
 
   const confirmDelete = (item: Item, close: () => void) => {
-    Alert.alert('Delete item', `Really delete "${item.name}"?`, [
+    showAlert('Delete item', `Really delete "${item.name}"?`, [
       {
         text: 'Cancel',
         style: 'cancel',
@@ -322,7 +322,7 @@ export default function BoxDetailScreen() {
             await deleteItem(item.id);
             setItems((prev) => prev.filter((x) => x.id !== item.id));
           } catch (e: any) {
-            Alert.alert('Error', e?.message ?? 'Cannot delete.');
+            toast.error(e?.message ?? 'Cannot delete.');
           }
         },
       },
@@ -330,7 +330,7 @@ export default function BoxDetailScreen() {
   };
 
   const confirmOpen = (item: Item, close: () => void) => {
-    Alert.alert(
+    showAlert(
       'Mark one as opened',
       `Decrement sealed count of "${item.name}" by 1 and push one unit to an opened sibling?`,
       [
@@ -346,7 +346,7 @@ export default function BoxDetailScreen() {
               );
               // Realtime sub on items will reload the list automatically.
             } catch (e: any) {
-              Alert.alert('Error', e?.message ?? 'Cannot open.');
+              toast.error(e?.message ?? 'Cannot open.');
             }
           },
         },
@@ -371,22 +371,21 @@ export default function BoxDetailScreen() {
 
   const completeInventory = async () => {
     if (verifiedIds.size === 0) {
-      Alert.alert('Nothing verified', 'Tap items you physically see in the box.');
+      toast.info('Tap items you physically see in the box.');
       return;
     }
     try {
       await verifyItems([...verifiedIds]);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       const notFound = items.length - verifiedIds.size;
-      Alert.alert(
-        'Inventory complete',
+      toast.success(
         `${verifiedIds.size} verified${notFound > 0 ? `, ${notFound} not found` : ''}`,
       );
       setInventoryMode(false);
       setVerifiedIds(new Set());
       await load();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot save inventory.');
+      toast.error(e?.message ?? 'Cannot save inventory.');
     }
   };
 
@@ -448,7 +447,7 @@ export default function BoxDetailScreen() {
       exitSelectMode();
       await load();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot move items.');
+      toast.error(e?.message ?? 'Cannot move items.');
     }
   };
 
@@ -730,7 +729,7 @@ export default function BoxDetailScreen() {
           <Pressable
             onPress={() => {
               if (selectedIds.size === 0) {
-                Alert.alert('No items selected', 'Tap items to select them first.');
+                toast.info('Tap items to select them first.');
                 return;
               }
               setShowMovePicker(true);
@@ -989,7 +988,7 @@ function LabelModalContent({ box, onClose }: { box: Box; onClose: () => void }) 
       // quietly. Real errors (network, etc.) surface to the user.
       const msg = String(e?.message ?? '');
       if (!msg.toLowerCase().includes('did not complete')) {
-        Alert.alert('Print error', msg || 'Cannot open print dialog.');
+        toast.error(msg || 'Cannot open print dialog.');
       }
     } finally {
       setPrinting(false);
@@ -1001,7 +1000,7 @@ function LabelModalContent({ box, onClose }: { box: Box; onClose: () => void }) 
       setPrinting(true);
       await shareBoxLabelPdf(box);
     } catch (e: any) {
-      Alert.alert('Share error', e?.message ?? 'Cannot share PDF.');
+      toast.error(e?.message ?? 'Cannot share PDF.');
     } finally {
       setPrinting(false);
     }
@@ -1013,7 +1012,7 @@ function LabelModalContent({ box, onClose }: { box: Box; onClose: () => void }) 
       await printBoxLabelViaBrotherSDK(box);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch (e: any) {
-      Alert.alert('Brother print error', e?.message ?? 'Cannot print via Brother SDK.');
+      toast.error(e?.message ?? 'Cannot print via Brother SDK.');
     } finally {
       setPrinting(false);
     }

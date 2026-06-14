@@ -6,7 +6,6 @@ import { useEffect, useState } from 'react';
 import {
   ActionSheetIOS,
   ActivityIndicator,
-  Alert,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -23,6 +22,7 @@ import DateTimePicker, { type DateTimePickerEvent } from '@react-native-communit
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { getCachedUri } from '@/src/lib/imageCache';
+import { toast, showAlert, showPrompt } from '@/src/lib/feedback';
 import {
   addShoppingItem,
   deleteItem,
@@ -201,7 +201,7 @@ export function ItemEditSheet({
       onClose();
     } catch (e: any) {
       setSaving(false);
-      Alert.alert('Error', e?.message ?? 'Cannot mark condition.');
+      toast.error(e?.message ?? 'Cannot mark condition.');
     }
   };
 
@@ -219,7 +219,7 @@ export function ItemEditSheet({
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch (e: any) {
-      Alert.alert('Upload failed', e?.message ?? 'Cannot upload image.');
+      toast.error(e?.message ?? 'Cannot upload image.');
     } finally {
       setUploadingImage(false);
     }
@@ -228,7 +228,7 @@ export function ItemEditSheet({
   const handleTakePhoto = async () => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert('Camera access needed', 'Enable camera access in iOS Settings.');
+      toast.error('Enable camera access in iOS Settings.');
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
@@ -243,7 +243,7 @@ export function ItemEditSheet({
   const handlePickFromLibrary = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert('Photo library access needed', 'Enable photo library access in iOS Settings.');
+      toast.error('Enable photo library access in iOS Settings.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -294,7 +294,7 @@ export function ItemEditSheet({
   // handleMarkOpened kept as legacy for swipe action — delegates to
   // openOneItem RPC for the quick "just open one" path.
   const handleMarkOpened = () => {
-    Alert.alert(
+    showAlert(
       'Mark one as opened',
       `Decrement sealed count by 1 and push one unit to an opened sibling. Continue?`,
       [
@@ -310,7 +310,7 @@ export function ItemEditSheet({
               onClose();
             } catch (e: any) {
               setSaving(false);
-              Alert.alert('Error', e?.message ?? 'Cannot open.');
+              toast.error(e?.message ?? 'Cannot open.');
             }
           },
         },
@@ -334,13 +334,13 @@ export function ItemEditSheet({
         onClose();
       } catch (e: any) {
         setSaving(false);
-        Alert.alert('Error', e?.message ?? 'Cannot move item.');
+        toast.error(e?.message ?? 'Cannot move item.');
       }
     };
 
     if (item.quantity <= 1) {
       // Only 1 unit — move it directly
-      Alert.alert(
+      showAlert(
         'Move item',
         `Move "${item.name}" to "${targetBox.name}"?`,
         [
@@ -350,7 +350,7 @@ export function ItemEditSheet({
       );
     } else {
       // Multiple units — ask how many
-      Alert.alert(
+      showAlert(
         'Move how many?',
         `"${item.name}" has ${item.quantity} ${item.unit}. Move all or just some to "${targetBox.name}"?`,
         [
@@ -359,7 +359,7 @@ export function ItemEditSheet({
           {
             text: 'Choose amount',
             onPress: () => {
-              Alert.prompt(
+              showPrompt(
                 'How many to move?',
                 `Enter quantity (1–${item.quantity - 1}):`,
                 [
@@ -369,7 +369,7 @@ export function ItemEditSheet({
                     onPress: (text?: string) => {
                       const n = parseInt(text ?? '', 10);
                       if (!n || n <= 0) {
-                        Alert.alert('Invalid', 'Enter a positive number.');
+                        toast.error('Enter a positive number.');
                         return;
                       }
                       if (n >= item.quantity) {
@@ -380,9 +380,7 @@ export function ItemEditSheet({
                     },
                   },
                 ],
-                'plain-text',
-                '1',
-                'number-pad',
+                { defaultValue: '1', keyboardType: 'numeric' },
               );
             },
           },
@@ -392,7 +390,7 @@ export function ItemEditSheet({
   };
 
   const handleDelete = () => {
-    Alert.alert('Delete item', `Really delete "${item.name}"?`, [
+    showAlert('Delete item', `Really delete "${item.name}"?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -404,7 +402,7 @@ export function ItemEditSheet({
             onDeleted(item.id);
           } catch (e: any) {
             setSaving(false);
-            Alert.alert('Error', e?.message ?? 'Cannot delete.');
+            toast.error(e?.message ?? 'Cannot delete.');
           }
         },
       },
@@ -424,8 +422,7 @@ export function ItemEditSheet({
         (r) => r.label.trim().toLowerCase() === label.toLowerCase() && !r.checked,
       );
       if (dupe) {
-        Alert.alert(
-          'Already on list',
+        toast.info(
           `"${label}" is already on your shopping list as ${dupe.source.replace('_', ' ')}.`,
         );
         return;
@@ -442,21 +439,21 @@ export function ItemEditSheet({
         source_ref: item.barcode ?? item.id,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      Alert.alert('Added to shopping list', `"${label}" was added.`);
+      toast.success(`"${label}" was added.`);
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot add to shopping list.');
+      toast.error(e?.message ?? 'Cannot add to shopping list.');
     }
   };
 
   const handleSave = async () => {
     const name = draft.name.trim();
     if (!name) {
-      Alert.alert('Name required', 'Enter a product name.');
+      toast.error('Enter a product name.');
       return;
     }
     const qty = parseFloat(quantityText.replace(',', '.'));
     if (!qty || qty <= 0) {
-      Alert.alert('Invalid quantity', 'Enter a positive number.');
+      toast.error('Enter a positive number.');
       return;
     }
     try {
@@ -502,7 +499,7 @@ export function ItemEditSheet({
       }
       onSaved(updated);
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot save.');
+      toast.error(e?.message ?? 'Cannot save.');
     } finally {
       setSaving(false);
     }

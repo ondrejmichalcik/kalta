@@ -8,9 +8,12 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import * as Linking from 'expo-linking';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ActivityIndicator, Alert, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { ShareIntentProvider, useShareIntentContext } from 'expo-share-intent';
 import type { Session } from '@supabase/supabase-js';
+import { FeedbackHost } from '@/src/components/FeedbackHost';
+import { toast } from '@/src/lib/feedback';
 import { acceptInvitation, consumeExplicitSignOut, listAllItemsInWarehouse, getMyWarehouses, supabase } from '@/src/lib/supabase';
 import * as Notifications from 'expo-notifications';
 import { rescheduleExpiryNotifications, setupForegroundHandler } from '@/src/lib/notifications';
@@ -48,7 +51,7 @@ interface CachedUser {
   email: string | null;
 }
 
-export default function RootLayout() {
+function RootLayout() {
   const [session, setSession] = useState<Session | null>(null);
   // Cached user identity — survives token expiry when offline.
   const [cachedUser, setCachedUser] = useState<CachedUser | null>(null);
@@ -66,13 +69,13 @@ export default function RootLayout() {
       try {
         await acceptInvitation(token, userId);
         await AsyncStorage.removeItem(PENDING_INVITE_KEY);
-        Alert.alert('Done', 'Invitation accepted. Welcome to the shared warehouse!');
+        toast.success('Invitation accepted. Welcome to the shared warehouse!');
         router.replace('/' as any);
       } catch (e: any) {
         // Discard the pending token on error — it's either expired, already
         // used, or malformed. No point keeping it around to fail again.
         await AsyncStorage.removeItem(PENDING_INVITE_KEY);
-        Alert.alert('Invitation error', e?.message ?? 'Unknown error');
+        toast.error(e?.message ?? 'Unknown error');
       }
     },
     [router],
@@ -262,8 +265,7 @@ export default function RootLayout() {
         // Persist token for post-login processing. The onAuthStateChange
         // handler above will pick it up once the user signs in.
         await AsyncStorage.setItem(PENDING_INVITE_KEY, token);
-        Alert.alert(
-          'Invitation',
+        toast.info(
           'Sign in to accept this invitation. We\'ll remember the link for you.',
         );
         return;
@@ -275,6 +277,20 @@ export default function RootLayout() {
     const sub = Linking.addEventListener('url', ({ url }) => handle(url, 'addEventListener'));
     return () => sub.remove();
   }, [processInvite]);
+
+  // --- Share Extension → open the shared-purchase import screen ---
+  // expo-share-intent surfaces content shared into Kalta (a receipt PDF, an
+  // order screenshot, pasted text, a web URL) via context. When something
+  // arrives and the user is past the auth/paywall guard, route them into the
+  // dedicated import screen, which picks a destination box and runs the same
+  // AI extraction as the in-box "Import a purchase" flow. The screen consumes
+  // and resets the intent once handled.
+  const { hasShareIntent, isReady } = useShareIntentContext();
+  useEffect(() => {
+    if (loading || !isReady || !hasShareIntent) return;
+    if (!isAuthenticated) return; // auth guard will route to login first
+    router.push('/share-import' as any);
+  }, [hasShareIntent, isReady, loading, isAuthenticated, router]);
 
   // --- Notification tap → navigate to the matching pre-filtered list ---
   useEffect(() => {
@@ -333,6 +349,19 @@ export default function RootLayout() {
         <Stack.Screen name="invite/[token]" options={{ animation: 'none' }} />
         <Stack.Screen name="+not-found" />
       </Stack>
+      <FeedbackHost />
     </GestureHandlerRootView>
+  );
+}
+
+// Wrap the root in ShareIntentProvider so RootLayout (and the share-import
+// screen) can read content shared into Kalta via the iOS Share Extension.
+// resetOnBackground keeps a stale intent from re-firing when the app is
+// merely backgrounded and resumed without a new share.
+export default function RootLayoutWithShareIntent() {
+  return (
+    <ShareIntentProvider options={{ debug: false, resetOnBackground: true }}>
+      <RootLayout />
+    </ShareIntentProvider>
   );
 }

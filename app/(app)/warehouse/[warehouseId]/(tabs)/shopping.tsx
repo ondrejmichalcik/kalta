@@ -8,7 +8,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActionSheetIOS,
   ActivityIndicator,
-  Alert,
   Modal,
   Pressable,
   SectionList,
@@ -16,6 +15,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { showPrompt, toast } from '@/src/lib/feedback';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useGlobalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -161,7 +161,7 @@ export default function ShoppingScreen() {
   };
 
   const handleAddManual = () => {
-    Alert.prompt(
+    showPrompt(
       'Add to shopping list',
       'What do you need to buy?',
       [
@@ -179,12 +179,11 @@ export default function ShoppingScreen() {
               });
               setList((prev) => [created, ...prev]);
             } catch (e: any) {
-              Alert.alert('Error', e?.message ?? 'Cannot add item.');
+              toast.error(e?.message ?? 'Cannot add item.');
             }
           },
         },
       ],
-      'plain-text',
     );
   };
 
@@ -253,7 +252,7 @@ export default function ShoppingScreen() {
       const toAdd = [...byLabel.values()].filter((s) => !existing.has(s.label.trim().toLowerCase()));
 
       if (toAdd.length === 0) {
-        Alert.alert('Up to date', 'No new suggestions — your list already covers what needs buying.');
+        toast.info('No new suggestions — your list already covers what needs buying.');
         return;
       }
 
@@ -278,7 +277,7 @@ export default function ShoppingScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       }
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot refresh suggestions.');
+      toast.error(e?.message ?? 'Cannot refresh suggestions.');
     } finally {
       setRefreshing(false);
     }
@@ -300,7 +299,7 @@ export default function ShoppingScreen() {
       },
       (idx) => {
         if (idx === 0) toggleCheck(item);
-        else if (idx === 1) Alert.alert(item.label, whyText(item));
+        else if (idx === 1) toast.info(whyText(item));
         else if (idx === 2) removeItem(item);
       },
     );

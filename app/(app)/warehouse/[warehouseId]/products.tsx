@@ -7,7 +7,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Image,
   Keyboard,
@@ -21,6 +20,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { showAlert, toast } from '@/src/lib/feedback';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -80,7 +80,7 @@ export default function ProductsScreen() {
   }, [products, query]);
 
   const handleDelete = (product: CustomProduct) => {
-    Alert.alert(
+    showAlert(
       'Delete product',
       `Remove "${product.name}" from the product cache? Future scans of this barcode will look up Open Food Facts again.`,
       [
@@ -93,7 +93,7 @@ export default function ProductsScreen() {
               await deleteCustomProduct(product.id);
               setProducts((prev) => prev.filter((p) => p.id !== product.id));
             } catch (e: any) {
-              Alert.alert('Error', e?.message ?? 'Cannot delete.');
+              toast.error(e?.message ?? 'Cannot delete.');
             }
           },
         },
@@ -109,7 +109,7 @@ export default function ProductsScreen() {
     if (!editing) return;
     const trimmed = patched.name.trim();
     if (!trimmed) {
-      Alert.alert('Name required', 'Product name cannot be empty.');
+      toast.info('Product name cannot be empty.');
       return;
     }
     try {
@@ -126,7 +126,7 @@ export default function ProductsScreen() {
       setEditing(null);
       await load();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot save.');
+      toast.error(e?.message ?? 'Cannot save.');
     }
   };
 

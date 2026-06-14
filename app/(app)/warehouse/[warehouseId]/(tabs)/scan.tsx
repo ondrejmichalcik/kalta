@@ -3,11 +3,12 @@
 // Fullscreen camera, detect QR → getBoxByQr → navigate to detail
 // ============================================================================
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { getBoxByQr } from '@/src/lib/supabase';
+import { showAlert } from '@/src/lib/feedback';
 import { colors, radius, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
 
@@ -42,7 +43,7 @@ export default function ScanScreen() {
     try {
       const box = await getBoxByQr(code);
       if (!box) {
-        Alert.alert('Unknown QR code', 'This box is not in your warehouse.', [
+        showAlert('Unknown QR code', 'This box is not in your warehouse.', [
           {
             text: 'OK',
             onPress: () => {
@@ -57,7 +58,7 @@ export default function ScanScreen() {
       // warehouse's tab should still open the correct scope.
       router.replace(`/warehouse/${box.warehouse_id}/box/${box.id}` as any);
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot load box.', [
+      showAlert('Error', e?.message ?? 'Cannot load box.', [
         {
           text: 'OK',
           onPress: () => {

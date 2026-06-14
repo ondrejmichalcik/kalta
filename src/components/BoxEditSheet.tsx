@@ -5,7 +5,6 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -17,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { updateBox } from '@/src/lib/supabase';
+import { toast } from '@/src/lib/feedback';
 import type { Box } from '@/src/types/database';
 import { colors, radius, spacing, typography } from '@/src/theme';
 
@@ -39,7 +39,7 @@ export function BoxEditSheet({ box, onClose, onSaved }: BoxEditSheetProps) {
   const handleSave = async () => {
     const trimmed = name.trim();
     if (!trimmed) {
-      Alert.alert('Name required', 'The box needs a name.');
+      toast.info('The box needs a name.');
       return;
     }
     try {
@@ -50,7 +50,7 @@ export function BoxEditSheet({ box, onClose, onSaved }: BoxEditSheetProps) {
       });
       onSaved(updated);
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot save.');
+      toast.error(e?.message ?? 'Cannot save.');
     } finally {
       setSaving(false);
     }

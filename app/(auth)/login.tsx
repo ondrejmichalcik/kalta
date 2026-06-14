@@ -3,7 +3,6 @@
 // ============================================================================
 import { useEffect, useState } from 'react';
 import {
-  Alert,
   ImageBackground,
   KeyboardAvoidingView,
   Platform,
@@ -20,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import { signInWithApple, supabase } from '@/src/lib/supabase';
+import { toast } from '@/src/lib/feedback';
 import { hasInitialSync } from '@/src/lib/sync';
 import { emitCachedUserChanged } from '@/src/lib/authBridge';
 import { colors, radius, spacing, typography } from '@/src/theme';
@@ -109,7 +109,7 @@ export default function LoginScreen() {
       // warehouses populate via realtime sub.
     } catch (e: any) {
       if (e?.code === 'ERR_REQUEST_CANCELED') return;
-      Alert.alert('Sign in error', e?.message ?? 'Unknown error');
+      toast.error(e?.message ?? 'Unknown error');
     } finally {
       setLoading(false);
     }

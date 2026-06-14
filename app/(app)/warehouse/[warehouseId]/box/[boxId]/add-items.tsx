@@ -6,7 +6,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActionSheetIOS,
   ActivityIndicator,
-  Alert,
   Animated,
   FlatList,
   Image,
@@ -27,6 +26,8 @@ import DateTimePicker, { type DateTimePickerEvent } from '@react-native-communit
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { getCachedUri } from '@/src/lib/imageCache';
+// Aliased to avoid colliding with the local `toast` queue-add state below.
+import { toast as appToast } from '@/src/lib/feedback';
 import {
   addOrMergeItem,
   deleteShoppingItem,
@@ -338,7 +339,7 @@ export default function AddItemsScreen() {
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch (e: any) {
-      Alert.alert('Upload failed', e?.message ?? 'Cannot upload image.');
+      appToast.error(e?.message ?? 'Cannot upload image.');
     } finally {
       setUploadingImage(false);
     }
@@ -347,7 +348,7 @@ export default function AddItemsScreen() {
   const handleTakePhoto = async () => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert('Camera access needed', 'Enable camera access in iOS Settings.');
+      appToast.error('Enable camera access in iOS Settings.');
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
@@ -362,7 +363,7 @@ export default function AddItemsScreen() {
   const handlePickFromLibrary = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert('Photo library access needed', 'Enable photo library access in iOS Settings.');
+      appToast.error('Enable photo library access in iOS Settings.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -440,9 +441,9 @@ export default function AddItemsScreen() {
       });
     } catch (e: any) {
       if (e instanceof MissingApiKeyError) {
-        Alert.alert('Not configured', e.message);
+        appToast.error(e.message);
       } else {
-        Alert.alert('Identification failed', e?.message ?? 'Unknown error.');
+        appToast.error(e?.message ?? 'Unknown error.');
       }
     } finally {
       setIdentifying(false);
@@ -468,7 +469,7 @@ export default function AddItemsScreen() {
           if (idx === 0) {
             const perm = await ImagePicker.requestCameraPermissionsAsync();
             if (!perm.granted) {
-              Alert.alert('Camera access needed', 'Enable camera access in iOS Settings.');
+              appToast.error('Enable camera access in iOS Settings.');
               return;
             }
             const r = await ImagePicker.launchCameraAsync({ allowsEditing: false, quality: 1, mediaTypes: ['images'] });
@@ -477,7 +478,7 @@ export default function AddItemsScreen() {
           } else {
             const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
             if (!perm.granted) {
-              Alert.alert('Photo library access needed', 'Enable photo library access in iOS Settings.');
+              appToast.error('Enable photo library access in iOS Settings.');
               return;
             }
             const r = await ImagePicker.launchImageLibraryAsync({ allowsEditing: false, quality: 1, mediaTypes: ['images'] });
@@ -492,8 +493,8 @@ export default function AddItemsScreen() {
           const result = await identifyProduct(url);
           await applyIdentifyResult(result, { barcode: draft.barcode ?? null, imageUrl: url });
         } catch (e: any) {
-          if (e instanceof MissingApiKeyError) Alert.alert('Not configured', e.message);
-          else Alert.alert('Identification failed', e?.message ?? 'Unknown error.');
+          if (e instanceof MissingApiKeyError) appToast.error(e.message);
+          else appToast.error(e?.message ?? 'Unknown error.');
         } finally {
           setUploadingImage(false);
           setIdentifying(false);
@@ -532,22 +533,22 @@ export default function AddItemsScreen() {
   const handleAddToQueue = async () => {
     if (!draft) return;
     if (uploadingImage) {
-      Alert.alert('Photo uploading', 'Please wait for the photo upload to finish.');
+      appToast.info('Please wait for the photo upload to finish.');
       return;
     }
     const { name, quantity, unit, expiry_date } = draft;
     if (!name?.trim()) {
-      Alert.alert('Name required', 'Enter a product name.');
+      appToast.error('Enter a product name.');
       return;
     }
     if (!quantity || quantity <= 0) {
-      Alert.alert('Quantity required', 'Enter a positive quantity.');
+      appToast.error('Enter a positive quantity.');
       return;
     }
     // expiry_date may be either a YYYY-MM-DD picked from the calendar or the
     // sentinel NEVER_EXPIRES_DATE when the user toggled "Never expires".
     if (!expiry_date || !/^\d{4}-\d{2}-\d{2}$/.test(expiry_date)) {
-      Alert.alert('Expiry required', 'Pick a date or choose "Never expires".');
+      appToast.error('Pick a date or choose "Never expires".');
       return;
     }
 
@@ -657,7 +658,7 @@ export default function AddItemsScreen() {
       }
       router.replace(`/warehouse/${warehouseId}/box/${boxId}` as any);
     } catch (e: any) {
-      Alert.alert('Save error', e?.message ?? 'Cannot save.');
+      appToast.error(e?.message ?? 'Cannot save.');
     } finally {
       setSaving(false);
     }

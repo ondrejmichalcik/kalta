@@ -5,7 +5,6 @@
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,6 +14,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { toast } from '@/src/lib/feedback';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
@@ -39,7 +39,7 @@ export default function NewBoxScreen() {
       setPrinting(true);
       await printBoxLabelViaBrotherSDK(createdBox);
     } catch (e: any) {
-      Alert.alert('Brother print error', e?.message ?? 'Cannot print via Brother SDK.');
+      toast.error(e?.message ?? 'Cannot print via Brother SDK.');
     } finally {
       setPrinting(false);
     }
@@ -48,11 +48,11 @@ export default function NewBoxScreen() {
   const handleSave = async () => {
     const trimmed = name.trim();
     if (!trimmed) {
-      Alert.alert('Name required', 'Give the box a name, e.g. "Meds A" or "Water cellar".');
+      toast.info('Give the box a name, e.g. "Meds A" or "Water cellar".');
       return;
     }
     if (!warehouseId) {
-      Alert.alert('Error', 'Missing warehouse context.');
+      toast.error('Missing warehouse context.');
       return;
     }
     try {
@@ -64,7 +64,7 @@ export default function NewBoxScreen() {
       });
       setCreatedBox(box);
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot save.');
+      toast.error(e?.message ?? 'Cannot save.');
     } finally {
       setSaving(false);
     }

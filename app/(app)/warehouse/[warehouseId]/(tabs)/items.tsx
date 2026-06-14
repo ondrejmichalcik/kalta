@@ -7,7 +7,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Modal,
   Pressable,
@@ -22,6 +21,7 @@ import { useFocusEffect, useGlobalSearchParams, useRouter } from 'expo-router';
 import { Swipeable } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import { listAllItemsInWarehouse, listCustomProducts, openOneItem } from '@/src/lib/supabase';
+import { toast, showAlert } from '@/src/lib/feedback';
 import { computeLowStock, type StockStatus } from '@/src/lib/lowStock';
 import type { ItemWithBox } from '@/src/types/database';
 import {
@@ -170,7 +170,7 @@ export default function ItemsScreen() {
   };
 
   const confirmOpen = (item: ItemWithBox, close: () => void) => {
-    Alert.alert(
+    showAlert(
       'Mark one as opened',
       `Decrement sealed count of "${item.name}" by 1 and push one unit to an opened sibling?`,
       [
@@ -187,7 +187,7 @@ export default function ItemsScreen() {
               // Items tab has no realtime sub on items — reload manually.
               await load();
             } catch (e: any) {
-              Alert.alert('Error', e?.message ?? 'Cannot open.');
+              toast.error(e?.message ?? 'Cannot open.');
             }
           },
         },

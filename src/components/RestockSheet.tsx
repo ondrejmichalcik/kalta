@@ -10,7 +10,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -37,6 +36,7 @@ import type { Box, Item, ShoppingListItem } from '@/src/types/database';
 import { BoxPicker } from './BoxPicker';
 import { Icon } from './Icon';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
+import { toast } from '@/src/lib/feedback';
 
 interface Props {
   visible: boolean;
@@ -99,15 +99,15 @@ export function RestockSheet({
   const handleSave = async () => {
     const qty = parseInt(quantityText.replace(/[^0-9]/g, ''), 10);
     if (!Number.isFinite(qty) || qty <= 0) {
-      Alert.alert('Quantity required', 'Enter a positive whole number.');
+      toast.error('Enter a positive whole number.');
       return;
     }
     if (!expiry) {
-      Alert.alert('Expiry required', 'Pick a date or choose "Never expires".');
+      toast.error('Pick a date or choose "Never expires".');
       return;
     }
     if (!targetBox) {
-      Alert.alert('Box required', 'Pick which box this is going into.');
+      toast.error('Pick which box this is going into.');
       return;
     }
     try {
@@ -132,7 +132,7 @@ export function RestockSheet({
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       onRestocked();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Cannot restock.');
+      toast.error(e?.message ?? 'Cannot restock.');
     } finally {
       setSaving(false);
     }
@@ -143,7 +143,7 @@ export function RestockSheet({
     // actually bought (e.g. switched brand). Jump to add-items with the
     // shopping context so the row still clears once the new item is saved.
     if (!targetBox) {
-      Alert.alert('Pick a box first', 'Choose where to put the items.');
+      toast.info('Choose where to put the items.');
       return;
     }
     onClose();

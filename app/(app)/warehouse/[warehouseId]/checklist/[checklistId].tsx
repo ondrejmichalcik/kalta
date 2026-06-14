@@ -8,7 +8,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActionSheetIOS,
   ActivityIndicator,
-  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -54,6 +53,7 @@ import { Icon } from '@/src/components/Icon';
 import { ChecklistEntrySheet } from '@/src/components/ChecklistEntrySheet';
 import { ChecklistSheet } from '@/src/components/ChecklistSheet';
 import { PackPickerSheet } from '@/src/components/PackPickerSheet';
+import { toast, showAlert } from '@/src/lib/feedback';
 
 function chipVisual(state: KitCoverageEntry['state']): {
   bg: string;
@@ -189,14 +189,14 @@ export default function ChecklistDetailScreen() {
       });
       load();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Could not update.');
+      toast.error(e?.message ?? 'Could not update.');
     }
   };
 
   const pinToItem = (entry: ChecklistEntry) => {
     const usable = items.filter((i) => getExpiryStatus(i.expiry_date) !== 'expired');
     if (usable.length === 0) {
-      Alert.alert('No items', 'There are no inventory items to pin.');
+      toast.info('There are no inventory items to pin.');
       return;
     }
     // Open a searchable modal (no item-count cap) instead of an ActionSheet.
@@ -241,7 +241,7 @@ export default function ChecklistDetailScreen() {
   };
 
   const deleteEntry = (entry: ChecklistEntry) => {
-    Alert.alert('Delete item', `Remove "${entry.label}" from this checklist?`, [
+    showAlert('Delete item', `Remove "${entry.label}" from this checklist?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -270,7 +270,7 @@ export default function ChecklistDetailScreen() {
             source_ref: entry.seed_key ?? entry.id,
           })
             .then(load)
-            .catch((e: any) => Alert.alert('Error', e?.message ?? 'Cannot add.')),
+            .catch((e: any) => toast.error(e?.message ?? 'Cannot add.')),
       });
       opts.push({ label: 'I have this', run: () => setSat(entry.id, 'force_stocked') });
     }
@@ -306,7 +306,7 @@ export default function ChecklistDetailScreen() {
 
   const removeChecklist = () => {
     if (!checklistId) return;
-    Alert.alert('Delete checklist', `Delete "${name}" and all its items?`, [
+    showAlert('Delete checklist', `Delete "${name}" and all its items?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -314,7 +314,7 @@ export default function ChecklistDetailScreen() {
         onPress: () =>
           deleteChecklist(checklistId)
             .then(() => router.back())
-            .catch((e: any) => Alert.alert('Error', e?.message ?? 'Could not delete.')),
+            .catch((e: any) => toast.error(e?.message ?? 'Could not delete.')),
       },
     ]);
   };
@@ -323,7 +323,7 @@ export default function ChecklistDetailScreen() {
     if (!warehouseId || !checklistId) return;
     addAddonToChecklist(warehouseId, checklistId, pack)
       .then(load)
-      .catch((e: any) => Alert.alert('Error', e?.message ?? 'Could not add pack.'));
+      .catch((e: any) => toast.error(e?.message ?? 'Could not add pack.'));
   };
 
   // Manage menu in the header (consistent with box detail's ⋯ pattern). Seed
@@ -370,14 +370,14 @@ export default function ChecklistDetailScreen() {
       .filter((i) => getExpiryStatus(i.expiry_date) !== 'expired')
       .map((i) => ({ id: i.id, name: i.name }));
     if (targets.length === 0) {
-      Alert.alert('Nothing to match', 'Every item is already covered or decided.');
+      toast.info('Every item is already covered or decided.');
       return;
     }
     if (usableItems.length === 0) {
-      Alert.alert('No items', 'There are no inventory items to match against.');
+      toast.info('There are no inventory items to match against.');
       return;
     }
-    Alert.alert(
+    showAlert(
       'Smart match',
       `Send ${usableItems.length} item ${usableItems.length === 1 ? 'name' : 'names'} to Anthropic to suggest matches? This uses your API key.`,
       [
@@ -392,13 +392,13 @@ export default function ChecklistDetailScreen() {
                 usableItems,
               );
               if (proposal.kind !== 'pins' || proposal.matches.length === 0) {
-                Alert.alert('No matches', 'Claude found no confident matches.');
+                toast.info('Claude found no confident matches.');
                 return;
               }
               setAiProposal(proposal);
               setAiProposalOpen(true);
             } catch (e: any) {
-              Alert.alert('Smart match failed', e?.message ?? 'Could not reach Claude.');
+              toast.error(e?.message ?? 'Could not reach Claude.');
             } finally {
               setMatching(false);
             }

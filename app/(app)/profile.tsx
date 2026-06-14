@@ -7,7 +7,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -41,6 +40,7 @@ import {
 } from '@/src/lib/notifications';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
+import { toast, showAlert, showPrompt } from '@/src/lib/feedback';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -112,7 +112,7 @@ export default function ProfileScreen() {
   // Stored in public.users.email; when offline the update queues via the
   // standard sync path once connectivity returns.
   const promptForEmail = () => {
-    Alert.prompt(
+    showPrompt(
       'Contact email',
       'Apple "Hide My Email" gave us a relay address. You can enter your real email here for display. Auth keeps using Apple Sign In — this is purely cosmetic.',
       [
@@ -139,21 +139,19 @@ export default function ProfileScreen() {
                 .eq('id', user.id)
                 .then(() => {}, () => {});
             } catch (e: any) {
-              Alert.alert('Error', e?.message ?? 'Cannot save email.');
+              toast.error(e?.message ?? 'Cannot save email.');
             }
           },
         },
       ],
-      'plain-text',
-      email ?? '',
-      'email-address',
+      { defaultValue: email ?? '', keyboardType: 'email-address' },
     );
   };
 
   // ---- API key management --------------------------------------------------
 
   const promptForKey = (existing?: string) => {
-    Alert.prompt(
+    showPrompt(
       existing ? 'Change API key' : 'Set Anthropic API key',
       'Paste your Anthropic API key from console.anthropic.com. It stays on this device — we never send it to our servers.',
       [
@@ -164,8 +162,7 @@ export default function ProfileScreen() {
             const trimmed = (text ?? '').trim();
             if (!trimmed) return;
             if (!trimmed.startsWith('sk-ant-')) {
-              Alert.alert(
-                'Invalid format',
+              toast.error(
                 'Anthropic API keys start with "sk-ant-". Double-check you copied the full key.',
               );
               return;
@@ -174,13 +171,12 @@ export default function ProfileScreen() {
               await setAnthropicKey(trimmed);
               setKeyStatus('present');
             } catch (e: any) {
-              Alert.alert('Error', e?.message ?? 'Cannot save key.');
+              toast.error(e?.message ?? 'Cannot save key.');
             }
           },
         },
       ],
-      'secure-text',
-      '',
+      { defaultValue: '', secureTextEntry: true },
     );
   };
 
@@ -189,13 +185,13 @@ export default function ProfileScreen() {
       setTesting(true);
       const key = await getAnthropicKey();
       if (!key) {
-        Alert.alert('No key', 'Set an API key first.');
+        toast.info('Set an API key first.');
         return;
       }
       await testAnthropicKey(key);
-      Alert.alert('Key works', 'Successfully connected to api.anthropic.com.');
+      toast.success('Successfully connected to api.anthropic.com.');
     } catch (e: any) {
-      Alert.alert('Key test failed', e?.message ?? 'Unknown error.');
+      toast.error(e?.message ?? 'Unknown error.');
     } finally {
       setTesting(false);
     }
@@ -209,12 +205,11 @@ export default function ProfileScreen() {
       setRestoringSub(true);
       await restoreSubscription();
       await subscription.refresh();
-      Alert.alert(
-        'Restore complete',
+      toast.success(
         'If you have an active or past subscription, it has been restored.',
       );
     } catch (e: any) {
-      Alert.alert('Restore failed', e?.message ?? 'Unknown error');
+      toast.error(e?.message ?? 'Unknown error');
     } finally {
       setRestoringSub(false);
     }
@@ -256,7 +251,7 @@ export default function ProfileScreen() {
   })();
 
   const handleRemoveKey = () => {
-    Alert.alert(
+    showAlert(
       'Remove API key',
       'Claude Vision identification will stop working on this device until you set a new key.',
       [
@@ -281,7 +276,7 @@ export default function ProfileScreen() {
     try {
       const state = await Network.getNetworkStateAsync();
       if (!state.isConnected || !state.isInternetReachable) {
-        Alert.alert(
+        showAlert(
           'You are offline',
           'Signing back in requires internet (Apple Sign In). You can still use "Continue offline" on the login screen to access your local data.',
           [
@@ -297,7 +292,7 @@ export default function ProfileScreen() {
       }
     } catch { /* can't check — let them proceed with warning */ }
 
-    Alert.alert(
+    showAlert(
       'Sign out',
       'You will need internet and Apple Sign In to log back in. Your local data will be kept on this device.',
       [
