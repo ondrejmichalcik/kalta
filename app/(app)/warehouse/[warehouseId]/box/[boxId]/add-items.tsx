@@ -105,6 +105,10 @@ export default function AddItemsScreen() {
     }>();
   const [permission, requestPermission] = useCameraPermissions();
   const [mode, setMode] = useState<Mode>('scan');
+  // Entry flow: from the shopping-list restock (carries prefill / shoppingItemId)
+  // vs. the normal box → add-items push. Drives where Save returns to — see the
+  // save handler. Captured once from the launch params.
+  const cameFromRestock = !!shoppingItemId || !!prefillName;
   // When arriving from the shopping list "restock" flow, clear that row once
   // items are actually saved into a box.
   const shoppingItemIdRef = useRef<string | null>(shoppingItemId ?? null);
@@ -662,7 +666,18 @@ export default function AddItemsScreen() {
         await deleteShoppingItem(shoppingItemIdRef.current).catch(() => {});
         shoppingItemIdRef.current = null;
       }
-      router.replace(`/warehouse/${warehouseId}/box/${boxId}` as any);
+      // Navigation after save:
+      //  • Normal box → add-items flow: pop back to the box already sitting
+      //    underneath. Using replace() here would stack a *second* box detail,
+      //    so the box's Back button would return to that duplicate box instead
+      //    of the warehouse — and every re-add piled on another one.
+      //  • Restock flow (came from the Shopping tab): there's no box under us,
+      //    so replace into the box detail to land the user there.
+      if (!cameFromRestock && router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace(`/warehouse/${warehouseId}/box/${boxId}` as any);
+      }
     } catch (e: any) {
       appToast.error(e?.message ?? 'Cannot save.');
     } finally {
