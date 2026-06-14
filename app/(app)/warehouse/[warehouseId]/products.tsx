@@ -30,6 +30,7 @@ import {
   upsertCustomProduct,
   applyProductAttributesToItems,
 } from '@/src/lib/supabase';
+import { scheduleRemotePull } from '@/src/lib/syncBus';
 import { getCachedUri } from '@/src/lib/imageCache';
 import type { Category, CustomProduct } from '@/src/types/database';
 import { CATEGORIES, CATEGORY_ICON, CATEGORY_LABEL } from '@/src/types/database';
@@ -133,6 +134,9 @@ export default function ProductsScreen() {
         energy_kcal_per_100g: patched.energy_kcal_per_100g,
         net_weight_g: patched.net_weight_g,
       });
+      // Push the queued per-item updates to the cloud now (don't wait for the
+      // periodic backstop), so the partner's device sees them promptly.
+      if (uid) scheduleRemotePull(uid);
       setEditing(null);
       await load();
     } catch (e: any) {
