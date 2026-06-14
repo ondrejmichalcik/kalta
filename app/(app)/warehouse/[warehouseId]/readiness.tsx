@@ -8,10 +8,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -211,6 +214,45 @@ export default function ReadinessScreen() {
       .catch((e: any) => toast.error(e?.message ?? 'Could not update.'));
   };
 
+  // Pin a specific inventory item to a kit entry (entryId === kit item id) so
+  // it counts as covering that entry even when keywords don't auto-match.
+  const [pinTarget, setPinTarget] = useState<{ id: string; label: string } | null>(null);
+  const [pinQuery, setPinQuery] = useState('');
+
+  const pinToItem = (kitItem: { id: string; label: string }) => {
+    if (items.filter((i) => getExpiryStatus(i.expiry_date) !== 'expired').length === 0) {
+      toast.info('There are no inventory items to pin.');
+      return;
+    }
+    setPinQuery('');
+    setPinTarget(kitItem);
+  };
+
+  const setPin = (entryId: string, itemId: string) => {
+    if (!warehouseId) return;
+    setPinTarget(null);
+    setChecklistSatisfaction({
+      checklist_entry_id: entryId,
+      warehouse_id: warehouseId,
+      mode: 'pin',
+      item_id: itemId,
+    })
+      .then(() => load())
+      .catch((e: any) => toast.error(e?.message ?? 'Could not pin.'));
+  };
+
+  const pinResults = useMemo(() => {
+    const usable = items.filter((i) => getExpiryStatus(i.expiry_date) !== 'expired');
+    const q = pinQuery.trim().toLowerCase();
+    const list = q
+      ? usable.filter(
+          (i) =>
+            i.name.toLowerCase().includes(q) || (i.box_name ?? '').toLowerCase().includes(q),
+        )
+      : usable;
+    return list.slice(0, 100);
+  }, [items, pinQuery]);
+
   const applyAiProposal = async (edited: AiProposal) => {
     if (!warehouseId) return;
     if (edited.kind === 'pins') {
@@ -393,6 +435,29 @@ export default function ReadinessScreen() {
       return;
     }
 
+    // Opts-array action sheet so adding "Pin to an item…" doesn't require
+    // re-juggling positional indices.
+    const runSheet = (
+      title: string,
+      message: string | undefined,
+      opts: { label: string; run: () => void; destructive?: boolean }[],
+    ) => {
+      const labels = opts.map((o) => o.label);
+      showActionSheet(
+        {
+          title,
+          message: message || undefined,
+          options: [...labels, 'Cancel'],
+          cancelButtonIndex: labels.length,
+          destructiveButtonIndex: opts.findIndex((o) => o.destructive),
+        },
+        (idx) => {
+          if (idx != null && idx < opts.length) opts[idx].run();
+        },
+      );
+    };
+    const pinOpt = { label: 'Pin to an item…', run: () => pinToItem(item) };
+
     if (state === 'stocked' || state === 'partial') {
       // Real inventory match (or quantified supply) — let the user back out of
       // false positives or hide the entry without changing inventory.
@@ -402,56 +467,38 @@ export default function ReadinessScreen() {
           : matchedItem
             ? `Matched: "${matchedItem.name}"`
             : 'Covered.';
-      showActionSheet(
-        {
-          title: item.label,
-          message,
-          options: ['OK', `That's not really ${item.label}`, 'Not relevant here', 'Cancel'],
-          destructiveButtonIndex: 1,
-          cancelButtonIndex: 3,
-        },
-        (idx) => {
-          if (idx === 1) setOverride(item.id, 'force_missing');
-          else if (idx === 2) setOverride(item.id, 'not_applicable');
-        },
-      );
+      runSheet(item.label, message, [
+        pinOpt,
+        ...(pins.has(item.id)
+          ? [{ label: 'Unpin (reset to auto-detect)', run: () => setOverride(item.id, null) }]
+          : []),
+        { label: `That's not really ${item.label}`, run: () => setOverride(item.id, 'force_missing'), destructive: true },
+        { label: 'Not relevant here', run: () => setOverride(item.id, 'not_applicable') },
+      ]);
       return;
     }
 
     if (state === 'on_list' || state === 'purchased') {
-      showActionSheet(
-        {
-          title: item.label,
-          message:
-            state === 'purchased'
-              ? 'You marked this as purchased. Open Shopping list to restock.'
-              : 'This is on your shopping list.',
-          options: ['Open shopping list', 'I already have this', 'Not relevant here', 'Cancel'],
-          cancelButtonIndex: 3,
-        },
-        (idx) => {
-          if (idx === 0) goToShopping();
-          else if (idx === 1) setOverride(item.id, 'force_stocked');
-          else if (idx === 2) setOverride(item.id, 'not_applicable');
-        },
-      );
+      const message =
+        state === 'purchased'
+          ? 'You marked this as purchased. Open Shopping list to restock.'
+          : 'This is on your shopping list.';
+      runSheet(item.label, message, [
+        { label: 'Open shopping list', run: goToShopping },
+        pinOpt,
+        { label: 'I already have this', run: () => setOverride(item.id, 'force_stocked') },
+        { label: 'Not relevant here', run: () => setOverride(item.id, 'not_applicable') },
+      ]);
       return;
     }
 
     // missing
-    showActionSheet(
-      {
-        title: item.label,
-        message: item.rationale,
-        options: ['Add to shopping list', 'I already have this', 'Not relevant here', 'Cancel'],
-        cancelButtonIndex: 3,
-      },
-      (idx) => {
-        if (idx === 0) addGapToShopping(item);
-        else if (idx === 1) setOverride(item.id, 'force_stocked');
-        else if (idx === 2) setOverride(item.id, 'not_applicable');
-      },
-    );
+    runSheet(item.label, item.rationale ?? undefined, [
+      { label: 'Add to shopping list', run: () => addGapToShopping(item) },
+      pinOpt,
+      { label: 'I already have this', run: () => setOverride(item.id, 'force_stocked') },
+      { label: 'Not relevant here', run: () => setOverride(item.id, 'not_applicable') },
+    ]);
   };
 
   const goToSettings = () => router.push(`/warehouse/${warehouseId}/settings` as any);
@@ -680,6 +727,52 @@ export default function ReadinessScreen() {
         onConfirm={applyAiProposal}
         onClose={() => setAiProposalOpen(false)}
       />
+
+      {/* Pin picker — connect a specific inventory item to a kit entry */}
+      <Modal
+        visible={pinTarget != null}
+        presentationStyle="pageSheet"
+        animationType="slide"
+        onRequestClose={() => setPinTarget(null)}
+      >
+        <SafeAreaView style={styles.container} edges={['top']}>
+          <View style={styles.pinHeader}>
+            <Pressable hitSlop={12} onPress={() => setPinTarget(null)}>
+              <Text style={styles.pinHeaderBtn}>Cancel</Text>
+            </Pressable>
+            <Text style={styles.pinHeaderTitle} numberOfLines={1}>
+              Covers “{pinTarget?.label}”
+            </Text>
+            <View style={{ width: 52 }} />
+          </View>
+          <TextInput
+            style={styles.pinSearch}
+            value={pinQuery}
+            onChangeText={setPinQuery}
+            placeholder="Search items by name or box…"
+            placeholderTextColor={colors.textSubtle}
+            autoCorrect={false}
+          />
+          <FlatList
+            data={pinResults}
+            keyExtractor={(i) => i.id}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ padding: spacing.md }}
+            ListEmptyComponent={<Text style={styles.pinEmpty}>No matching items.</Text>}
+            renderItem={({ item: inv }) => (
+              <Pressable
+                style={({ pressed }) => [styles.pinRow, pressed && { opacity: 0.6 }]}
+                onPress={() => pinTarget && setPin(pinTarget.id, inv.id)}
+              >
+                <Text style={styles.pinRowName} numberOfLines={1}>
+                  {inv.name}
+                </Text>
+                {!!inv.box_name && <Text style={styles.pinRowBox}>{inv.box_name}</Text>}
+              </Pressable>
+            )}
+          />
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -873,6 +966,41 @@ function KitChecklist({
 
 // ---------------------------------------------------------------------------
 const styles = StyleSheet.create({
+  pinHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  pinHeaderBtn: { ...typography.body, color: colors.primary, width: 52 },
+  pinHeaderTitle: { ...typography.headline, color: colors.text, flex: 1, textAlign: 'center' },
+  pinSearch: {
+    ...typography.body,
+    color: colors.text,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    margin: spacing.md,
+    marginBottom: 0,
+  },
+  pinEmpty: { ...typography.footnote, color: colors.textMuted, textAlign: 'center', marginTop: spacing.xl },
+  pinRow: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  pinRowName: { ...typography.body, color: colors.text, fontWeight: '600' },
+  pinRowBox: { ...typography.footnote, color: colors.textMuted, marginTop: 2 },
   container: { flex: 1, backgroundColor: colors.background },
   topBar: {
     flexDirection: 'row',
