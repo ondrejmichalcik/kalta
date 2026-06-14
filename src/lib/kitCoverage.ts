@@ -158,6 +158,24 @@ function itemSatisfies(
   return matchesAnyKeyword(kit, inv.text);
 }
 
+/**
+ * Lightweight "is there a water filter in stock?" check, using the same
+ * matcher as full coverage but only the inventory (no checklist entries / pins
+ * needed). Lets the readiness card + alerts bell honor a water filter without
+ * loading the whole kit — a filter means water stops being a weak link, so
+ * "water running low" must not fire. Mirrors how the readiness screen feeds
+ * `hasWaterFilter` into computeReadiness.
+ */
+export function hasWaterFilterInStock(items: Item[]): boolean {
+  const wf = EMERGENCY_KIT.find((k) => k.id === 'water-filter');
+  if (!wf) return false;
+  return items
+    .filter((i) => getExpiryStatus(i.expiry_date) !== 'expired')
+    .some((i) =>
+      itemSatisfies(wf, { category: i.category, text: `${i.name} ${i.notes ?? ''}`.toLowerCase() }),
+    );
+}
+
 // ---------------------------------------------------------------------------
 
 /**

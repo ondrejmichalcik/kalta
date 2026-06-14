@@ -14,6 +14,7 @@ import {
   subscribeHousehold,
 } from '@/src/lib/supabase';
 import { computeReadiness, type ReadinessResult } from '@/src/lib/readiness';
+import { hasWaterFilterInStock } from '@/src/lib/kitCoverage';
 import { warehouseTracksSupplies } from '@/src/lib/checklists';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
 import { Icon } from '@/src/components/Icon';
@@ -76,7 +77,7 @@ export function ReadinessCard({
         warehouseTracksSupplies(warehouseId).catch(() => true),
       ]);
       setGoalDays(wh?.readiness_goal_days ?? 14);
-      setResult(computeReadiness(items, members));
+      setResult(computeReadiness(items, members, { hasWaterFilter: hasWaterFilterInStock(items) }));
       setTracks(tracksSupplies);
     } catch {
       /* non-fatal — card just stays hidden */

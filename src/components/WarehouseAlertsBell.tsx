@@ -22,6 +22,7 @@ import {
   subscribeShopping,
 } from '@/src/lib/supabase';
 import { computeReadiness } from '@/src/lib/readiness';
+import { hasWaterFilterInStock } from '@/src/lib/kitCoverage';
 import { warehouseTracksSupplies } from '@/src/lib/checklists';
 import { daysUntil } from '@/src/types/database';
 import { AlertsBellShell, delayedRoute, worstTone, type AlertTone } from './AlertsBellShell';
@@ -58,7 +59,7 @@ export function WarehouseAlertsBell({
         warehouseTracksSupplies(warehouseId).catch(() => true),
       ]);
       const goalDays = wh?.readiness_goal_days ?? 14;
-      const result = computeReadiness(items, members);
+      const result = computeReadiness(items, members, { hasWaterFilter: hasWaterFilterInStock(items) });
       const tones: AlertTone[] = [];
 
       // Readiness alert — only when the warehouse tracks supplies and the
