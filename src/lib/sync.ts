@@ -163,9 +163,9 @@ export async function initialFullSync(userId: string): Promise<void> {
     // Custom products
     for (const p of (customProducts ?? []) as any[]) {
       db.runSync(
-        `INSERT OR REPLACE INTO custom_products (id, warehouse_id, barcode, name, category, image_url, typical_expiry_days, created_by, created_at, min_quantity, _synced)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-        [p.id, p.warehouse_id, p.barcode, p.name, p.category, p.image_url, p.typical_expiry_days, p.created_by, p.created_at, p.min_quantity ?? null],
+        `INSERT OR REPLACE INTO custom_products (id, warehouse_id, barcode, name, category, image_url, typical_expiry_days, created_by, created_at, min_quantity, energy_kcal_per_100g, net_weight_g, _synced)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        [p.id, p.warehouse_id, p.barcode, p.name, p.category, p.image_url, p.typical_expiry_days, p.created_by, p.created_at, p.min_quantity ?? null, p.energy_kcal_per_100g ?? null, p.net_weight_g ?? null],
       );
     }
 
@@ -429,7 +429,7 @@ const SAFE_FIELDS: Record<string, Set<string>> = {
     'net_weight_g',
     'min_quantity',
   ]),
-  custom_products: new Set(['name', 'category', 'image_url', 'typical_expiry_days', 'min_quantity']),
+  custom_products: new Set(['name', 'category', 'image_url', 'typical_expiry_days', 'min_quantity', 'energy_kcal_per_100g', 'net_weight_g']),
   inventory_sessions: new Set(['notes', 'completed_at', 'found_count', 'missing_count']),
 };
 
@@ -1579,7 +1579,7 @@ export async function pullSync(userId: string): Promise<{ pulled: number; confli
       console.warn('[sync] items pull failed:', itemErr.message);
     }
 
-    const itemMergeFields = ['name', 'quantity', 'unit', 'expiry_date', 'barcode', 'image_url', 'category', 'notes', 'opened', 'damaged', 'pack_count', 'last_verified', 'box_id'];
+    const itemMergeFields = ['name', 'quantity', 'unit', 'expiry_date', 'barcode', 'image_url', 'category', 'notes', 'opened', 'damaged', 'pack_count', 'last_verified', 'box_id', 'energy_kcal_per_100g', 'net_weight_g', 'min_quantity'];
 
     for (const row of (serverItems ?? []) as any[]) {
       // Strip the joined `boxes` relation so it doesn't leak into the
@@ -1644,9 +1644,9 @@ export async function pullSync(userId: string): Promise<{ pulled: number; confli
         continue;
       }
       db.runSync(
-        `INSERT OR REPLACE INTO items (id, box_id, name, quantity, unit, expiry_date, barcode, image_url, category, notes, opened, damaged, pack_count, last_verified, added_by, created_at, updated_at, _synced, _local_updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-        [si.id, si.box_id, si.name, si.quantity, si.unit, si.expiry_date, si.barcode, si.image_url, si.category, si.notes, si.opened ? 1 : 0, si.damaged ? 1 : 0, si.pack_count, si.last_verified, si.added_by, si.created_at, si.updated_at, now],
+        `INSERT OR REPLACE INTO items (id, box_id, name, quantity, unit, expiry_date, barcode, image_url, category, notes, opened, damaged, pack_count, last_verified, added_by, created_at, updated_at, energy_kcal_per_100g, net_weight_g, min_quantity, _synced, _local_updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+        [si.id, si.box_id, si.name, si.quantity, si.unit, si.expiry_date, si.barcode, si.image_url, si.category, si.notes, si.opened ? 1 : 0, si.damaged ? 1 : 0, si.pack_count, si.last_verified, si.added_by, si.created_at, si.updated_at, si.energy_kcal_per_100g ?? null, si.net_weight_g ?? null, si.min_quantity ?? null, now],
       );
       pulled++;
     }
@@ -1772,9 +1772,9 @@ export async function pullSync(userId: string): Promise<{ pulled: number; confli
         );
         if (local && local._synced === 0) continue; // pending local edit wins
         db.runSync(
-          `INSERT OR REPLACE INTO custom_products (id, warehouse_id, barcode, name, category, image_url, typical_expiry_days, created_by, created_at, min_quantity, _synced)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-          [p.id, p.warehouse_id, p.barcode, p.name, p.category, p.image_url, p.typical_expiry_days, p.created_by, p.created_at, p.min_quantity ?? null],
+          `INSERT OR REPLACE INTO custom_products (id, warehouse_id, barcode, name, category, image_url, typical_expiry_days, created_by, created_at, min_quantity, energy_kcal_per_100g, net_weight_g, _synced)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+          [p.id, p.warehouse_id, p.barcode, p.name, p.category, p.image_url, p.typical_expiry_days, p.created_by, p.created_at, p.min_quantity ?? null, p.energy_kcal_per_100g ?? null, p.net_weight_g ?? null],
         );
         pulled++;
       }

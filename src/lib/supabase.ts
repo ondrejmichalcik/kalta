@@ -1219,9 +1219,9 @@ export async function acceptInvitation(token: string, userId: string): Promise<W
           .in('box_id', boxIds);
         for (const i of (items ?? []) as any[]) {
           db.runSync(
-            `INSERT OR REPLACE INTO items (id, box_id, name, quantity, unit, expiry_date, barcode, image_url, category, notes, opened, damaged, pack_count, last_verified, added_by, created_at, updated_at, _synced, _local_updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-            [i.id, i.box_id, i.name, i.quantity, i.unit, i.expiry_date, i.barcode, i.image_url, i.category, i.notes, i.opened ? 1 : 0, i.damaged ? 1 : 0, i.pack_count, i.last_verified, i.added_by, i.created_at, i.updated_at, now],
+            `INSERT OR REPLACE INTO items (id, box_id, name, quantity, unit, expiry_date, barcode, image_url, category, notes, opened, damaged, pack_count, last_verified, added_by, created_at, updated_at, energy_kcal_per_100g, net_weight_g, min_quantity, _synced, _local_updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+            [i.id, i.box_id, i.name, i.quantity, i.unit, i.expiry_date, i.barcode, i.image_url, i.category, i.notes, i.opened ? 1 : 0, i.damaged ? 1 : 0, i.pack_count, i.last_verified, i.added_by, i.created_at, i.updated_at, i.energy_kcal_per_100g ?? null, i.net_weight_g ?? null, i.min_quantity ?? null, now],
           );
         }
       }
@@ -1451,38 +1451,33 @@ export async function setCustomProductMinQuantity(input: {
   name: string;
   category?: Category | null;
   created_by: string;
+  energy_kcal_per_100g?: number | null;
+  net_weight_g?: number | null;
 }): Promise<void> {
+  // Only include cached attributes when the caller provided them, so an
+  // upsert that just touches the par level doesn't blank out energy/weight.
+  const payload: Record<string, any> = {
+    warehouse_id: input.warehouse_id,
+    barcode: input.barcode,
+    name: input.name,
+    category: input.category ?? null,
+    created_by: input.created_by,
+    min_quantity: input.min,
+  };
+  if ('energy_kcal_per_100g' in input) payload.energy_kcal_per_100g = input.energy_kcal_per_100g ?? null;
+  if ('net_weight_g' in input) payload.net_weight_g = input.net_weight_g ?? null;
+
   if (hasInitialSync()) {
     setCustomProductMinQuantityLocal(input);
     supabase
       .from('custom_products')
-      .upsert(
-        {
-          warehouse_id: input.warehouse_id,
-          barcode: input.barcode,
-          name: input.name,
-          category: input.category ?? null,
-          created_by: input.created_by,
-          min_quantity: input.min,
-        },
-        { onConflict: 'warehouse_id,barcode' },
-      )
+      .upsert(payload, { onConflict: 'warehouse_id,barcode' })
       .then(() => {}, () => {});
     return;
   }
   const { error } = await supabase
     .from('custom_products')
-    .upsert(
-      {
-        warehouse_id: input.warehouse_id,
-        barcode: input.barcode,
-        name: input.name,
-        category: input.category ?? null,
-        created_by: input.created_by,
-        min_quantity: input.min,
-      },
-      { onConflict: 'warehouse_id,barcode' },
-    );
+    .upsert(payload, { onConflict: 'warehouse_id,barcode' });
   if (error) throw error;
 }
 

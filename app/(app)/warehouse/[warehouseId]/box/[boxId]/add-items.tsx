@@ -213,8 +213,8 @@ export default function AddItemsScreen() {
           image_url: custom.image_url,
           category: custom.category,
           pack_count: null,
-          energy_kcal_per_100g: null,
-          net_weight_g: null,
+          energy_kcal_per_100g: custom.energy_kcal_per_100g ?? null,
+          net_weight_g: custom.net_weight_g ?? null,
           min_quantity: custom.min_quantity ?? null,
         });
         setDraftSource('custom');
@@ -634,10 +634,15 @@ export default function AddItemsScreen() {
         });
       }
 
-      // Route barcoded par levels to the shared custom_products row.
+      // Route barcoded par levels + cached nutrition/weight to the shared
+      // custom_products row so a future re-scan of the same barcode prefills
+      // them.
       if (warehouseId) {
         for (const d of queue) {
-          if (d.barcode && d.min_quantity != null) {
+          if (
+            d.barcode &&
+            (d.min_quantity != null || d.energy_kcal_per_100g != null || d.net_weight_g != null)
+          ) {
             await setCustomProductMinQuantity({
               warehouse_id: warehouseId,
               barcode: d.barcode,
@@ -645,6 +650,8 @@ export default function AddItemsScreen() {
               name: d.name,
               category: d.category,
               created_by: userId,
+              energy_kcal_per_100g: d.energy_kcal_per_100g,
+              net_weight_g: d.net_weight_g,
             }).catch(() => {});
           }
         }

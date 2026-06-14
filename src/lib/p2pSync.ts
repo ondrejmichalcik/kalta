@@ -70,7 +70,7 @@ const MERGE_FIELDS: Record<string, string[]> = {
     'net_weight_g',
     'min_quantity',
   ],
-  custom_products: ['name', 'category', 'image_url', 'typical_expiry_days'],
+  custom_products: ['name', 'category', 'image_url', 'typical_expiry_days', 'min_quantity', 'energy_kcal_per_100g', 'net_weight_g'],
   inventory_sessions: ['notes', 'completed_at', 'missing_count', 'found_count'],
   checklists: ['name', 'goal_days'],
   checklist_entries: ['label', 'group_name', 'category', 'keywords', 'quantified', 'rationale', 'sort_order'],

@@ -482,9 +482,9 @@ export function moveItemQuantityLocal(
 
       const newId = genId();
       db.runSync(
-        `INSERT INTO items (id, box_id, name, quantity, unit, expiry_date, barcode, image_url, category, notes, opened, damaged, pack_count, last_verified, added_by, created_at, updated_at, _synced, _local_updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
-        [newId, targetBoxId, src.name, moveQty, src.unit, src.expiry_date, src.barcode, src.image_url, src.category, src.notes, src.opened, src.damaged, src.pack_count, src.last_verified, addedBy, now, now, now],
+        `INSERT INTO items (id, box_id, name, quantity, unit, expiry_date, barcode, image_url, category, notes, opened, damaged, pack_count, last_verified, added_by, created_at, updated_at, energy_kcal_per_100g, net_weight_g, min_quantity, _synced, _local_updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+        [newId, targetBoxId, src.name, moveQty, src.unit, src.expiry_date, src.barcode, src.image_url, src.category, src.notes, src.opened, src.damaged, src.pack_count, src.last_verified, addedBy, now, now, src.energy_kcal_per_100g ?? null, src.net_weight_g ?? null, src.min_quantity ?? null, now],
       );
       enqueueChange('items', newId, 'INSERT');
     }
@@ -531,9 +531,9 @@ export function openOneItemLocal(itemId: string, addedBy: string): Item {
   } else {
     resultId = genId();
     db.runSync(
-      `INSERT INTO items (id, box_id, name, quantity, unit, expiry_date, barcode, image_url, category, notes, opened, damaged, pack_count, last_verified, added_by, created_at, updated_at, _synced, _local_updated_at)
-       VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 0, ?)`,
-      [resultId, src.box_id, src.name, src.unit, src.expiry_date, src.barcode, src.image_url, src.category, src.notes, src.damaged, src.pack_count, src.last_verified, addedBy, now, now, now],
+      `INSERT INTO items (id, box_id, name, quantity, unit, expiry_date, barcode, image_url, category, notes, opened, damaged, pack_count, last_verified, added_by, created_at, updated_at, energy_kcal_per_100g, net_weight_g, min_quantity, _synced, _local_updated_at)
+       VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+      [resultId, src.box_id, src.name, src.unit, src.expiry_date, src.barcode, src.image_url, src.category, src.notes, src.damaged, src.pack_count, src.last_verified, addedBy, now, now, src.energy_kcal_per_100g ?? null, src.net_weight_g ?? null, src.min_quantity ?? null, now],
     );
     enqueueChange('items', resultId, 'INSERT');
   }
@@ -578,9 +578,9 @@ export function markItemConditionLocal(
 
   const newId = genId();
   db.runSync(
-    `INSERT INTO items (id, box_id, name, quantity, unit, expiry_date, barcode, image_url, category, notes, opened, damaged, pack_count, last_verified, added_by, created_at, updated_at, _synced, _local_updated_at)
-     VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
-    [newId, src.box_id, src.name, src.unit, src.expiry_date, src.barcode, src.image_url, src.category, conditions.notes, conditions.opened ? 1 : 0, conditions.damaged ? 1 : 0, src.pack_count, src.last_verified, addedBy, now, now, now],
+    `INSERT INTO items (id, box_id, name, quantity, unit, expiry_date, barcode, image_url, category, notes, opened, damaged, pack_count, last_verified, added_by, created_at, updated_at, energy_kcal_per_100g, net_weight_g, min_quantity, _synced, _local_updated_at)
+     VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+    [newId, src.box_id, src.name, src.unit, src.expiry_date, src.barcode, src.image_url, src.category, conditions.notes, conditions.opened ? 1 : 0, conditions.damaged ? 1 : 0, src.pack_count, src.last_verified, addedBy, now, now, src.energy_kcal_per_100g ?? null, src.net_weight_g ?? null, src.min_quantity ?? null, now],
   );
   enqueueChange('items', newId, 'INSERT');
 
@@ -838,7 +838,7 @@ export function upsertCustomProductLocal(input: {
       before ? { before } : undefined,
     );
     return db.getFirstSync<CustomProduct>(
-      'SELECT id, warehouse_id, barcode, name, category, image_url, typical_expiry_days, created_by, created_at FROM custom_products WHERE id = ?',
+      'SELECT id, warehouse_id, barcode, name, category, image_url, typical_expiry_days, created_by, created_at, min_quantity, energy_kcal_per_100g, net_weight_g FROM custom_products WHERE id = ?',
       [existing.id],
     )!;
   }
@@ -855,7 +855,7 @@ export function upsertCustomProductLocal(input: {
     id, warehouse_id: input.warehouse_id, barcode: input.barcode, name: input.name,
     category: (input.category ?? null) as Category | null, image_url: input.image_url ?? null,
     typical_expiry_days: input.typical_expiry_days ?? null, created_by: input.created_by, created_at: now,
-    min_quantity: null,
+    min_quantity: null, energy_kcal_per_100g: null, net_weight_g: null,
   };
 }
 
@@ -881,33 +881,49 @@ export function setCustomProductMinQuantityLocal(input: {
   name: string;
   category?: Category | null;
   created_by: string;
+  // Optional cached product attributes. Only written when the key is present,
+  // so callers that only touch the par level don't wipe a cached value.
+  energy_kcal_per_100g?: number | null;
+  net_weight_g?: number | null;
 }): void {
   const db = getDb();
   const now = nowIso();
+  const hasEnergy = 'energy_kcal_per_100g' in input;
+  const hasNet = 'net_weight_g' in input;
   const existing = db.getFirstSync<{ id: string }>(
     'SELECT id FROM custom_products WHERE warehouse_id = ? AND barcode = ? AND _deleted_at IS NULL',
     [input.warehouse_id, input.barcode],
   );
   if (existing) {
-    const before = captureBefore('custom_products', existing.id, ['min_quantity']);
+    const cols = ['min_quantity'];
+    const vals: (number | null)[] = [input.min];
+    if (hasEnergy) {
+      cols.push('energy_kcal_per_100g');
+      vals.push(input.energy_kcal_per_100g ?? null);
+    }
+    if (hasNet) {
+      cols.push('net_weight_g');
+      vals.push(input.net_weight_g ?? null);
+    }
+    const before = captureBefore('custom_products', existing.id, cols);
     db.runSync(
-      'UPDATE custom_products SET min_quantity = ?, _synced = 0 WHERE id = ?',
-      [input.min, existing.id],
+      `UPDATE custom_products SET ${cols.map((c) => `${c} = ?`).join(', ')}, _synced = 0 WHERE id = ?`,
+      [...vals, existing.id],
     );
     enqueueChange(
       'custom_products',
       existing.id,
       'UPDATE',
-      ['min_quantity'],
+      cols,
       before ? { before } : undefined,
     );
     return;
   }
   const id = genId();
   db.runSync(
-    `INSERT INTO custom_products (id, warehouse_id, barcode, name, category, image_url, typical_expiry_days, created_by, created_at, min_quantity, _synced)
-     VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, 0)`,
-    [id, input.warehouse_id, input.barcode, input.name, input.category ?? null, input.created_by, now, input.min],
+    `INSERT INTO custom_products (id, warehouse_id, barcode, name, category, image_url, typical_expiry_days, created_by, created_at, min_quantity, energy_kcal_per_100g, net_weight_g, _synced)
+     VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, 0)`,
+    [id, input.warehouse_id, input.barcode, input.name, input.category ?? null, input.created_by, now, input.min, input.energy_kcal_per_100g ?? null, input.net_weight_g ?? null],
   );
   enqueueChange('custom_products', id, 'INSERT');
 }

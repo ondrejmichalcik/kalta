@@ -320,6 +320,8 @@ export function initLocalDb(): void {
   addColumnIfMissing(db, 'items', 'net_weight_g', 'REAL');
   addColumnIfMissing(db, 'items', 'min_quantity', 'REAL');
   addColumnIfMissing(db, 'custom_products', 'min_quantity', 'REAL');
+  addColumnIfMissing(db, 'custom_products', 'energy_kcal_per_100g', 'REAL');
+  addColumnIfMissing(db, 'custom_products', 'net_weight_g', 'REAL');
   addColumnIfMissing(db, 'household_members', 'kind', 'TEXT');
   addColumnIfMissing(db, 'shopping_list_items', 'reason', 'TEXT');
 }

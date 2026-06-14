@@ -494,6 +494,9 @@ export function ItemEditSheet({
           name,
           category: draft.category,
           created_by: uid,
+          // Cache nutrition / net weight so a future re-scan prefills them.
+          energy_kcal_per_100g: energy,
+          net_weight_g: netWeight,
         });
       }
       onSaved(updated);

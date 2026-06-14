@@ -158,6 +158,8 @@ export interface CustomProduct {
   created_by: string | null;
   created_at: string;
   min_quantity: number | null; // Sprint 6 — aggregate par level per barcode product
+  energy_kcal_per_100g: number | null; // cached nutrition so re-scans prefill it
+  net_weight_g: number | null; // cached per-unit content so re-scans prefill it
 }
 
 // ----------------------------------------------------------------------------

@@ -375,9 +375,15 @@ alter table public.items
   add column if not exists net_weight_g numeric;
 alter table public.items
   add column if not exists min_quantity numeric;
--- custom_products: aggregate par level per barcode produkt.
+-- custom_products: aggregate par level per barcode produkt + cached nutrition
+-- (energy_kcal_per_100g) a per-unit obsah (net_weight_g), aby re-sken stejného
+-- barcodu předvyplnil i tyhle hodnoty.
 alter table public.custom_products
   add column if not exists min_quantity numeric;
+alter table public.custom_products
+  add column if not exists energy_kcal_per_100g numeric;
+alter table public.custom_products
+  add column if not exists net_weight_g numeric;
 -- household_members: member "kind" (drives auto-suggested kit add-ons).
 alter table public.household_members
   add column if not exists kind text;
