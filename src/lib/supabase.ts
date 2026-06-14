@@ -32,6 +32,7 @@ import type {
 
 import { hasInitialSync } from './sync';
 import { wasRecentLocalWrite } from './realtimeEcho';
+import { onDataChanged, scheduleRemotePull } from './syncBus';
 import {
   addItemLocal,
   addOrMergeItemLocal,
@@ -429,6 +430,16 @@ function isOwnEcho(
   return wasRecentLocalWrite(table, String(id));
 }
 
+// A remote realtime event tells us "something changed on the server" — but the
+// change isn't in local SQLite yet. Pull it in (debounced); the resulting
+// runSyncCycle fires onDataChanged, which reloads any mounted screen. Reading
+// local SQLite directly from the realtime callback would show stale data.
+function triggerRemotePull(): void {
+  getActiveUserId().then((uid) => {
+    if (uid) scheduleRemotePull(uid);
+  });
+}
+
 /**
  * Realtime subscription on `warehouse_members` filtered by the current user.
  * Fires when the user is added to a new warehouse (accepted invitation),
@@ -453,12 +464,14 @@ export function subscribeMyWarehouses(userId: string, onChange: () => void): () 
         const wid =
           (payload.new as any)?.warehouse_id ?? (payload.old as any)?.warehouse_id ?? null;
         if (wid && wasRecentLocalWrite('warehouse_members', wid)) return;
-        onChange();
+        triggerRemotePull();
       },
     )
     .subscribe();
+  const offData = onDataChanged(onChange);
   return () => {
     supabase.removeChannel(channel);
+    offData();
   };
 }
 
@@ -573,12 +586,14 @@ export function subscribeBoxes(warehouseId: string, onChange: () => void): () =>
       },
       (payload) => {
         if (isOwnEcho('boxes', payload)) return;
-        onChange();
+        triggerRemotePull();
       },
     )
     .subscribe();
+  const offData = onDataChanged(onChange);
   return () => {
     supabase.removeChannel(channel);
+    offData();
   };
 }
 
@@ -602,13 +617,15 @@ export function subscribeChecklists(warehouseId: string, onChange: () => void): 
       { event: '*', schema: 'public', table, filter: `warehouse_id=eq.${warehouseId}` },
       (payload) => {
         if (isOwnEcho(table, payload)) return;
-        onChange();
+        triggerRemotePull();
       },
     );
   }
   channel.subscribe();
+  const offData = onDataChanged(onChange);
   return () => {
     supabase.removeChannel(channel);
+    offData();
   };
 }
 
@@ -622,12 +639,14 @@ export function subscribeHousehold(warehouseId: string, onChange: () => void): (
       { event: '*', schema: 'public', table: 'household_members', filter: `warehouse_id=eq.${warehouseId}` },
       (payload) => {
         if (isOwnEcho('household_members', payload)) return;
-        onChange();
+        triggerRemotePull();
       },
     )
     .subscribe();
+  const offData = onDataChanged(onChange);
   return () => {
     supabase.removeChannel(channel);
+    offData();
   };
 }
 
@@ -641,12 +660,14 @@ export function subscribeShopping(warehouseId: string, onChange: () => void): ()
       { event: '*', schema: 'public', table: 'shopping_list_items', filter: `warehouse_id=eq.${warehouseId}` },
       (payload) => {
         if (isOwnEcho('shopping_list_items', payload)) return;
-        onChange();
+        triggerRemotePull();
       },
     )
     .subscribe();
+  const offData = onDataChanged(onChange);
   return () => {
     supabase.removeChannel(channel);
+    offData();
   };
 }
 
@@ -1082,12 +1103,14 @@ export function subscribeItems(boxId: string, onChange: () => void): () => void 
       },
       (payload) => {
         if (isOwnEcho('items', payload)) return;
-        onChange();
+        triggerRemotePull();
       },
     )
     .subscribe();
+  const offData = onDataChanged(onChange);
   return () => {
     supabase.removeChannel(channel);
+    offData();
   };
 }
 

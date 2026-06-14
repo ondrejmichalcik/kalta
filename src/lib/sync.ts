@@ -12,6 +12,7 @@ import { supabase } from './supabase';
 import { prefetchImages } from './imageCache';
 import { markRecentLocalWrite } from './realtimeEcho';
 import { promoteCoupledConflicts } from './syncFieldGroups';
+import { emitDataChanged } from './syncBus';
 // Lazy-required inside pushSync to break a circular import:
 //   supabase.ts → sync.ts → subscription.ts → supabase.ts
 // A static `import` here would resolve `subscription` mid-cycle and
@@ -1926,6 +1927,13 @@ export async function runSyncCycle(userId: string): Promise<{
         'SELECT image_url FROM items WHERE image_url IS NOT NULL AND _deleted_at IS NULL',
       );
       prefetchImages(rows.map((r) => r.image_url)).catch(() => {});
+    }
+
+    // Notify mounted screens to re-read local SQLite when a pull brought in
+    // new/changed rows (or created conflicts). This is what makes a partner's
+    // changes appear live instead of only after an app restart.
+    if (pullResult.pulled > 0 || pullResult.conflicts > 0) {
+      emitDataChanged();
     }
 
     return {

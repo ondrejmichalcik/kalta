@@ -21,6 +21,7 @@ import { useFocusEffect, useGlobalSearchParams, useRouter } from 'expo-router';
 import { Swipeable } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import { listAllItemsInWarehouse, listCustomProducts, openOneItem } from '@/src/lib/supabase';
+import { onDataChanged } from '@/src/lib/syncBus';
 import { toast, showAlert } from '@/src/lib/feedback';
 import { computeLowStock, type StockStatus } from '@/src/lib/lowStock';
 import type { ItemWithBox } from '@/src/types/database';
@@ -96,6 +97,10 @@ export default function ItemsScreen() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [load]);
+
+  // This timeline has no realtime channel of its own; reload it whenever a
+  // remote pull lands new data (partner's edits, backstop sync).
+  useEffect(() => onDataChanged(() => load().catch(() => {})), [load]);
 
   useFocusEffect(
     useCallback(() => {
