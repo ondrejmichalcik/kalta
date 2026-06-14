@@ -77,7 +77,11 @@ export default function NewBoxScreen() {
         <View style={styles.topBar}>
           <Pressable
             hitSlop={12}
-            onPress={() => router.replace(`/warehouse/${warehouseId}` as any)}
+            onPress={() =>
+              router.canGoBack()
+                ? router.back()
+                : router.replace(`/warehouse/${warehouseId}` as any)
+            }
             style={({ pressed }) => [styles.topBarBtn, pressed && { opacity: 0.5 }]}
           >
             <Icon sf="chevron.left" size={22} color={colors.text} />
@@ -151,7 +155,11 @@ export default function NewBoxScreen() {
           {/* Tertiary: Back */}
           <Pressable
             style={({ pressed }) => [styles.btnTertiary, pressed && { opacity: 0.5 }]}
-            onPress={() => router.replace(`/warehouse/${warehouseId}` as any)}
+            onPress={() =>
+              router.canGoBack()
+                ? router.back()
+                : router.replace(`/warehouse/${warehouseId}` as any)
+            }
           >
             <Text style={styles.btnTertiaryText}>Back to boxes</Text>
           </Pressable>

@@ -239,7 +239,11 @@ export default function BoxDetailScreen() {
           onPress: async () => {
             try {
               await deleteBox(box.id);
-              router.replace(`/warehouse/${warehouseId}` as any);
+              // Pop back to the warehouse already on the stack rather than
+              // replace() — replacing would leave a duplicate warehouse below,
+              // so its Back button would return to the warehouse, not home.
+              if (router.canGoBack()) router.back();
+              else router.replace(`/warehouse/${warehouseId}` as any);
             } catch (e: any) {
               toast.error(e?.message ?? 'Cannot delete.');
             }
@@ -501,7 +505,11 @@ export default function BoxDetailScreen() {
           </Pressable>
           <Pressable
             style={styles.secondaryBtn}
-            onPress={() => router.replace(`/warehouse/${warehouseId}` as any)}
+            onPress={() =>
+              router.canGoBack()
+                ? router.back()
+                : router.replace(`/warehouse/${warehouseId}` as any)
+            }
           >
             <Text style={styles.secondaryBtnText}>Back to boxes</Text>
           </Pressable>
@@ -517,7 +525,11 @@ export default function BoxDetailScreen() {
           <Text style={styles.errorTitle}>Box not found</Text>
           <Pressable
             style={styles.retryBtn}
-            onPress={() => router.replace(`/warehouse/${warehouseId}` as any)}
+            onPress={() =>
+              router.canGoBack()
+                ? router.back()
+                : router.replace(`/warehouse/${warehouseId}` as any)
+            }
           >
             <Text style={styles.retryText}>Back to boxes</Text>
           </Pressable>
